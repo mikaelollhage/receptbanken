@@ -102,6 +102,31 @@ window.receptbanken = {
         } catch (err) {
             console.debug('focusElement misslyckades:', err);
         }
+    },
+
+    readClipboardContent: async function () {
+        try {
+            if (navigator.clipboard && typeof navigator.clipboard.read === 'function') {
+                const items = await navigator.clipboard.read();
+                for (const item of items) {
+                    if (item.types.includes('text/html')) {
+                        const blob = await item.getType('text/html');
+                        return await blob.text();
+                    }
+                }
+                for (const item of items) {
+                    if (item.types.includes('text/plain')) {
+                        const blob = await item.getType('text/plain');
+                        return await blob.text();
+                    }
+                }
+            } else if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
+                return await navigator.clipboard.readText();
+            }
+        } catch (err) {
+            console.debug('readClipboardContent misslyckades:', err);
+        }
+        return null;
     }
 };
 

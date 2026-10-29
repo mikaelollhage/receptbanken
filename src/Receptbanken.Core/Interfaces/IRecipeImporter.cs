@@ -28,6 +28,9 @@ public static class RecipeImportLimits
 {
     /// <summary>Maximum accepted length (characters) of manually pasted JSON-LD.</summary>
     public const int MaxJsonLdLength = 256 * 1024;
+
+    /// <summary>Maximum accepted length (characters) of manually pasted recipe text or HTML.</summary>
+    public const int MaxRecipeTextLength = 512 * 1024;
 }
 
 public static class RecipeImportFailureReasonExtensions
@@ -78,6 +81,14 @@ public interface IRecipeImporter
     /// <param name="jsonLd">Untrusted JSON-LD text pasted by the user.</param>
     /// <param name="fallbackSourceUrl">Previously entered URL, used as source if JSON-LD lacks a valid "url".</param>
     RecipeImportResult ParseFromJsonLd(string? jsonLd, string? fallbackSourceUrl = null);
+
+    /// <summary>
+    /// Parses manually pasted recipe text or HTML fragment (without making any HTTP requests),
+    /// using the HTML extractor if HTML markup is present, followed by the rule-based recipe text parser.
+    /// </summary>
+    /// <param name="textOrHtml">Untrusted recipe text or HTML fragment pasted by the user.</param>
+    /// <param name="fallbackSourceUrl">Previously entered URL or optional source URL.</param>
+    RecipeImportResult ParseFromText(string? textOrHtml, string? fallbackSourceUrl = null);
 
     /// <summary>
     /// Downloads and persists a remote recipe image into local storage safely (with SSRF protection,

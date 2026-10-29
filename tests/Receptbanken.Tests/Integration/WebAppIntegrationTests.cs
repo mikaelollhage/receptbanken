@@ -199,6 +199,12 @@ public class WebAppIntegrationTests : IDisposable
             var homeHtml = await homeResponse.Content.ReadAsStringAsync();
             homeHtml.Should().Contain("_framework/blazor.web.js");
             homeHtml.Should().Contain("Receptbanken");
+
+            // 4. Verify GET /importera renders the import page
+            using var importResponse = await client.GetAsync("/importera");
+            importResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+            var importHtml = await importResponse.Content.ReadAsStringAsync();
+            importHtml.Should().Contain("Importera recept");
         }
         finally
         {

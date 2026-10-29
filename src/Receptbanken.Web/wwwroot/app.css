@@ -1420,13 +1420,15 @@ fluent-number-field::part(control) {
   margin-bottom: 12px;
 }
 
-.jsonld-import {
+.jsonld-import,
+.recipe-text-import {
   margin-top: 20px;
   border-top: 1px solid var(--rb-border-subtle);
   padding-top: 14px;
 }
 
-.jsonld-toggle {
+.jsonld-toggle,
+.recipe-text-toggle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -1441,22 +1443,26 @@ fluent-number-field::part(control) {
   border-radius: var(--rb-radius-sm);
 }
 
-.jsonld-toggle:hover {
+.jsonld-toggle:hover,
+.recipe-text-toggle:hover {
   color: var(--rb-accent);
 }
 
-.jsonld-toggle:focus-visible {
+.jsonld-toggle:focus-visible,
+.recipe-text-toggle:focus-visible {
   outline: 2px solid var(--rb-accent);
   outline-offset: 2px;
 }
 
-.jsonld-toggle-icon {
+.jsonld-toggle-icon,
+.recipe-text-toggle-icon {
   width: 14px;
   display: inline-block;
   color: var(--rb-accent);
 }
 
-.jsonld-panel {
+.jsonld-panel,
+.recipe-text-panel {
   margin-top: 12px;
   display: flex;
   flex-direction: column;
@@ -1467,18 +1473,21 @@ fluent-number-field::part(control) {
   border: 1px solid var(--rb-border-subtle);
 }
 
-.jsonld-intro {
+.jsonld-intro,
+.recipe-text-intro {
   font-size: 14px;
   color: var(--rb-text-secondary);
   line-height: 1.5;
 }
 
-.jsonld-actions {
+.jsonld-actions,
+.recipe-text-actions {
   display: flex;
   justify-content: flex-end;
 }
 
-.jsonld-error {
+.jsonld-error,
+.recipe-text-error {
   padding: 12px 14px;
   border-radius: var(--rb-radius-sm);
   background-color: rgba(239, 68, 68, 0.12);

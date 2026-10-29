@@ -1,0 +1,12 @@
+# Use LF for all text files
+* text=auto eol=lf
+
+# Windows scripts require CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.dll binary
+*.exe binary

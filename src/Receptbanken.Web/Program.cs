@@ -83,6 +83,8 @@ builder.Services.AddScoped<AppNotificationService>();
 builder.Services.AddSingleton<SwedishIngredientParser>();
 builder.Services.AddSingleton<JsonLdRecipeExtractor>();
 builder.Services.AddSingleton<HtmlFallbackExtractor>();
+builder.Services.AddSingleton<HtmlRecipeTextExtractor>();
+builder.Services.AddSingleton<RecipeTextParser>();
 builder.Services.AddHttpClient<IRecipeImporter, WebRecipeImporter>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(10);

@@ -1,8 +1,10 @@
 using System.Net;
 using AngleSharp.Html.Parser;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Receptbanken.Core.Interfaces;
 using Receptbanken.Core.Models;
+using Receptbanken.Core.Services;
 
 namespace Receptbanken.Infrastructure.Importers;
 
@@ -18,6 +20,8 @@ public class WebRecipeImporter : IRecipeImporter
     private readonly HttpClient _httpClient;
     private readonly JsonLdRecipeExtractor _jsonLdExtractor;
     private readonly HtmlFallbackExtractor _fallbackExtractor;
+    private readonly HtmlRecipeTextExtractor _htmlTextExtractor;
+    private readonly RecipeTextParser _textParser;
     private readonly IImageStorageService _imageStorage;
     private readonly ILogger<WebRecipeImporter> _logger;
 
@@ -27,10 +31,32 @@ public class WebRecipeImporter : IRecipeImporter
         HtmlFallbackExtractor fallbackExtractor,
         IImageStorageService imageStorage,
         ILogger<WebRecipeImporter> logger)
+        : this(
+            httpClient,
+            jsonLdExtractor,
+            fallbackExtractor,
+            new HtmlRecipeTextExtractor(),
+            new RecipeTextParser(new SwedishIngredientParser()),
+            imageStorage,
+            logger)
+    {
+    }
+
+    [ActivatorUtilitiesConstructor]
+    public WebRecipeImporter(
+        HttpClient httpClient,
+        JsonLdRecipeExtractor jsonLdExtractor,
+        HtmlFallbackExtractor fallbackExtractor,
+        HtmlRecipeTextExtractor htmlTextExtractor,
+        RecipeTextParser textParser,
+        IImageStorageService imageStorage,
+        ILogger<WebRecipeImporter> logger)
     {
         _httpClient = httpClient;
         _jsonLdExtractor = jsonLdExtractor;
         _fallbackExtractor = fallbackExtractor;
+        _htmlTextExtractor = htmlTextExtractor;
+        _textParser = textParser;
         _imageStorage = imageStorage;
         _logger = logger;
     }
@@ -226,6 +252,75 @@ public class WebRecipeImporter : IRecipeImporter
         var result = BuildSuccessResult(recipe, extraction.RemoteImageUrl, sourceUrl);
         result.HasImageProperty = extraction.HasImageProperty;
         return result;
+    }
+
+    /// <summary>
+    /// Parses manually pasted recipe text or HTML fragment (without making any HTTP requests),
+    /// using the HTML extractor if HTML markup is present, followed by the rule-based recipe text parser.
+    /// </summary>
+    /// <param name="textOrHtml">Untrusted recipe text or HTML fragment pasted by the user.</param>
+    /// <param name="fallbackSourceUrl">Previously entered URL or optional source URL.</param>
+    public RecipeImportResult ParseFromText(string? textOrHtml, string? fallbackSourceUrl = null)
+    {
+        if (string.IsNullOrWhiteSpace(textOrHtml))
+        {
+            return RecipeImportResult.Failure(
+                RecipeImportFailureReason.EmptyInput,
+                "Klistra in recepttext eller HTML innan du tolkar.");
+        }
+
+        if (textOrHtml.Length > RecipeImportLimits.MaxRecipeTextLength)
+        {
+            _logger.LogWarning(
+                "Manuellt inklistrad recepttext avvisades: {Length} tecken överskrider maxgränsen {MaxLength}",
+                textOrHtml.Length,
+                RecipeImportLimits.MaxRecipeTextLength);
+
+            return RecipeImportResult.Failure(
+                RecipeImportFailureReason.InputTooLarge,
+                $"Den inklistrade texten är för stor (max {RecipeImportLimits.MaxRecipeTextLength / 1024} kB). Kopiera endast receptets text eller HTML.");
+        }
+
+        string structuredText = textOrHtml;
+        string? extractedImageUrl = null;
+        string? extractedSourceUrl = null;
+
+        if (HtmlRecipeTextExtractor.IsHtml(textOrHtml))
+        {
+            var extraction = _htmlTextExtractor.Extract(textOrHtml);
+            if (!extraction.Success || string.IsNullOrWhiteSpace(extraction.ExtractedText))
+            {
+                return RecipeImportResult.Failure(
+                    RecipeImportFailureReason.NoRecipeData,
+                    "Inget läsbart receptinnehåll kunde extraheras från HTML-koden.");
+            }
+
+            structuredText = extraction.ExtractedText;
+            extractedImageUrl = extraction.RemoteImageUrl;
+            extractedSourceUrl = extraction.SourceUrl;
+        }
+
+        var resolvedSourceUrl = ResolveSourceUrl(extractedSourceUrl, fallbackSourceUrl);
+        var parseResult = _textParser.Parse(structuredText, resolvedSourceUrl, extractedImageUrl);
+
+        if (parseResult.Success && parseResult.DraftRecipe != null)
+        {
+            _logger.LogInformation(
+                "Extraherade recept '{RecipeTitle}' från manuellt inklistrad text ({IngredientCount} ingredienser, {StepCount} steg, källa: {SourceUrl})",
+                parseResult.DraftRecipe.Title,
+                parseResult.DraftRecipe.Ingredients.Count,
+                parseResult.DraftRecipe.Instructions.Count,
+                resolvedSourceUrl ?? "<ingen>");
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Kunde inte extrahera recept från manuellt inklistrad text ({Length} tecken, orsak: {Reason})",
+                textOrHtml.Length,
+                parseResult.FailureReason);
+        }
+
+        return parseResult;
     }
 
     /// <summary>
