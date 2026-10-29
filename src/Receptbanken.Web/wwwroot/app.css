@@ -946,7 +946,7 @@ fluent-number-field::part(control) {
 /* Ingredient Editor Row */
 .ingredient-editor-row {
   display: grid;
-  grid-template-columns: 90px 90px minmax(140px, 1fr) 130px 130px 120px 38px;
+  grid-template-columns: 90px 90px minmax(130px, 1.1fr) minmax(110px, 0.9fr) 130px 120px 38px;
   gap: 10px;
   align-items: center;
   background-color: var(--rb-bg-surface);
