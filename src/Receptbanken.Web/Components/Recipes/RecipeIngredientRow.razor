@@ -1,0 +1,34 @@
+@namespace Receptbanken.Web.Components.Recipes
+
+@if (Ingredient != null)
+{
+    <div class="ingredient-editor-row">
+        <FluentNumberField @bind-Value="Ingredient.Quantity" Placeholder="Mängd" Title="Mängd" Min="0" Step="0.25" Style="width: 100%;" />
+        <FluentTextField @bind-Value="Ingredient.Unit" Placeholder="Enhet" Title="Enhet" Style="width: 100%;" />
+        <FluentTextField @bind-Value="Ingredient.Name" Placeholder="Råvara *" Title="Råvara" Style="width: 100%;" />
+        <FluentTextField @bind-Value="Ingredient.Comment" Placeholder="Kommentar (t.ex. à 200 g)" Title="Kommentar" Style="width: 100%;" />
+        <FluentTextField @bind-Value="Ingredient.Preparation" Placeholder="Beredning (t.ex. hackad)" Title="Beredning" Style="width: 100%;" />
+        <FluentTextField @bind-Value="Ingredient.GroupHeader" Placeholder="Grupp (valfritt)" Title="Grupp" Style="width: 100%;" />
+        <button type="button" class="btn-danger-custom ingredient-remove-btn"
+                @onclick="HandleRemove" title="Ta bort rad">
+            ✕
+        </button>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public Ingredient? Ingredient { get; set; }
+
+    [Parameter]
+    public EventCallback OnRemove { get; set; }
+
+    private async Task HandleRemove()
+    {
+        if (OnRemove.HasDelegate)
+        {
+            await OnRemove.InvokeAsync();
+        }
+    }
+}
+

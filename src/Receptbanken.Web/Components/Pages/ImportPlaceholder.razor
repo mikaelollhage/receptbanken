@@ -239,45 +239,7 @@
     <div style="display: flex; flex-direction: column; gap: 24px;">
         <div class="form-section">
             <h3 class="form-section-title">Grunduppgifter</h3>
-            <div style="display: flex; flex-direction: column; gap: 16px;">
-                <FluentTextField @bind-Value="draft.Title" Label="Titel *" Style="width: 100%;" />
-                <FluentTextArea @bind-Value="draft.Description" Label="Beskrivning" Style="width: 100%;" Rows="3" />
-
-                <div class="recipe-meta-fields">
-                    <div class="recipe-meta-row">
-                        <label class="recipe-meta-label" for="import-prep-time">Förberedelsetid</label>
-                        <div class="recipe-meta-control">
-                            <FluentNumberField Id="import-prep-time" @bind-Value="draft.PrepTimeMinutes"
-                                               Min="0" Max="1440" Class="recipe-meta-field" Style="width: 160px;" />
-                            <span class="recipe-meta-suffix">min</span>
-                        </div>
-                    </div>
-                    <div class="recipe-meta-row">
-                        <label class="recipe-meta-label" for="import-cook-time">Tillagningstid</label>
-                        <div class="recipe-meta-control">
-                            <FluentNumberField Id="import-cook-time" @bind-Value="draft.CookTimeMinutes"
-                                               Min="0" Max="1440" Class="recipe-meta-field" Style="width: 160px;" />
-                            <span class="recipe-meta-suffix">min</span>
-                        </div>
-                    </div>
-                    <div class="recipe-meta-row">
-                        <label class="recipe-meta-label" for="import-servings">Portioner</label>
-                        <div class="recipe-meta-control">
-                            <FluentNumberField Id="import-servings" @bind-Value="draft.Servings"
-                                               Min="1" Max="100" Class="recipe-meta-field" Style="width: 160px;" />
-                        </div>
-                    </div>
-                    <div class="recipe-meta-row">
-                        <label class="recipe-meta-label" for="import-servings-unit">Portionsenhet</label>
-                        <div class="recipe-meta-control">
-                            <FluentTextField Id="import-servings-unit" @bind-Value="draft.ServingsUnit"
-                                             Placeholder="portioner" Class="recipe-meta-field" Style="width: 160px;" />
-                        </div>
-                    </div>
-                </div>
-
-                <FluentTextField @bind-Value="draft.SourceUrl" Label="Ursprunglig källänk" Style="width: 100%;" />
-            </div>
+            <RecipeBasicInfoFields Recipe="draft" IdPrefix="import" />
         </div>
 
         <!-- Receptbild -->
@@ -351,31 +313,11 @@
             </div>
         </div>
 
-        <div class="form-section">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                <h3 class="form-section-title" style="margin-bottom: 0;">Tolkade ingredienser (@draft.Ingredients.Count)</h3>
-                <button type="button" class="btn-secondary-custom" @onclick="AddIngredientRow">
-                    + Lägg till rad
-                </button>
-            </div>
-
-            <div style="display: flex; flex-direction: column; gap: 10px;">
-                @for (int i = 0; i < draft.Ingredients.Count; i++)
-                {
-                    var ing = draft.Ingredients[i];
-                    var index = i;
-                    <div class="ingredient-editor-row">
-                        <FluentNumberField @bind-Value="ing.Quantity" Placeholder="Mängd" Min="0" Step="0.25" Style="width: 100%;" />
-                        <FluentTextField @bind-Value="ing.Unit" Placeholder="Enhet" Style="width: 100%;" />
-                        <FluentTextField @bind-Value="ing.Name" Placeholder="Råvara *" Style="width: 100%;" />
-                        <FluentTextField @bind-Value="ing.Comment" Placeholder="Kommentar" Style="width: 100%;" />
-                        <FluentTextField @bind-Value="ing.Preparation" Placeholder="Beredning" Style="width: 100%;" />
-                        <FluentTextField @bind-Value="ing.GroupHeader" Placeholder="Grupp" Style="width: 100%;" />
-                        <button type="button" class="btn-danger-custom ingredient-remove-btn" @onclick="@(() => draft.Ingredients.RemoveAt(index))" title="Ta bort rad">✕</button>
-                    </div>
-                }
-            </div>
-        </div>
+        <RecipeIngredientEditor Ingredients="draft.Ingredients"
+                                TitleFormatter="@(count => $"Tolkade ingredienser ({count})")"
+                                HeadingLevel="3"
+                                AddButtonText="+ Lägg till rad"
+                                ShowAddIcon="false" />
 
         <div class="form-section">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">

@@ -34,52 +34,7 @@ else
         <!-- Grunduppgifter -->
         <div class="form-section">
             <h2 class="form-section-title">Grunduppgifter</h2>
-
-            <div style="display: flex; flex-direction: column; gap: 16px;">
-                <FluentTextField @bind-Value="model.Title" Label="Titel på receptet *" Required="true"
-                                  Placeholder="t.ex. Hemgjord Lasagne al Forno" Style="width: 100%;" />
-
-                <FluentTextArea @bind-Value="model.Description" Label="Kort beskrivning"
-                                 Placeholder="Beskriv rätten med några meningar..." Style="width: 100%;" Rows="3" />
-
-                <div class="recipe-meta-fields">
-                    <div class="recipe-meta-row">
-                        <label class="recipe-meta-label" for="edit-prep-time">Förberedelsetid</label>
-                        <div class="recipe-meta-control">
-                            <FluentNumberField Id="edit-prep-time" @bind-Value="model.PrepTimeMinutes"
-                                               Min="0" Max="1440" Class="recipe-meta-field" Style="width: 160px;" />
-                            <span class="recipe-meta-suffix">min</span>
-                        </div>
-                    </div>
-                    <div class="recipe-meta-row">
-                        <label class="recipe-meta-label" for="edit-cook-time">Tillagningstid</label>
-                        <div class="recipe-meta-control">
-                            <FluentNumberField Id="edit-cook-time" @bind-Value="model.CookTimeMinutes"
-                                               Min="0" Max="1440" Class="recipe-meta-field" Style="width: 160px;" />
-                            <span class="recipe-meta-suffix">min</span>
-                        </div>
-                    </div>
-                    <div class="recipe-meta-row">
-                        <label class="recipe-meta-label" for="edit-servings">Portioner *</label>
-                        <div class="recipe-meta-control">
-                            <FluentNumberField Id="edit-servings" @bind-Value="model.Servings"
-                                               Min="1" Max="100" Class="recipe-meta-field" Style="width: 160px;" />
-                        </div>
-                    </div>
-                    <div class="recipe-meta-row">
-                        <label class="recipe-meta-label" for="edit-servings-unit">Portionsenhet</label>
-                        <div class="recipe-meta-control">
-                            <FluentTextField Id="edit-servings-unit" @bind-Value="model.ServingsUnit"
-                                             Placeholder="portioner" Class="recipe-meta-field" Style="width: 160px;" />
-                        </div>
-                    </div>
-                </div>
-
-                <div class="form-row">
-                    <FluentTextField @bind-Value="model.SourceUrl" Label="Källänk / Ursprungs-URL"
-                                      Placeholder="https://..." Style="width: 100%;" />
-                </div>
-            </div>
+            <RecipeBasicInfoFields Recipe="model" IdPrefix="edit" />
         </div>
 
         <!-- Bildhantering -->
@@ -155,39 +110,12 @@ else
         </div>
 
         <!-- Ingredienser -->
-        <div class="form-section">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                <h2 class="form-section-title" style="margin-bottom: 0;">Ingredienser</h2>
-                <button type="button" class="btn-secondary-custom" @onclick="AddIngredientRow">
-                    <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="Color.Neutral" /> Lägg till ingrediens
-                </button>
-            </div>
-
-            <p style="font-size: 13px; color: var(--rb-text-secondary); margin-bottom: 16px;">
-                Ange mängd, enhet och råvara. Om råvaran tillhör en specifik del av rätten kan du ange en grupprubrik (t.ex. "Pajdeg" eller "Sås").
-            </p>
-
-            <div style="display: flex; flex-direction: column; gap: 10px;">
-                @for (int i = 0; i < model.Ingredients.Count; i++)
-                {
-                    var ing = model.Ingredients[i];
-                    var index = i;
-
-                    <div class="ingredient-editor-row">
-                        <FluentNumberField @bind-Value="ing.Quantity" Placeholder="Mängd" Min="0" Step="0.25" Style="width: 100%;" />
-                        <FluentTextField @bind-Value="ing.Unit" Placeholder="Enhet (dl, g)" Style="width: 100%;" />
-                        <FluentTextField @bind-Value="ing.Name" Placeholder="Råvara (t.ex. mjölk) *" Style="width: 100%;" />
-                        <FluentTextField @bind-Value="ing.Comment" Placeholder="Kommentar (t.ex. à 200 g)" Style="width: 100%;" />
-                        <FluentTextField @bind-Value="ing.Preparation" Placeholder="Beredning (t.ex. hackad)" Style="width: 100%;" />
-                        <FluentTextField @bind-Value="ing.GroupHeader" Placeholder="Grupp (valfritt)" Style="width: 100%;" />
-                        <button type="button" class="btn-danger-custom ingredient-remove-btn"
-                                @onclick="@(() => RemoveIngredientRow(index))" title="Ta bort rad">
-                            ✕
-                        </button>
-                    </div>
-                }
-            </div>
-        </div>
+        <RecipeIngredientEditor Ingredients="model.Ingredients"
+                                Title="Ingredienser"
+                                HeadingLevel="2"
+                                HelpText="Ange mängd, enhet och råvara. Om råvaran tillhör en specifik del av rätten kan du ange en grupprubrik (t.ex. &quot;Pajdeg&quot; eller &quot;Sås&quot;)."
+                                AddButtonText="Lägg till ingrediens"
+                                ShowAddIcon="true" />
 
         <!-- Instruktionssteg -->
         <div class="form-section">

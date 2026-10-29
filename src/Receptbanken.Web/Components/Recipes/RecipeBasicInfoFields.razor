@@ -1,0 +1,89 @@
+@namespace Receptbanken.Web.Components.Recipes
+
+@if (Recipe != null)
+{
+    <div class="recipe-basic-info-fields" style="display: flex; flex-direction: column; gap: 16px;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label class="form-label" for="@TitleId">
+                <span>Titel</span>@if (string.IsNullOrWhiteSpace(Recipe.Title))
+                {
+                    <span class="required-asterisk" style="color: var(--rb-danger); margin-left: 3px; font-weight: bold;">*</span>
+                }
+            </label>
+            <FluentTextField Id="@TitleId" @bind-Value="Recipe.Title" Immediate="true"
+                             Placeholder="t.ex. Hemgjord Lasagne al Forno" Style="width: 100%;" />
+        </div>
+
+        <FluentTextArea @bind-Value="Recipe.Description" Label="Beskrivning"
+                        Placeholder="Beskriv rätten med några meningar..." Style="width: 100%;" Rows="3" />
+
+        <div class="recipe-meta-fields">
+            <div class="recipe-meta-row">
+                <label class="recipe-meta-label" for="@PrepTimeId">Förberedelsetid</label>
+                <div class="recipe-meta-control">
+                    <FluentNumberField Id="@PrepTimeId" @bind-Value="Recipe.PrepTimeMinutes"
+                                       Min="0" Max="1440" Class="recipe-meta-field" Style="width: 160px;" />
+                    <span class="recipe-meta-suffix">min</span>
+                </div>
+            </div>
+            <div class="recipe-meta-row">
+                <label class="recipe-meta-label" for="@CookTimeId">Tillagningstid</label>
+                <div class="recipe-meta-control">
+                    <FluentNumberField Id="@CookTimeId" @bind-Value="Recipe.CookTimeMinutes"
+                                       Min="0" Max="1440" Class="recipe-meta-field" Style="width: 160px;" />
+                    <span class="recipe-meta-suffix">min</span>
+                </div>
+            </div>
+            <div class="recipe-meta-row">
+                <label class="recipe-meta-label" for="@ServingsId">
+                    <span>Portioner</span>@if (Recipe.Servings <= 0)
+                    {
+                        <span class="required-asterisk" style="color: var(--rb-danger); margin-left: 3px; font-weight: bold;">*</span>
+                    }
+                </label>
+                <div class="recipe-meta-control">
+                    <FluentNumberField Id="@ServingsId" @bind-Value="ServingsModel" Immediate="true"
+                                       Min="1" Max="100" Class="recipe-meta-field" Style="width: 160px;" />
+                </div>
+            </div>
+            <div class="recipe-meta-row">
+                <label class="recipe-meta-label" for="@ServingsUnitId">Portionsenhet</label>
+                <div class="recipe-meta-control">
+                    <FluentTextField Id="@ServingsUnitId" @bind-Value="Recipe.ServingsUnit"
+                                     Placeholder="portioner" Class="recipe-meta-field" Style="width: 160px;" />
+                </div>
+            </div>
+        </div>
+
+        <div class="form-row form-row-full" style="display: flex; flex-direction: column; width: 100%; margin-bottom: 0;">
+            <FluentTextField @bind-Value="Recipe.SourceUrl" Label="Ursprunglig källänk"
+                             Placeholder="https://..." Style="width: 100%;" />
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public Recipe? Recipe { get; set; }
+
+    [Parameter]
+    public string IdPrefix { get; set; } = "recipe";
+
+    private string TitleId => $"{IdPrefix}-title";
+    private string PrepTimeId => $"{IdPrefix}-prep-time";
+    private string CookTimeId => $"{IdPrefix}-cook-time";
+    private string ServingsId => $"{IdPrefix}-servings";
+    private string ServingsUnitId => $"{IdPrefix}-servings-unit";
+
+    private int? ServingsModel
+    {
+        get => Recipe != null && Recipe.Servings > 0 ? Recipe.Servings : null;
+        set
+        {
+            if (Recipe != null)
+            {
+                Recipe.Servings = value ?? 0;
+            }
+        }
+    }
+}

@@ -1,0 +1,92 @@
+@namespace Receptbanken.Web.Components.Recipes
+
+<div class="form-section">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        @if (HeadingLevel == 3)
+        {
+            <h3 class="form-section-title" style="margin-bottom: 0;">@HeadingText</h3>
+        }
+        else
+        {
+            <h2 class="form-section-title" style="margin-bottom: 0;">@HeadingText</h2>
+        }
+
+        <button type="button" class="btn-secondary-custom" @onclick="AddIngredient">
+            @if (ShowAddIcon)
+            {
+                <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="Color.Neutral" />
+            }
+            @AddButtonText
+        </button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(HelpText))
+    {
+        <p style="font-size: 13px; color: var(--rb-text-secondary); margin-bottom: 16px;">
+            @HelpText
+        </p>
+    }
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+        @for (int i = 0; i < Ingredients.Count; i++)
+        {
+            var ing = Ingredients[i];
+            var index = i;
+            <RecipeIngredientRow @key="ing" Ingredient="ing" OnRemove="@(() => RemoveIngredient(index))" />
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public IList<Ingredient> Ingredients { get; set; } = new List<Ingredient>();
+
+    [Parameter]
+    public string Title { get; set; } = "Ingredienser";
+
+    [Parameter]
+    public Func<int, string>? TitleFormatter { get; set; }
+
+    [Parameter]
+    public int HeadingLevel { get; set; } = 2;
+
+    [Parameter]
+    public string? HelpText { get; set; }
+
+    [Parameter]
+    public string AddButtonText { get; set; } = "Lägg till ingrediens";
+
+    [Parameter]
+    public bool ShowAddIcon { get; set; } = true;
+
+    [Parameter]
+    public EventCallback<Ingredient> OnIngredientAdded { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnIngredientRemoved { get; set; }
+
+    private string HeadingText => TitleFormatter != null ? TitleFormatter(Ingredients.Count) : Title;
+
+    private async Task AddIngredient()
+    {
+        var newIng = new Ingredient { Name = string.Empty };
+        Ingredients.Add(newIng);
+        if (OnIngredientAdded.HasDelegate)
+        {
+            await OnIngredientAdded.InvokeAsync(newIng);
+        }
+    }
+
+    private async Task RemoveIngredient(int index)
+    {
+        if (index >= 0 && index < Ingredients.Count)
+        {
+            Ingredients.RemoveAt(index);
+            if (OnIngredientRemoved.HasDelegate)
+            {
+                await OnIngredientRemoved.InvokeAsync(index);
+            }
+        }
+    }
+}
+

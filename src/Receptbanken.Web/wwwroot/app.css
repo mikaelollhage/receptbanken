@@ -731,6 +731,19 @@ a:hover {
   grid-column: 1 / -1;
 }
 
+.form-row.form-row-full,
+.form-row:has(> fluent-text-field:last-child:nth-child(2)) {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-bottom: 0;
+}
+
+.form-row.form-row-full > *,
+.form-row:has(> fluent-text-field:last-child:nth-child(2)) > * {
+  width: 100%;
+}
+
 @media (max-width: 960px) {
   .form-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -946,7 +959,7 @@ fluent-number-field::part(control) {
 /* Ingredient Editor Row */
 .ingredient-editor-row {
   display: grid;
-  grid-template-columns: 90px 90px minmax(130px, 1.1fr) minmax(110px, 0.9fr) 130px 120px 38px;
+  grid-template-columns: 90px 90px minmax(130px, 1.1fr) minmax(110px, 0.9fr) 200px 120px 38px;
   gap: 10px;
   align-items: center;
   background-color: var(--rb-bg-surface);
