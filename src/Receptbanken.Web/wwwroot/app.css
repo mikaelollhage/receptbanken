@@ -1032,6 +1032,26 @@ fluent-number-field::part(control) {
   }
 }
 
+/* Instruction Editor Row */
+.instruction-editor-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background-color: var(--rb-bg-surface);
+  padding: 12px;
+  border-radius: var(--rb-radius-md);
+  border: 1px solid var(--rb-border-subtle);
+}
+
+.instruction-editor-row .step-number {
+  margin-top: 4px;
+}
+
+.instruction-editor-row .instruction-remove-btn {
+  padding: 6px 10px;
+  margin-top: 4px;
+}
+
 /* Image Upload Area */
 .image-upload-grid {
   display: grid;

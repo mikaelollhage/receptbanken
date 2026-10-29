@@ -300,18 +300,10 @@
             </div>
         </div>
 
-        <div class="form-section">
-            <h3 class="form-section-title">Välj kategorier</h3>
-            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                @foreach (var cat in availableCategories)
-                {
-                    var isSelected = selectedCategoryIds.Contains(cat.Id);
-                    <div @onclick="@(() => ToggleCategory(cat.Id))" style="cursor: pointer;">
-                        <CategoryBadge Name="@cat.Name" ColorHex="@cat.ColorHex" IsActive="@isSelected" />
-                    </div>
-                }
-            </div>
-        </div>
+        <RecipeCategorySelector Categories="availableCategories"
+                                SelectedCategoryIds="selectedCategoryIds"
+                                Title="Välj kategorier"
+                                HeadingLevel="3" />
 
         <RecipeIngredientEditor Ingredients="draft.Ingredients"
                                 TitleFormatter="@(count => $"Tolkade ingredienser ({count})")"
@@ -319,30 +311,11 @@
                                 AddButtonText="+ Lägg till rad"
                                 ShowAddIcon="false" />
 
-        <div class="form-section">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                <h3 class="form-section-title" style="margin-bottom: 0;">Tolkade instruktionssteg (@draft.Instructions.Count)</h3>
-                <button type="button" class="btn-secondary-custom" @onclick="AddInstructionRow">
-                    + Lägg till steg
-                </button>
-            </div>
-
-            <div style="display: flex; flex-direction: column; gap: 14px;">
-                @for (int i = 0; i < draft.Instructions.Count; i++)
-                {
-                    var step = draft.Instructions[i];
-                    var index = i;
-                    <div style="display: flex; gap: 12px; align-items: flex-start; background-color: var(--rb-bg-surface); padding: 12px; border-radius: var(--rb-radius-md); border: 1px solid var(--rb-border-subtle);">
-                        <div class="step-number">@(index + 1)</div>
-                        <div style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
-                            <FluentTextField @bind-Value="step.GroupHeader" Placeholder="Sektionsrubrik (valfritt)" Style="width: 100%;" />
-                            <FluentTextArea @bind-Value="step.InstructionText" Style="width: 100%;" Rows="2" />
-                        </div>
-                        <button type="button" class="btn-danger-custom" style="padding: 6px 10px;" @onclick="@(() => draft.Instructions.RemoveAt(index))">✕</button>
-                    </div>
-                }
-            </div>
-        </div>
+        <RecipeInstructionEditor Instructions="draft.Instructions"
+                                 TitleFormatter="@(count => $"Tolkade instruktionssteg ({count})")"
+                                 HeadingLevel="3"
+                                 AddButtonText="+ Lägg till steg"
+                                 ShowAddIcon="false" />
 
         <div class="form-section">
             <h3 class="form-section-title">Egna anteckningar</h3>
@@ -687,24 +660,6 @@
         imageLoadFailed = false;
         imageFetchNotice = null;
         NotificationService.Clear();
-    }
-
-    private void ToggleCategory(int categoryId)
-    {
-        if (selectedCategoryIds.Contains(categoryId))
-            selectedCategoryIds.Remove(categoryId);
-        else
-            selectedCategoryIds.Add(categoryId);
-    }
-
-    private void AddIngredientRow()
-    {
-        draft?.Ingredients.Add(new Ingredient { Name = string.Empty });
-    }
-
-    private void AddInstructionRow()
-    {
-        draft?.Instructions.Add(new InstructionStep { InstructionText = string.Empty });
     }
 
     private async Task DiscardDraft()

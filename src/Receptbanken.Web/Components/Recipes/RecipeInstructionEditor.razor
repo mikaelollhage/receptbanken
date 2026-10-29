@@ -1,0 +1,92 @@
+@namespace Receptbanken.Web.Components.Recipes
+
+<div class="form-section">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        @if (HeadingLevel == 3)
+        {
+            <h3 class="form-section-title" style="margin-bottom: 0;">@HeadingText</h3>
+        }
+        else
+        {
+            <h2 class="form-section-title" style="margin-bottom: 0;">@HeadingText</h2>
+        }
+
+        <button type="button" class="btn-secondary-custom" @onclick="AddInstruction">
+            @if (ShowAddIcon)
+            {
+                <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="Color.Neutral" />
+            }
+            @AddButtonText
+        </button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(HelpText))
+    {
+        <p style="font-size: 13px; color: var(--rb-text-secondary); margin-bottom: 16px;">
+            @HelpText
+        </p>
+    }
+
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+        @for (int i = 0; i < Instructions.Count; i++)
+        {
+            var step = Instructions[i];
+            var index = i;
+            <RecipeInstructionRow @key="step" Step="step" StepNumber="@(index + 1)" OnRemove="@(() => RemoveInstruction(index))" />
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public IList<InstructionStep> Instructions { get; set; } = new List<InstructionStep>();
+
+    [Parameter]
+    public string Title { get; set; } = "Instruktioner";
+
+    [Parameter]
+    public Func<int, string>? TitleFormatter { get; set; }
+
+    [Parameter]
+    public int HeadingLevel { get; set; } = 2;
+
+    [Parameter]
+    public string? HelpText { get; set; }
+
+    [Parameter]
+    public string AddButtonText { get; set; } = "Lägg till steg";
+
+    [Parameter]
+    public bool ShowAddIcon { get; set; } = true;
+
+    [Parameter]
+    public EventCallback<InstructionStep> OnInstructionAdded { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnInstructionRemoved { get; set; }
+
+    private string HeadingText => TitleFormatter != null ? TitleFormatter(Instructions.Count) : Title;
+
+    private async Task AddInstruction()
+    {
+        var newStep = new InstructionStep { InstructionText = string.Empty };
+        Instructions.Add(newStep);
+        if (OnInstructionAdded.HasDelegate)
+        {
+            await OnInstructionAdded.InvokeAsync(newStep);
+        }
+    }
+
+    private async Task RemoveInstruction(int index)
+    {
+        if (index >= 0 && index < Instructions.Count)
+        {
+            Instructions.RemoveAt(index);
+            if (OnInstructionRemoved.HasDelegate)
+            {
+                await OnInstructionRemoved.InvokeAsync(index);
+            }
+        }
+    }
+}
+

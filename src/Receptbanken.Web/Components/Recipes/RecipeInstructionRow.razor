@@ -1,0 +1,36 @@
+@namespace Receptbanken.Web.Components.Recipes
+
+@if (Step != null)
+{
+    <div class="instruction-editor-row">
+        <div class="step-number">@StepNumber</div>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
+            <FluentTextField @bind-Value="Step.GroupHeader" Placeholder="Sektionsrubrik (valfritt)" Style="width: 100%;" />
+            <FluentTextArea @bind-Value="Step.InstructionText" Placeholder="Beskriv vad som ska göras i detta steg..." Style="width: 100%;" Rows="2" />
+        </div>
+        <button type="button" class="btn-danger-custom instruction-remove-btn"
+                @onclick="HandleRemove" title="Ta bort steg">
+            ✕
+        </button>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public InstructionStep? Step { get; set; }
+
+    [Parameter]
+    public int StepNumber { get; set; }
+
+    [Parameter]
+    public EventCallback OnRemove { get; set; }
+
+    private async Task HandleRemove()
+    {
+        if (OnRemove.HasDelegate)
+        {
+            await OnRemove.InvokeAsync();
+        }
+    }
+}
+

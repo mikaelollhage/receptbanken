@@ -1,0 +1,76 @@
+@namespace Receptbanken.Web.Components.Recipes
+
+<div class="form-section">
+    @if (HeadingLevel == 3)
+    {
+        <h3 class="form-section-title">@Title</h3>
+    }
+    else
+    {
+        <h2 class="form-section-title">@Title</h2>
+    }
+
+    @if (Categories == null || Categories.Count == 0)
+    {
+        <p style="color: var(--rb-text-muted); font-size: 14px;">
+            @EmptyMessage
+            @if (ShowManageLink)
+            {
+                <span> Du kan skapa kategorier under <a href="/kategorier">Kategorier</a>.</span>
+            }
+        </p>
+    }
+    else
+    {
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            @foreach (var cat in Categories)
+            {
+                var isSelected = SelectedCategoryIds.Contains(cat.Id);
+                <div @onclick="@(() => ToggleCategory(cat.Id))" style="cursor: pointer;">
+                    <CategoryBadge Name="@cat.Name" ColorHex="@cat.ColorHex" IsActive="@isSelected" />
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public IReadOnlyList<CategoryWithCountDto> Categories { get; set; } = Array.Empty<CategoryWithCountDto>();
+
+    [Parameter]
+    public ISet<int> SelectedCategoryIds { get; set; } = new HashSet<int>();
+
+    [Parameter]
+    public EventCallback<ISet<int>> SelectedCategoryIdsChanged { get; set; }
+
+    [Parameter]
+    public string Title { get; set; } = "Kategorier";
+
+    [Parameter]
+    public int HeadingLevel { get; set; } = 2;
+
+    [Parameter]
+    public string EmptyMessage { get; set; } = "Inga kategorier finns tillgängliga.";
+
+    [Parameter]
+    public bool ShowManageLink { get; set; } = true;
+
+    private async Task ToggleCategory(int categoryId)
+    {
+        if (SelectedCategoryIds.Contains(categoryId))
+        {
+            SelectedCategoryIds.Remove(categoryId);
+        }
+        else
+        {
+            SelectedCategoryIds.Add(categoryId);
+        }
+
+        if (SelectedCategoryIdsChanged.HasDelegate)
+        {
+            await SelectedCategoryIdsChanged.InvokeAsync(SelectedCategoryIds);
+        }
+    }
+}
+

@@ -87,27 +87,10 @@ else
         </div>
 
         <!-- Kategorier -->
-        <div class="form-section">
-            <h2 class="form-section-title">Kategorier</h2>
-            @if (availableCategories.Count == 0)
-            {
-                <p style="color: var(--rb-text-muted); font-size: 14px;">
-                    Inga kategorier finns tillgängliga. Du kan skapa kategorier under <a href="/kategorier">Kategorier</a>.
-                </p>
-            }
-            else
-            {
-                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                    @foreach (var cat in availableCategories)
-                    {
-                        var isSelected = selectedCategoryIds.Contains(cat.Id);
-                        <div @onclick="@(() => ToggleCategory(cat.Id))" style="cursor: pointer;">
-                            <CategoryBadge Name="@cat.Name" ColorHex="@cat.ColorHex" IsActive="@isSelected" />
-                        </div>
-                    }
-                </div>
-            }
-        </div>
+        <RecipeCategorySelector Categories="availableCategories"
+                                SelectedCategoryIds="selectedCategoryIds"
+                                Title="Kategorier"
+                                HeadingLevel="2" />
 
         <!-- Ingredienser -->
         <RecipeIngredientEditor Ingredients="model.Ingredients"
@@ -118,34 +101,11 @@ else
                                 ShowAddIcon="true" />
 
         <!-- Instruktionssteg -->
-        <div class="form-section">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                <h2 class="form-section-title" style="margin-bottom: 0;">Instruktioner</h2>
-                <button type="button" class="btn-secondary-custom" @onclick="AddInstructionRow">
-                    <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="Color.Neutral" /> Lägg till steg
-                </button>
-            </div>
-
-            <div style="display: flex; flex-direction: column; gap: 14px;">
-                @for (int i = 0; i < model.Instructions.Count; i++)
-                {
-                    var step = model.Instructions[i];
-                    var index = i;
-
-                    <div style="display: flex; gap: 12px; align-items: flex-start; background-color: var(--rb-bg-surface); padding: 12px; border-radius: var(--rb-radius-md); border: 1px solid var(--rb-border-subtle);">
-                        <div class="step-number" style="margin-top: 4px;">@(index + 1)</div>
-                        <div style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
-                            <FluentTextField @bind-Value="step.GroupHeader" Placeholder="Eventuell sektionsrubrik (t.ex. Förberedelser)" Style="width: 100%;" />
-                            <FluentTextArea @bind-Value="step.InstructionText" Placeholder="Beskriv vad som ska göras i detta steg..." Style="width: 100%;" Rows="2" />
-                        </div>
-                        <button type="button" class="btn-danger-custom" style="padding: 6px 10px; margin-top: 4px;"
-                                @onclick="@(() => RemoveInstructionRow(index))" title="Ta bort steg">
-                            ✕
-                        </button>
-                    </div>
-                }
-            </div>
-        </div>
+        <RecipeInstructionEditor Instructions="model.Instructions"
+                                 Title="Instruktioner"
+                                 HeadingLevel="2"
+                                 AddButtonText="Lägg till steg"
+                                 ShowAddIcon="true" />
 
         <!-- Kockens anteckningar -->
         <div class="form-section">
@@ -214,40 +174,6 @@ else
         }
 
         isLoading = false;
-    }
-
-    private void AddIngredientRow()
-    {
-        model.Ingredients.Add(new Ingredient { Name = string.Empty });
-    }
-
-    private void RemoveIngredientRow(int index)
-    {
-        if (index >= 0 && index < model.Ingredients.Count)
-        {
-            model.Ingredients.RemoveAt(index);
-        }
-    }
-
-    private void AddInstructionRow()
-    {
-        model.Instructions.Add(new InstructionStep { InstructionText = string.Empty });
-    }
-
-    private void RemoveInstructionRow(int index)
-    {
-        if (index >= 0 && index < model.Instructions.Count)
-        {
-            model.Instructions.RemoveAt(index);
-        }
-    }
-
-    private void ToggleCategory(int categoryId)
-    {
-        if (selectedCategoryIds.Contains(categoryId))
-            selectedCategoryIds.Remove(categoryId);
-        else
-            selectedCategoryIds.Add(categoryId);
     }
 
     private async Task HandleImageFileSelected(InputFileChangeEventArgs e)

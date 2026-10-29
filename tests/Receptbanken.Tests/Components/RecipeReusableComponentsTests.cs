@@ -294,4 +294,163 @@ public class RecipeReusableComponentsTests : TestContext
         var savedRecipes = await recipeService.GetRecipesAsync();
         savedRecipes.Should().ContainSingle(r => r.Title == "Test Recept");
     }
+
+    [Fact]
+    public void RecipeInstructionRow_ShouldRenderSpecifiedPlaceholdersAndStepNumber()
+    {
+        var step = new InstructionStep
+        {
+            GroupHeader = "Förberedelse",
+            InstructionText = "Sätt ugnen på 200 grader."
+        };
+
+        var cut = RenderComponent<RecipeInstructionRow>(parameters => parameters
+            .Add(p => p.Step, step)
+            .Add(p => p.StepNumber, 3));
+
+        cut.Find(".step-number").TextContent.Trim().Should().Be("3");
+        cut.Markup.Should().Contain("placeholder=\"Sektionsrubrik (valfritt)\"");
+        cut.Markup.Should().Contain("placeholder=\"Beskriv vad som ska göras i detta steg...\"");
+        cut.Markup.Should().Contain("Förberedelse");
+        cut.Markup.Should().Contain("Sätt ugnen på 200 grader.");
+        cut.FindAll(".instruction-editor-row").Should().ContainSingle();
+        cut.FindAll(".instruction-remove-btn").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void RecipeInstructionEditor_ShouldAddAndRemoveSteps_AndPreserveOrder()
+    {
+        var instructions = new List<InstructionStep>
+        {
+            new() { InstructionText = "Steg ett" },
+            new() { InstructionText = "Steg två" }
+        };
+
+        var cut = RenderComponent<RecipeInstructionEditor>(parameters => parameters
+            .Add(p => p.Instructions, instructions)
+            .Add(p => p.Title, "Instruktioner"));
+
+        cut.FindAll(".instruction-editor-row").Should().HaveCount(2);
+        cut.FindAll(".step-number").Select(e => e.TextContent.Trim()).Should().Equal("1", "2");
+
+        // Click Add
+        cut.Find("button.btn-secondary-custom").Click();
+        instructions.Should().HaveCount(3);
+        cut.FindAll(".instruction-editor-row").Should().HaveCount(3);
+        cut.FindAll(".step-number").Select(e => e.TextContent.Trim()).Should().Equal("1", "2", "3");
+
+        // Remove the first step (index 0)
+        var removeBtns = cut.FindAll(".instruction-remove-btn");
+        removeBtns.ElementAt(0).Click();
+
+        instructions.Should().HaveCount(2);
+        instructions[0].InstructionText.Should().Be("Steg två");
+        cut.FindAll(".instruction-editor-row").Should().HaveCount(2);
+        // The remaining step should now be numbered 1
+        cut.FindAll(".step-number").Select(e => e.TextContent.Trim()).Should().Equal("1", "2");
+    }
+
+    [Fact]
+    public void RecipeInstructionEditor_WithTitleFormatter_ShouldUpdateCountDynamically()
+    {
+        var instructions = new List<InstructionStep>
+        {
+            new() { InstructionText = "Koka upp vatten" }
+        };
+
+        var cut = RenderComponent<RecipeInstructionEditor>(parameters => parameters
+            .Add(p => p.Instructions, instructions)
+            .Add(p => p.TitleFormatter, count => $"Tolkade instruktionssteg ({count})")
+            .Add(p => p.HeadingLevel, 3));
+
+        cut.Find("h3.form-section-title").TextContent.Trim().Should().Be("Tolkade instruktionssteg (1)");
+
+        cut.Find("button.btn-secondary-custom").Click();
+        cut.Find("h3.form-section-title").TextContent.Trim().Should().Be("Tolkade instruktionssteg (2)");
+    }
+
+    [Fact]
+    public void RecipeCategorySelector_ShouldHandleEmptyList_AndRenderMessage()
+    {
+        var cut = RenderComponent<RecipeCategorySelector>(parameters => parameters
+            .Add(p => p.Categories, new List<CategoryWithCountDto>())
+            .Add(p => p.Title, "Kategorier"));
+
+        cut.Markup.Should().Contain("Inga kategorier finns tillgängliga.");
+        cut.Markup.Should().Contain("/kategorier");
+    }
+
+    [Fact]
+    public void RecipeCategorySelector_ShouldToggleCategories_AndInvokeCallback()
+    {
+        var categories = new List<CategoryWithCountDto>
+        {
+            new() { Id = 1, Name = "Vardag", ColorHex = "#e07a5f" },
+            new() { Id = 2, Name = "Fest", ColorHex = "#10b981" }
+        };
+        var selected = new HashSet<int> { 1 };
+        ISet<int>? updatedSelection = null;
+
+        var cut = RenderComponent<RecipeCategorySelector>(parameters => parameters
+            .Add(p => p.Categories, categories)
+            .Add(p => p.SelectedCategoryIds, selected)
+            .Add(p => p.SelectedCategoryIdsChanged, EventCallback.Factory.Create<ISet<int>>(this, s => updatedSelection = s)));
+
+        // Initial state: Cat 1 active, Cat 2 inactive
+        var badges = cut.FindAll(".category-badge");
+        badges.ElementAt(0).ClassList.Should().Contain("active");
+        badges.ElementAt(1).ClassList.Should().NotContain("active");
+
+        // Click Cat 2 to select
+        cut.FindAll(".form-section > div > div").ElementAt(1).Click();
+
+        selected.Should().Contain(2);
+        updatedSelection.Should().Contain(2);
+
+        // Click Cat 1 to unselect
+        cut.FindAll(".form-section > div > div").ElementAt(0).Click();
+        selected.Should().NotContain(1);
+    }
+
+    [Fact]
+    public async Task RecipeEdit_SaveRecipe_PreservesCategoriesSelectedViaCategorySelector()
+    {
+        using var dbFactory = new TestDbContextFactory();
+        var imageStorage = new MockImageStorageService();
+        var recipeService = new RecipeService(dbFactory, imageStorage, NullLogger<RecipeService>.Instance);
+        var categoryService = new CategoryService(dbFactory, NullLogger<CategoryService>.Instance);
+
+        var createdCat = await categoryService.CreateCategoryAsync(new Category { Name = "Middagar", ColorHex = "#123456" });
+
+        Services.AddScoped<AppNotificationService>();
+        Services.AddSingleton<IImageStorageService>(imageStorage);
+        Services.AddSingleton(recipeService);
+        Services.AddSingleton(categoryService);
+
+        var cut = RenderComponent<RecipeEdit>();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.FindComponent<RecipeCategorySelector>().Should().NotBeNull();
+            cut.FindComponent<RecipeInstructionEditor>().Should().NotBeNull();
+        });
+
+        // Set title
+        var basicInfo = cut.FindComponent<RecipeBasicInfoFields>();
+        basicInfo.Instance.Recipe!.Title = "Middagsrecept";
+
+        // Select the created category via selector pill
+        var catPill = cut.FindComponent<RecipeCategorySelector>().Find(".form-section > div > div");
+        catPill.Click();
+
+        // Save
+        var saveBtn = cut.FindAll("button.btn-primary-custom").First();
+        await cut.InvokeAsync(() => saveBtn.Click());
+
+        // Verify recipe in DB has category
+        var recipes = await recipeService.GetRecipesAsync();
+        var saved = recipes.Single(r => r.Title == "Middagsrecept");
+        var fullRecipe = await recipeService.GetRecipeByIdAsync(saved.Id);
+        fullRecipe!.RecipeCategories.Should().ContainSingle(rc => rc.CategoryId == createdCat.Id);
+    }
 }
