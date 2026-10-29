@@ -1,0 +1,856 @@
+@page "/importera"
+@page "/importera/forhandsgranska"
+@implements IDisposable
+@inject IRecipeImporter RecipeImporter
+@inject RecipeService RecipeService
+@inject CategoryService CategoryService
+@inject IImageStorageService ImageStorageService
+@inject NavigationManager Navigation
+@inject IToastService ToastService
+@inject AppNotificationService NotificationService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Importera recept — Receptbanken</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">🔗 Importera recept från webbplats</h1>
+        <p class="page-subtitle">
+            Klistra in en länk från exempelvis ICA, Arla, Köket.se eller Tasteline. Du granskar och godkänner alltid receptet innan det sparas.
+        </p>
+    </div>
+</div>
+
+<!-- Steg 1: URL-inmatning -->
+<div class="form-section">
+    <h2 class="form-section-title">1. Ange receptets webbadress (URL)</h2>
+    <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 280px;">
+            @* Immediate="true" binds on the 'input' event so pasting/typing enables the button without blur/Enter *@
+            <FluentTextField @bind-Value="importUrl" Immediate="true" Id="import-url-input" Label="Webbadress till receptet"
+                             Placeholder="https://www.ica.se/recept/..." Style="width: 100%;" />
+        </div>
+        <button type="button" id="fetch-recipe-btn" class="btn-primary-custom" style="height: 38px;"
+                @onclick="FetchRecipeFromUrl" disabled="@(isImporting || string.IsNullOrWhiteSpace(importUrl))">
+            @if (isImporting)
+            {
+                <span>Hämtar och tolkar...</span>
+            }
+            else
+            {
+                <FluentIcon Value="@(new Icons.Regular.Size16.ArrowDownload())" Color="Color.Fill" />
+                <span>Hämta recept</span>
+            }
+        </button>
+    </div>
+
+    @if (isImporting)
+    {
+        <div style="display: flex; align-items: center; gap: 12px; margin-top: 16px;">
+            <FluentProgressRing Style="width: 24px; height: 24px;" />
+            <span style="font-size: 14px; color: var(--rb-text-secondary);">
+                Läser in och extraherar receptdata säkert...
+            </span>
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="import-error-box" role="alert">
+            <div class="import-error-title">Det gick inte att hämta receptet automatiskt</div>
+            <p class="import-error-desc">@GetPrimaryErrorDescription()</p>
+            @if (urlFailureReason.SuggestsStructuredDataFallback())
+            {
+                <p class="import-error-hint">Du kan ändå importera receptet genom att kopiera dess receptdata från webbläsaren.</p>
+                <div class="import-alternative-actions">
+                    <div class="import-action-primary">
+                        <button type="button" id="btn-open-jsonld" class="btn-primary-custom" @onclick="OpenAndFocusJsonLd">
+                            <FluentIcon Value="@(new Icons.Regular.Size16.ArrowDownload())" Color="Color.Fill" />
+                            <span>Importera receptdata (JSON-LD)</span>
+                        </button>
+                    </div>
+                    <div class="import-action-secondary-group">
+                        <span class="import-alt-label">Alternativt:</span>
+                        <div class="import-alt-buttons">
+                            @* Plats för framtida alternativ: Importera recepttext *@
+                            <button type="button" id="btn-manual-input" class="btn-secondary-custom" @onclick="StartManualFromFailedUrl">
+                                <FluentIcon Value="@(new Icons.Regular.Size16.Edit())" />
+                                <span>Fyll i receptet manuellt</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="import-alternative-actions">
+                    <div class="import-alt-buttons">
+                        @if (urlFailureReason.IsTransient())
+                        {
+                            <button type="button" id="retry-fetch-btn" class="btn-secondary-custom" @onclick="FetchRecipeFromUrl"
+                                    disabled="@(isImporting || string.IsNullOrWhiteSpace(importUrl))">
+                                <FluentIcon Value="@(new Icons.Regular.Size16.ArrowSync())" />
+                                <span>Försök igen</span>
+                            </button>
+                        }
+                        <button type="button" id="btn-manual-input" class="btn-secondary-custom" @onclick="StartManualFromFailedUrl">
+                            <FluentIcon Value="@(new Icons.Regular.Size16.Edit())" />
+                            <span>Fyll i receptet manuellt</span>
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Sekundär importmetod: manuellt inklistrad JSON-LD -->
+    <div class="jsonld-import">
+        <button type="button" id="jsonld-toggle" class="jsonld-toggle"
+                aria-expanded="@(isJsonLdSectionOpen ? "true" : "false")" aria-controls="jsonld-panel"
+                @onclick="ToggleJsonLdSection">
+            <span class="jsonld-toggle-icon" aria-hidden="true">@(isJsonLdSectionOpen ? "▾" : "▸")</span>
+            <span>Importera från receptdata (JSON-LD)</span>
+        </button>
+
+        @if (isJsonLdSectionOpen)
+        {
+            <div id="jsonld-panel" class="jsonld-panel">
+                <p class="jsonld-intro">
+                    Vissa webbplatser blockerar automatisk import. Receptinformationen kan då ofta kopieras direkt från sidan i din
+                    webbläsare och klistras in här. Inget sparas förrän du har granskat och godkänt receptet.
+                </p>
+
+                <FluentTextArea @bind-Value="jsonLdInput" Immediate="true" Id="jsonld-input"
+                                Label="Receptdata (JSON-LD)" Placeholder="Klistra in JSON-LD här..."
+                                Rows="8" Maxlength="@RecipeImportLimits.MaxJsonLdLength" Style="width: 100%;" />
+
+                <div class="jsonld-actions">
+                    <button type="button" id="parse-jsonld-btn" class="btn-primary-custom"
+                            @onclick="ParseJsonLd" disabled="@(isImporting || string.IsNullOrWhiteSpace(jsonLdInput))">
+                        Tolka receptdata
+                    </button>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(jsonLdErrorMessage))
+                {
+                    <div class="jsonld-error" role="alert">@jsonLdErrorMessage</div>
+                }
+
+                <details class="jsonld-help">
+                    <summary>Hur hittar jag receptdata?</summary>
+                    <div class="jsonld-help-body">
+                        <p>
+                            Många receptwebbplatser publicerar receptet i ett strukturerat format (JSON-LD) som är dolt i sidans kod.
+                            Du kan kopiera det med webbläsarens utvecklarverktyg – du behöver inte förstå formatet.
+                        </p>
+                        <p><strong>Chrome och Edge:</strong></p>
+                        <ol>
+                            <li>Öppna receptet på webbplatsen.</li>
+                            <li>Tryck <kbd>F12</kbd> och välj fliken <strong>Console</strong>.</li>
+                            <li>
+                                Klistra in och kör följande kod (tryck <kbd>Enter</kbd>). Om webbläsaren varnar för inklistring kan du
+                                behöva skriva <code>allow pasting</code> först.
+                                <div class="jsonld-help-code-container">
+                                    <pre class="jsonld-help-code" id="jsonld-help-code"><code>@JsonLdConsoleSnippet</code></pre>
+                                    <button type="button" id="copy-jsonld-snippet-btn" class="jsonld-copy-btn @(isSnippetCopied ? "copied" : "")"
+                                            @onclick="CopyJsonLdSnippetAsync" title="Kopiera JavaScript-kod">
+                                        @if (isSnippetCopied)
+                                        {
+                                            <FluentIcon Value="@(new Icons.Regular.Size16.Checkmark())" Color="Color.Success" />
+                                            <span>✓ Kopierat!</span>
+                                        }
+                                        else
+                                        {
+                                            <FluentIcon Value="@(new Icons.Regular.Size16.Copy())" />
+                                            <span>Kopiera</span>
+                                        }
+                                    </button>
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(snippetCopyError))
+                                {
+                                    <div class="jsonld-copy-error" role="alert">
+                                        @snippetCopyError
+                                    </div>
+                                }
+                            </li>
+                            <li>Gå tillbaka till Receptbanken.</li>
+                            <li>Klistra in resultatet i fältet för JSON-LD ovan.</li>
+                            <li>Klicka på <strong>Tolka receptdata</strong>.</li>
+                        </ol>
+                        <p class="jsonld-help-note">
+                            Klistra bara in kod du litar på i utvecklarverktygen. Koden ovan läser endast sidans strukturerade data och
+                            kopierar dem till urklipp. Om webbplatsen saknar strukturerad receptdata visas ett meddelande, och du kan då
+                            skapa receptet manuellt.
+                        </p>
+                    </div>
+                </details>
+            </div>
+        }
+    </div>
+</div>
+
+<!-- Steg 2: Förhandsgranskning, Redigering & Godkännande -->
+@if (draft != null)
+{
+    <div style="margin-bottom: 24px; padding: 18px 24px; border-radius: var(--rb-radius-lg); background-color: var(--rb-accent-gold-subtle); border: 1px solid var(--rb-accent-gold); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+        <div>
+            <div style="font-weight: 700; font-size: 16px; color: var(--rb-accent-gold);">
+                👁️ Förhandsgranskning — Väntar på ditt godkännande
+            </div>
+            <div style="font-size: 14px; color: var(--rb-text-primary);">
+                Receptet har <strong>inte</strong> sparats ännu. Kontrollera tolkningen nedan, välj kategorier och klicka på <em>Godkänn & Spara recept</em>.
+            </div>
+        </div>
+        <div style="display: flex; gap: 12px;">
+            <button type="button" class="btn-danger-custom" @onclick="DiscardDraft" disabled="@isSaving">
+                Förkasta utkast
+            </button>
+            <button type="button" class="btn-primary-custom" @onclick="ApproveAndSaveRecipe" disabled="@isSaving">
+                @(isSaving ? "Sparar..." : "✓ Godkänn & Spara recept")
+            </button>
+        </div>
+    </div>
+
+    <!-- Visuell kortförhandsgranskning i Receptbankens egen design -->
+    <div class="recipe-detail-hero" style="height: 280px; margin-bottom: 24px;">
+        @if (!string.IsNullOrWhiteSpace(draft.ImagePath) && !imageLoadFailed)
+        {
+            <img src="@($"/{draft.ImagePath}")" alt="@draft.Title" class="recipe-detail-hero-img" @onerror="HandleImageError" />
+        }
+        else
+        {
+            <div class="recipe-card-placeholder">🍲</div>
+        }
+        <div class="recipe-detail-hero-overlay">
+            <div>
+                <span style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--rb-accent-gold); font-weight: 700;">
+                    Förhandsvisning från @(draft.SourceHost ?? "webbplats")
+                </span>
+                <h2 style="font-size: 28px; font-weight: 700; color: #fff; margin-top: 4px;">@draft.Title</h2>
+                @if (!string.IsNullOrWhiteSpace(draft.Description))
+                {
+                    <p style="color: var(--rb-text-secondary); max-width: 700px; font-size: 14px;">@draft.Description</p>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Redigerbara fält -->
+    <div style="display: flex; flex-direction: column; gap: 24px;">
+        <div class="form-section">
+            <h3 class="form-section-title">Grunduppgifter</h3>
+            <div style="display: flex; flex-direction: column; gap: 16px;">
+                <FluentTextField @bind-Value="draft.Title" Label="Titel *" Style="width: 100%;" />
+                <FluentTextArea @bind-Value="draft.Description" Label="Beskrivning" Style="width: 100%;" Rows="3" />
+
+                <div class="recipe-meta-fields">
+                    <div class="recipe-meta-row">
+                        <label class="recipe-meta-label" for="import-prep-time">Förberedelsetid</label>
+                        <div class="recipe-meta-control">
+                            <FluentNumberField Id="import-prep-time" @bind-Value="draft.PrepTimeMinutes"
+                                               Min="0" Max="1440" Class="recipe-meta-field" Style="width: 160px;" />
+                            <span class="recipe-meta-suffix">min</span>
+                        </div>
+                    </div>
+                    <div class="recipe-meta-row">
+                        <label class="recipe-meta-label" for="import-cook-time">Tillagningstid</label>
+                        <div class="recipe-meta-control">
+                            <FluentNumberField Id="import-cook-time" @bind-Value="draft.CookTimeMinutes"
+                                               Min="0" Max="1440" Class="recipe-meta-field" Style="width: 160px;" />
+                            <span class="recipe-meta-suffix">min</span>
+                        </div>
+                    </div>
+                    <div class="recipe-meta-row">
+                        <label class="recipe-meta-label" for="import-servings">Portioner</label>
+                        <div class="recipe-meta-control">
+                            <FluentNumberField Id="import-servings" @bind-Value="draft.Servings"
+                                               Min="1" Max="100" Class="recipe-meta-field" Style="width: 160px;" />
+                        </div>
+                    </div>
+                    <div class="recipe-meta-row">
+                        <label class="recipe-meta-label" for="import-servings-unit">Portionsenhet</label>
+                        <div class="recipe-meta-control">
+                            <FluentTextField Id="import-servings-unit" @bind-Value="draft.ServingsUnit"
+                                             Placeholder="portioner" Class="recipe-meta-field" Style="width: 160px;" />
+                        </div>
+                    </div>
+                </div>
+
+                <FluentTextField @bind-Value="draft.SourceUrl" Label="Ursprunglig källänk" Style="width: 100%;" />
+            </div>
+        </div>
+
+        <!-- Receptbild -->
+        <div class="form-section">
+            <h3 class="form-section-title">Receptbild</h3>
+
+            @if (!string.IsNullOrWhiteSpace(imageFetchNotice))
+            {
+                <div class="import-image-notice" style="margin-bottom: 16px; padding: 12px 16px; border-radius: var(--rb-radius-md); background-color: rgba(230, 160, 40, 0.12); border-left: 4px solid var(--rb-accent-gold); display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--rb-text-primary);" role="status">
+                    <span style="font-size: 18px;">ℹ️</span>
+                    <span>@imageFetchNotice</span>
+                </div>
+            }
+
+            <div class="image-upload-grid">
+                <div>
+                    <p style="font-size: 14px; color: var(--rb-text-secondary); margin-bottom: 12px;">
+                        Ladda upp en matbild i JPG-, PNG- eller WebP-format (max 10 MB). Bilden konverteras och sparas lokalt.
+                    </p>
+                    <label class="image-upload-dropzone" style="display: block;">
+                        <InputFile OnChange="HandleImageFileSelected" accept=".jpg,.jpeg,.png,.webp" style="display: none;" />
+                        <FluentIcon Value="@(new Icons.Regular.Size32.ArrowUpload())" Color="Color.Neutral" />
+                        <div style="margin-top: 8px; font-weight: 600; font-size: 14px;">
+                            Klicka för att välja bild från datorn
+                        </div>
+                        <div style="font-size: 12px; color: var(--rb-text-muted);">
+                            JPG, PNG eller WebP upp till 10 MB
+                        </div>
+                    </label>
+
+                    @if (isUploadingImage || isDownloadingImage)
+                    {
+                        <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px;">
+                            <FluentProgressRing Style="width: 20px; height: 20px;" />
+                            <span style="font-size: 13px;">@(isDownloadingImage ? "Hämtar och optimerar receptbild..." : "Bearbetar och optimerar bild...")</span>
+                        </div>
+                    }
+                </div>
+
+                <!-- Bildförhandsvisning -->
+                <div>
+                    @if (!string.IsNullOrWhiteSpace(draft.ImagePath) && !imageLoadFailed)
+                    {
+                        <div class="image-preview-box">
+                            <img src="@($"/{draft.ImagePath}")" alt="Förhandsvisning" class="image-preview-img" @onerror="HandleImageError" />
+                            <button type="button" class="btn-danger-custom" style="margin-top: 8px; width: 100%; text-align: center;" @onclick="RemoveImage">
+                                Ta bort bild
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="width: 100%; height: 160px; border-radius: var(--rb-radius-md); background-color: var(--rb-bg-surface); border: 1px solid var(--rb-border); display: flex; align-items: center; justify-content: center; font-size: 36px;">
+                            📷
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="form-section">
+            <h3 class="form-section-title">Välj kategorier</h3>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                @foreach (var cat in availableCategories)
+                {
+                    var isSelected = selectedCategoryIds.Contains(cat.Id);
+                    <div @onclick="@(() => ToggleCategory(cat.Id))" style="cursor: pointer;">
+                        <CategoryBadge Name="@cat.Name" ColorHex="@cat.ColorHex" IsActive="@isSelected" />
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="form-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <h3 class="form-section-title" style="margin-bottom: 0;">Tolkade ingredienser (@draft.Ingredients.Count)</h3>
+                <button type="button" class="btn-secondary-custom" @onclick="AddIngredientRow">
+                    + Lägg till rad
+                </button>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                @for (int i = 0; i < draft.Ingredients.Count; i++)
+                {
+                    var ing = draft.Ingredients[i];
+                    var index = i;
+                    <div class="ingredient-editor-row">
+                        <FluentNumberField @bind-Value="ing.Quantity" Placeholder="Mängd" Min="0" Step="0.25" Style="width: 100%;" />
+                        <FluentTextField @bind-Value="ing.Unit" Placeholder="Enhet" Style="width: 100%;" />
+                        <FluentTextField @bind-Value="ing.Name" Placeholder="Råvara *" Style="width: 100%;" />
+                        <FluentTextField @bind-Value="ing.Comment" Placeholder="Kommentar" Style="width: 100%;" />
+                        <FluentTextField @bind-Value="ing.Preparation" Placeholder="Beredning" Style="width: 100%;" />
+                        <FluentTextField @bind-Value="ing.GroupHeader" Placeholder="Grupp" Style="width: 100%;" />
+                        <button type="button" class="btn-danger-custom ingredient-remove-btn" @onclick="@(() => draft.Ingredients.RemoveAt(index))" title="Ta bort rad">✕</button>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="form-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <h3 class="form-section-title" style="margin-bottom: 0;">Tolkade instruktionssteg (@draft.Instructions.Count)</h3>
+                <button type="button" class="btn-secondary-custom" @onclick="AddInstructionRow">
+                    + Lägg till steg
+                </button>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 14px;">
+                @for (int i = 0; i < draft.Instructions.Count; i++)
+                {
+                    var step = draft.Instructions[i];
+                    var index = i;
+                    <div style="display: flex; gap: 12px; align-items: flex-start; background-color: var(--rb-bg-surface); padding: 12px; border-radius: var(--rb-radius-md); border: 1px solid var(--rb-border-subtle);">
+                        <div class="step-number">@(index + 1)</div>
+                        <div style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
+                            <FluentTextField @bind-Value="step.GroupHeader" Placeholder="Sektionsrubrik (valfritt)" Style="width: 100%;" />
+                            <FluentTextArea @bind-Value="step.InstructionText" Style="width: 100%;" Rows="2" />
+                        </div>
+                        <button type="button" class="btn-danger-custom" style="padding: 6px 10px;" @onclick="@(() => draft.Instructions.RemoveAt(index))">✕</button>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="form-section">
+            <h3 class="form-section-title">Egna anteckningar</h3>
+            <FluentTextArea @bind-Value="draft.Notes" Placeholder="Lägg till egna kommentarer..." Style="width: 100%;" Rows="2" />
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 40px;">
+            <button type="button" class="btn-danger-custom" @onclick="DiscardDraft" disabled="@isSaving">
+                Förkasta utkast
+            </button>
+            <button type="button" class="btn-primary-custom" @onclick="ApproveAndSaveRecipe" disabled="@isSaving">
+                @(isSaving ? "Sparar..." : "✓ Godkänn & Spara recept")
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    // Generic browser console snippet: collects every JSON-LD block on the current page (no site-specific IDs),
+    // ignores blocks with invalid JSON and copies the result as a JSON array to the clipboard.
+    public const string JsonLdConsoleSnippet =
+        """
+        copy(
+            JSON.stringify(
+                [...document.querySelectorAll('script[type="application/ld+json"]')]
+                    .map(script => {
+                        try {
+                            return JSON.parse(script.textContent);
+                        } catch {
+                            return null;
+                        }
+                    })
+                    .filter(Boolean)
+            )
+        );
+        """;
+
+    private bool isSnippetCopied = false;
+    private string? snippetCopyError;
+    private CancellationTokenSource? copyResetCts;
+
+    private string importUrl = string.Empty;
+    private bool isImporting = false;
+    private bool isSaving = false;
+    private bool isUploadingImage = false;
+    private bool isDownloadingImage = false;
+    private bool imageLoadFailed = false;
+    private string? imageFetchNotice;
+    private string? errorMessage;
+    private RecipeImportFailureReason urlFailureReason = RecipeImportFailureReason.None;
+
+    private bool isJsonLdSectionOpen = false;
+    private string jsonLdInput = string.Empty;
+    private string? jsonLdErrorMessage;
+
+    private Recipe? draft;
+    private List<CategoryWithCountDto> availableCategories = new();
+    private HashSet<int> selectedCategoryIds = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        availableCategories = await CategoryService.GetCategoriesAsync();
+    }
+
+    private async Task FetchRecipeFromUrl()
+    {
+        if (string.IsNullOrWhiteSpace(importUrl) || isImporting)
+            return;
+
+        errorMessage = null;
+        urlFailureReason = RecipeImportFailureReason.None;
+        isImporting = true;
+
+        try
+        {
+            await DeleteDraftImageIfAnyAsync();
+
+            var result = await RecipeImporter.ImportFromUrlAsync(importUrl.Trim());
+            if (!result.Success || result.DraftRecipe == null)
+            {
+                draft = null;
+                urlFailureReason = result.FailureReason;
+                errorMessage = result.ErrorMessage ?? "Kunde inte tolka receptet från den angivna länken.";
+
+                // Typed classification (never message text) decides whether the JSON-LD fallback is offered.
+                if (result.FailureReason.SuggestsStructuredDataFallback())
+                {
+                    isJsonLdSectionOpen = true;
+                }
+            }
+            else
+            {
+                draft = result.DraftRecipe;
+                selectedCategoryIds.Clear();
+                imageLoadFailed = false;
+                imageFetchNotice = null;
+
+                if (string.IsNullOrWhiteSpace(draft.ImagePath) && (result.HasImageProperty || !string.IsNullOrWhiteSpace(result.RemoteImageUrl)))
+                {
+                    imageFetchNotice = "Receptet innehöll en bildadress, men bilden kunde inte hämtas från webbplatsen. Du kan välja en bild från din dator nedan eller spara utan bild.";
+                    NotificationService.ShowWarning("Receptbilden kunde inte importeras", imageFetchNotice);
+                }
+                else
+                {
+                    NotificationService.Clear();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ett oväntat fel uppstod: {ex.Message}";
+        }
+        finally
+        {
+            isImporting = false;
+        }
+    }
+
+    private void ToggleJsonLdSection()
+    {
+        isJsonLdSectionOpen = !isJsonLdSectionOpen;
+    }
+
+    private async Task OpenAndFocusJsonLd()
+    {
+        isJsonLdSectionOpen = true;
+        StateHasChanged();
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("receptbanken.focusElement", "jsonld-input");
+        }
+        catch (Exception)
+        {
+            // Ignorera fel i miljöer utan fullständig JS interop
+        }
+    }
+
+    private async Task CopyJsonLdSnippetAsync()
+    {
+        snippetCopyError = null;
+        try
+        {
+            var success = await JSRuntime.InvokeAsync<bool>(
+                "receptbanken.copyToClipboard",
+                JsonLdConsoleSnippet,
+                "jsonld-help-code");
+
+            if (success)
+            {
+                isSnippetCopied = true;
+                copyResetCts?.Cancel();
+                copyResetCts?.Dispose();
+                var cts = copyResetCts = new CancellationTokenSource();
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(2000, cts.Token);
+                        await InvokeAsync(() =>
+                        {
+                            if (!cts.IsCancellationRequested)
+                            {
+                                isSnippetCopied = false;
+                                StateHasChanged();
+                            }
+                        });
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+                });
+            }
+            else
+            {
+                isSnippetCopied = false;
+                snippetCopyError = "Kunde inte kopiera automatiskt. Koden har markerats så att du kan kopiera manuellt (Ctrl+C).";
+            }
+        }
+        catch (Exception)
+        {
+            isSnippetCopied = false;
+            snippetCopyError = "Kunde inte kopiera automatiskt. Koden har markerats så att du kan kopiera manuellt (Ctrl+C).";
+        }
+    }
+
+    private async Task ParseJsonLd()
+    {
+        jsonLdErrorMessage = null;
+
+        if (string.IsNullOrWhiteSpace(jsonLdInput))
+        {
+            jsonLdErrorMessage = "Klistra in receptdata (JSON-LD) innan du tolkar.";
+            return;
+        }
+
+        // The previously entered URL is only used as a fallback source link; no HTTP request is made.
+        var fallbackSourceUrl = string.IsNullOrWhiteSpace(importUrl) ? null : importUrl.Trim();
+
+        RecipeImportResult result;
+        try
+        {
+            result = RecipeImporter.ParseFromJsonLd(jsonLdInput, fallbackSourceUrl);
+        }
+        catch (Exception)
+        {
+            jsonLdErrorMessage = "Ett oväntat fel uppstod när receptdatan skulle tolkas.";
+            return;
+        }
+
+        if (!result.Success || result.DraftRecipe == null)
+        {
+            jsonLdErrorMessage = result.ErrorMessage ?? "Receptdatan kunde inte tolkas.";
+            return;
+        }
+
+        await DeleteDraftImageIfAnyAsync();
+
+        draft = result.DraftRecipe;
+        selectedCategoryIds.Clear();
+        errorMessage = null;
+        urlFailureReason = RecipeImportFailureReason.None;
+        jsonLdInput = string.Empty;
+        isJsonLdSectionOpen = false;
+        imageLoadFailed = false;
+        imageFetchNotice = null;
+
+        if (!string.IsNullOrWhiteSpace(result.RemoteImageUrl))
+        {
+            isDownloadingImage = true;
+            StateHasChanged();
+            try
+            {
+                var baseUri = Uri.TryCreate(draft.SourceUrl, UriKind.Absolute, out var parsedBase) ? parsedBase : null;
+                draft.ImagePath = await RecipeImporter.DownloadAndSaveImageAsync(result.RemoteImageUrl, baseUri);
+                if (string.IsNullOrWhiteSpace(draft.ImagePath))
+                {
+                    imageFetchNotice = "Receptet innehöll en bildadress, men bilden kunde inte hämtas från webbplatsen. Du kan välja en bild från din dator nedan eller spara utan bild.";
+                }
+            }
+            catch (Exception)
+            {
+                imageFetchNotice = "Receptet innehöll en bildadress, men bilden kunde inte hämtas från webbplatsen. Du kan välja en bild från din dator nedan eller spara utan bild.";
+            }
+            finally
+            {
+                isDownloadingImage = false;
+            }
+        }
+        else if (result.HasImageProperty)
+        {
+            imageFetchNotice = "Receptets bildadress var ogiltig eller osäker och ignorerades. Du kan välja en bild från din dator nedan eller spara utan bild.";
+        }
+
+        if (!string.IsNullOrWhiteSpace(imageFetchNotice))
+        {
+            NotificationService.ShowWarning("Receptbilden kunde inte importeras", imageFetchNotice);
+        }
+        else
+        {
+            NotificationService.Clear();
+        }
+    }
+
+    private async Task DeleteDraftImageIfAnyAsync()
+    {
+        if (draft != null && !string.IsNullOrWhiteSpace(draft.ImagePath))
+        {
+            await ImageStorageService.DeleteImageAsync(draft.ImagePath);
+        }
+    }
+
+    private async Task StartManualFromFailedUrl()
+    {
+        await DeleteDraftImageIfAnyAsync();
+        draft = new Recipe
+        {
+            Title = "Nytt recept",
+            SourceUrl = importUrl.Trim(),
+            Servings = 4,
+            ServingsUnit = "portioner",
+            Ingredients = [new Ingredient { Name = string.Empty }],
+            Instructions = [new InstructionStep { InstructionText = string.Empty }]
+        };
+        imageLoadFailed = false;
+        imageFetchNotice = null;
+        errorMessage = null;
+    }
+
+    private void HandleImageError()
+    {
+        imageLoadFailed = true;
+        StateHasChanged();
+    }
+
+    private async Task HandleImageFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null || draft == null) return;
+
+        if (!ImageStorageService.IsValidImageExtension(file.Name))
+        {
+            ToastService.ShowError("Ogiltigt bildformat. Vänligen välj en JPG, PNG eller WebP bild.");
+            return;
+        }
+
+        if (file.Size > 10 * 1024 * 1024)
+        {
+            ToastService.ShowError("Bildfilen är för stor. Max 10 MB tillåts.");
+            return;
+        }
+
+        try
+        {
+            isUploadingImage = true;
+            await DeleteDraftImageIfAnyAsync();
+            using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            var savedPath = await ImageStorageService.SaveImageAsync(stream, file.Name);
+            draft.ImagePath = savedPath;
+            imageLoadFailed = false;
+            imageFetchNotice = null;
+            NotificationService.Clear();
+            ToastService.ShowSuccess("Bilden har laddats upp och sparats!");
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Fel vid bilduppladdning: {ex.Message}");
+        }
+        finally
+        {
+            isUploadingImage = false;
+        }
+    }
+
+    private async Task RemoveImage()
+    {
+        await DeleteDraftImageIfAnyAsync();
+        if (draft != null)
+        {
+            draft.ImagePath = null;
+        }
+        imageLoadFailed = false;
+        imageFetchNotice = null;
+        NotificationService.Clear();
+    }
+
+    private void ToggleCategory(int categoryId)
+    {
+        if (selectedCategoryIds.Contains(categoryId))
+            selectedCategoryIds.Remove(categoryId);
+        else
+            selectedCategoryIds.Add(categoryId);
+    }
+
+    private void AddIngredientRow()
+    {
+        draft?.Ingredients.Add(new Ingredient { Name = string.Empty });
+    }
+
+    private void AddInstructionRow()
+    {
+        draft?.Instructions.Add(new InstructionStep { InstructionText = string.Empty });
+    }
+
+    private async Task DiscardDraft()
+    {
+        if (draft != null && !string.IsNullOrWhiteSpace(draft.ImagePath))
+        {
+            await ImageStorageService.DeleteImageAsync(draft.ImagePath);
+        }
+        draft = null;
+        imageLoadFailed = false;
+        imageFetchNotice = null;
+        NotificationService.Clear();
+        ToastService.ShowInfo("Utkastet förkastades. Inget har sparats.");
+    }
+
+    private async Task ApproveAndSaveRecipe()
+    {
+        if (draft == null) return;
+        if (string.IsNullOrWhiteSpace(draft.Title))
+        {
+            ToastService.ShowWarning("Ange en titel innan du sparar receptet.");
+            return;
+        }
+
+        draft.Ingredients = draft.Ingredients
+            .Where(i => !string.IsNullOrWhiteSpace(i.Name) || !string.IsNullOrWhiteSpace(i.RawText))
+            .ToList();
+
+        foreach (var ing in draft.Ingredients)
+        {
+            if (string.IsNullOrWhiteSpace(ing.RawText))
+            {
+                var qty = ing.Quantity.HasValue
+                    ? $"{ing.Quantity.Value.ToString("0.##", System.Globalization.CultureInfo.GetCultureInfo("sv-SE"))} "
+                    : "";
+                var unit = !string.IsNullOrWhiteSpace(ing.Unit) ? $"{ing.Unit.Trim()} " : "";
+                var comment = !string.IsNullOrWhiteSpace(ing.Comment) ? $" ({ing.Comment.Trim()})" : "";
+                var prep = !string.IsNullOrWhiteSpace(ing.Preparation) ? $", {ing.Preparation.Trim()}" : "";
+                ing.RawText = $"{qty}{unit}{ing.Name.Trim()}{comment}{prep}".Trim();
+            }
+        }
+
+        draft.Instructions = draft.Instructions
+            .Where(s => !string.IsNullOrWhiteSpace(s.InstructionText))
+            .ToList();
+
+        try
+        {
+            isSaving = true;
+            var saved = await RecipeService.CreateRecipeAsync(draft, selectedCategoryIds.ToList());
+            draft = null;
+            NotificationService.ShowSuccess("Receptet har sparats!", $"Receptet '{saved.Title}' har sparats i din receptbank och är redo att användas.");
+            Navigation.NavigateTo($"/recept/{saved.Id}?saved=true");
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Kunde inte spara receptet: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private string GetPrimaryErrorDescription()
+    {
+        return urlFailureReason switch
+        {
+            RecipeImportFailureReason.AccessBlocked => "Webbplatsen blockerar automatisk hämtning.",
+            RecipeImportFailureReason.RateLimited => "Webbplatsen begränsar antalet förfrågningar just nu.",
+            RecipeImportFailureReason.NoRecipeData => "Inget strukturerat recept kunde hittas automatiskt på sidan.",
+            RecipeImportFailureReason.NotFound => "Receptsidan kunde inte hittas. Kontrollera att webbadressen är korrekt.",
+            RecipeImportFailureReason.Timeout => "Tidsgränsen överskreds när receptet skulle hämtas.",
+            RecipeImportFailureReason.NetworkError => "Kunde inte ansluta till webbplatsen. Kontrollera webbadressen och nätverksanslutningen.",
+            RecipeImportFailureReason.SecurityRejected => "Webbadressen avvisades av säkerhetsskäl.",
+            RecipeImportFailureReason.InvalidUrl => "Den angivna webbadressen är inte giltig.",
+            RecipeImportFailureReason.HttpError => "Webbplatsen svarade med ett fel och kunde inte läsas in.",
+            _ => errorMessage ?? "Ett fel uppstod vid hämtning av receptet."
+        };
+    }
+
+    public void Dispose()
+    {
+        copyResetCts?.Cancel();
+        copyResetCts?.Dispose();
+        if (NotificationService.IsWarning)
+        {
+            NotificationService.Clear();
+        }
+    }
+}

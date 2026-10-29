@@ -1,0 +1,191 @@
+@page "/backup"
+@inject IBackupService BackupService
+@inject IJSRuntime JSRuntime
+@inject IToastService ToastService
+
+<PageTitle>Säkerhetskopiering — Receptbanken</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">💾 Säkerhetskopiering & Återställning</h1>
+        <p class="page-subtitle">Exportera hela din receptsamling, kategorier, inköpslista och lokala matbilder till en portabel ZIP-fil.</p>
+    </div>
+</div>
+
+<div class="recipe-detail-grid">
+    <!-- Exportera säkerhetskopia -->
+    <div class="detail-card">
+        <div class="detail-card-title">
+            <span>📦 Exportera säkerhetskopia</span>
+        </div>
+
+        <p style="font-size: 14px; color: var(--rb-text-secondary); margin-bottom: 20px; line-height: 1.6;">
+            Skapar ett komplett ZIP-arkiv med <code>manifest.json</code>, <code>data.json</code> (alla recept, ingredienser, instruktioner, kategorier och inköpslista) samt alla uppladdade och importerade bilder i <code>images/recipes/</code>.
+        </p>
+
+        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+            <button type="button"
+                    class="btn-primary-custom"
+                    disabled="@isExporting"
+                    @onclick="ExportBackupAsync">
+                @if (isExporting)
+                {
+                    <span>Skapar arkiv...</span>
+                }
+                else
+                {
+                    <span>⬇️ Ladda ner säkerhetskopia (.zip)</span>
+                }
+            </button>
+
+            <a href="/api/backup/export" target="_blank" class="btn-secondary-custom">
+                Direktlänk (.zip)
+            </a>
+        </div>
+    </div>
+
+    <!-- Återställ från säkerhetskopia -->
+    <div class="detail-card">
+        <div class="detail-card-title">
+            <span>♻️ Återställ från säkerhetskopia</span>
+        </div>
+
+        <p style="font-size: 14px; color: var(--rb-text-secondary); margin-bottom: 16px; line-height: 1.6;">
+            Välj en tidigare exporterad <code>.zip</code>-fil från Receptbanken. Återställningen utförs transaktionellt med automatisk rollback och skuggkopiering av bildmappen om något fel skulle inträffa.
+        </p>
+
+        <div class="form-group">
+            <label class="form-label">Återställningsläge</label>
+            <div style="display: flex; gap: 16px; margin-top: 6px;">
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer;">
+                    <input type="radio" name="restoreMode" checked="@replaceExisting" @onchange="@(() => replaceExisting = true)" />
+                    <span>Ersätt befintlig samling helt</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer;">
+                    <input type="radio" name="restoreMode" checked="@(!replaceExisting)" @onchange="@(() => replaceExisting = false)" />
+                    <span>Slå samman (behåll befintliga recept)</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Välj säkerhetskopia (.zip, max 100 MB)</label>
+            <InputFile OnChange="HandleBackupFileSelected" accept=".zip,application/zip" class="form-input-custom" />
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(statusMessage))
+        {
+            <div style="padding: 14px; border-radius: var(--rb-radius-sm); margin-top: 16px; background: @(statusSuccess ? "rgba(74, 222, 128, 0.1)" : "rgba(239, 68, 68, 0.12)"); border: 1px solid @(statusSuccess ? "rgba(74, 222, 128, 0.35)" : "rgba(239, 68, 68, 0.35)"); color: @(statusSuccess ? "#4ade80" : "#f87171"); font-size: 14px;">
+                @statusMessage
+            </div>
+        }
+
+        @if (selectedFile != null)
+        {
+            <div style="margin-top: 16px;">
+                <button type="button"
+                        class="btn-primary-custom"
+                        disabled="@isRestoring"
+                        @onclick="@(() => showRestoreConfirm = true)">
+                    @if (isRestoring)
+                    {
+                        <span>Återställer säkerhetskopia...</span>
+                    }
+                    else
+                    {
+                        <span>🚀 Starta återställning (@selectedFile.Name)</span>
+                    }
+                </button>
+            </div>
+        }
+    </div>
+</div>
+
+<ConfirmDialog IsVisible="showRestoreConfirm"
+               Title="Bekräfta återställning av säkerhetskopia"
+               Message="@(replaceExisting
+                   ? "Är du säker? Alla nuvarande recept, kategorier och bilder kommer att ersättas med innehållet i säkerhetskopian."
+                   : "Vill du importera recept och bilder från säkerhetskopian till din befintliga samling?")"
+               ConfirmText="Ja, återställ nu"
+               CancelText="Avbryt"
+               OnConfirm="ExecuteRestoreAsync"
+               OnCancel="@(() => showRestoreConfirm = false)" />
+
+@code {
+    private const long MaxUploadSize = 100L * 1024 * 1024; // 100 MB
+    private IBrowserFile? selectedFile;
+    private bool replaceExisting = true;
+    private bool isExporting = false;
+    private bool isRestoring = false;
+    private bool showRestoreConfirm = false;
+    private string? statusMessage;
+    private bool statusSuccess;
+
+    private async Task ExportBackupAsync()
+    {
+        isExporting = true;
+        statusMessage = null;
+
+        try
+        {
+            var zipBytes = await BackupService.CreateBackupArchiveAsync();
+            var fileName = $"receptbanken-backup-{DateTime.Now:yyyyMMdd-HHmm}.zip";
+            var base64 = Convert.ToBase64String(zipBytes);
+            await JSRuntime.InvokeVoidAsync("receptbanken.downloadFileFromBytes", fileName, "application/zip", base64);
+            ToastService.ShowSuccess("Säkerhetskopian har skapats och laddats ner.");
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Export misslyckades: {ex.Message}");
+        }
+        finally
+        {
+            isExporting = false;
+        }
+    }
+
+    private void HandleBackupFileSelected(InputFileChangeEventArgs e)
+    {
+        selectedFile = e.File;
+        statusMessage = null;
+    }
+
+    private async Task ExecuteRestoreAsync()
+    {
+        showRestoreConfirm = false;
+        if (selectedFile == null)
+            return;
+
+        isRestoring = true;
+        statusMessage = null;
+
+        try
+        {
+            await using var stream = selectedFile.OpenReadStream(MaxUploadSize);
+            var result = await BackupService.RestoreFromArchiveAsync(stream, replaceExisting);
+
+            statusSuccess = result.Success;
+            if (result.Success)
+            {
+                statusMessage = $"Återställningen lyckades! {result.RestoredRecipes} recept, {result.RestoredCategories} kategorier och {result.RestoredImages} bilder återställdes.";
+                ToastService.ShowSuccess("Säkerhetskopian återställdes!");
+                selectedFile = null;
+            }
+            else
+            {
+                statusMessage = result.ErrorMessage ?? "Återställningen misslyckades.";
+                ToastService.ShowError(statusMessage);
+            }
+        }
+        catch (Exception ex)
+        {
+            statusSuccess = false;
+            statusMessage = $"Ett fel uppstod vid läsning av filen: {ex.Message}";
+            ToastService.ShowError(statusMessage);
+        }
+        finally
+        {
+            isRestoring = false;
+        }
+    }
+}

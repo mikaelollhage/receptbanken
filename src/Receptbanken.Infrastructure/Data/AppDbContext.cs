@@ -1,0 +1,136 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Receptbanken.Core.Models;
+
+namespace Receptbanken.Infrastructure.Data;
+
+public class AppDbContext : DbContext
+{
+    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+    {
+    }
+
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    {
+        base.OnConfiguring(optionsBuilder);
+        optionsBuilder.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
+    }
+
+    public DbSet<Recipe> Recipes => Set<Recipe>();
+    public DbSet<Ingredient> Ingredients => Set<Ingredient>();
+    public DbSet<InstructionStep> Instructions => Set<InstructionStep>();
+    public DbSet<Category> Categories => Set<Category>();
+    public DbSet<RecipeCategory> RecipeCategories => Set<RecipeCategory>();
+    public DbSet<ShoppingListItem> ShoppingListItems => Set<ShoppingListItem>();
+
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        // SQLite cannot ORDER BY DateTimeOffset. Store as UTC ticks (INTEGER) so that
+        // sorting and comparisons are translated server-side and remain correct.
+        configurationBuilder.Properties<DateTimeOffset>()
+            .HaveConversion<UtcTicksDateTimeOffsetConverter>();
+    }
+
+    private sealed class UtcTicksDateTimeOffsetConverter : ValueConverter<DateTimeOffset, long>
+    {
+        public UtcTicksDateTimeOffsetConverter()
+            : base(
+                v => v.UtcTicks,
+                v => new DateTimeOffset(v, TimeSpan.Zero))
+        {
+        }
+    }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        // Recipe
+        modelBuilder.Entity<Recipe>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Title).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.SourceUrl).HasMaxLength(2000);
+            entity.Property(e => e.SourceHost).HasMaxLength(100);
+            entity.Property(e => e.ImagePath).HasMaxLength(500);
+            entity.Property(e => e.ServingsUnit).IsRequired().HasMaxLength(50);
+            entity.HasIndex(e => e.Title);
+            entity.HasIndex(e => e.IsFavorite);
+
+            entity.HasMany(e => e.Ingredients)
+                .WithOne(e => e.Recipe)
+                .HasForeignKey(e => e.RecipeId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.Instructions)
+                .WithOne(e => e.Recipe)
+                .HasForeignKey(e => e.RecipeId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Ingredient
+        modelBuilder.Entity<Ingredient>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.RawText).IsRequired();
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Unit).HasMaxLength(30);
+            entity.Property(e => e.Comment).HasMaxLength(200);
+            entity.Property(e => e.Preparation).HasMaxLength(200);
+            entity.Property(e => e.GroupHeader).HasMaxLength(100);
+            entity.Property(e => e.Quantity).HasPrecision(10, 2);
+            entity.Property(e => e.QuantityMax).HasPrecision(10, 2);
+        });
+
+        // InstructionStep
+        modelBuilder.Entity<InstructionStep>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.InstructionText).IsRequired();
+            entity.Property(e => e.GroupHeader).HasMaxLength(100);
+        });
+
+        // Category
+        modelBuilder.Entity<Category>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.ColorHex).HasMaxLength(9);
+            entity.HasIndex(e => e.Name).IsUnique();
+        });
+
+        // RecipeCategory (Join Table)
+        modelBuilder.Entity<RecipeCategory>(entity =>
+        {
+            entity.HasKey(rc => new { rc.RecipeId, rc.CategoryId });
+
+            entity.HasOne(rc => rc.Recipe)
+                .WithMany(r => r.RecipeCategories)
+                .HasForeignKey(rc => rc.RecipeId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(rc => rc.Category)
+                .WithMany(c => c.RecipeCategories)
+                .HasForeignKey(rc => rc.CategoryId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ShoppingListItem
+        modelBuilder.Entity<ShoppingListItem>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.RawText).IsRequired();
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Unit).HasMaxLength(30);
+            entity.Property(e => e.Department).HasMaxLength(100);
+            entity.Property(e => e.Quantity).HasPrecision(10, 2);
+
+            entity.HasOne(e => e.Recipe)
+                .WithMany()
+                .HasForeignKey(e => e.RecipeId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+    }
+}
+

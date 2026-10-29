@@ -1,0 +1,67 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject AppNotificationService NotificationService
+
+<FluentDesignTheme Mode="DesignThemeModes.Dark" />
+<FluentDialogProvider />
+<FluentToastProvider MaxToastCount="5" Position="ToastPosition.TopEnd" />
+<FluentMessageBarProvider />
+
+<div class="app-container">
+    <aside class="app-sidebar">
+        <NavMenu />
+    </aside>
+
+    <div class="app-main">
+        @if (NotificationService.HasNotification)
+        {
+            <div class="app-top-banner @(NotificationService.IsSuccess ? "app-top-banner-success" : "app-top-banner-warning")" role="alert">
+                <div class="app-top-banner-content">
+                    <span class="app-top-banner-icon">@(NotificationService.IsSuccess ? "✓" : "⚠️")</span>
+                    <div class="app-top-banner-text">
+                        <div class="app-top-banner-title">@NotificationService.Title</div>
+                        <div class="app-top-banner-desc">@NotificationService.Message</div>
+                    </div>
+                </div>
+                <button type="button" class="app-top-banner-close" @onclick="NotificationService.Clear" title="Stäng meddelande">
+                    ✕ Stäng
+                </button>
+            </div>
+        }
+
+        <header class="app-header">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <a href="/recept/ny" class="btn-primary-custom" style="padding: 6px 14px; font-size: 13px;">
+                    <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="Color.Fill" /> Nytt recept
+                </a>
+            </div>
+        </header>
+
+        <main class="app-content">
+            @Body
+        </main>
+    </div>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    Ett fel har inträffat.
+    <a href="." class="reload">Ladda om</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        NotificationService.OnChange += OnNotificationChanged;
+    }
+
+    private void OnNotificationChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        NotificationService.OnChange -= OnNotificationChanged;
+    }
+}

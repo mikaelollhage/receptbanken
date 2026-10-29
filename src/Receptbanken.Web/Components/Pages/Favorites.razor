@@ -1,0 +1,62 @@
+@page "/favoriter"
+@inject RecipeService RecipeService
+@inject NavigationManager Navigation
+
+<PageTitle>Favoritrecept — Receptbanken</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">⭐ Favoritrecept</h1>
+        <p class="page-subtitle">Dina mest uppskattade rätter och personliga favoriter.</p>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <div style="display: flex; justify-content: center; padding: 60px;">
+        <FluentProgressRing />
+    </div>
+}
+else if (favoriteRecipes.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-state-icon">⭐</div>
+        <h3 class="empty-state-title">Inga favoriter markerade ännu</h3>
+        <p class="empty-state-desc">
+            Klicka på stjärnikonen på valfritt recept för att spara det som favorit här!
+        </p>
+        <a href="/" class="btn-primary-custom">Tillbaka till receptöversikten</a>
+    </div>
+}
+else
+{
+    <div class="recipe-grid">
+        @foreach (var recipe in favoriteRecipes)
+        {
+            <RecipeCard Recipe="recipe" OnFavoriteToggled="HandleFavoriteToggled" />
+        }
+    </div>
+}
+
+@code {
+    private List<Recipe> favoriteRecipes = new();
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadFavorites();
+    }
+
+    private async Task LoadFavorites()
+    {
+        isLoading = true;
+        favoriteRecipes = await RecipeService.GetRecipesAsync(favoritesOnly: true);
+        isLoading = false;
+    }
+
+    private async Task HandleFavoriteToggled(Recipe recipe)
+    {
+        await LoadFavorites();
+    }
+}
+

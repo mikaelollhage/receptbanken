@@ -1,0 +1,330 @@
+@page "/inkopslista"
+@inject ShoppingListService ShoppingListService
+@inject RecipeService RecipeService
+@inject ServingCalculator ServingCalculator
+@inject IToastService ToastService
+
+<PageTitle>Inköpslista — Receptbanken</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">🛒 Inköpslista</h1>
+        <p class="page-subtitle">Sammanställ råvaror från dina recept eller lägg till egna varor. Kompatibla enheter slås ihop automatiskt.</p>
+    </div>
+
+    @if (items.Count > 0)
+    {
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            @if (items.Any(x => x.IsChecked))
+            {
+                <button type="button" class="btn-secondary-custom" @onclick="ClearCheckedItems">
+                    <FluentIcon Value="@(new Icons.Regular.Size16.CheckmarkCircle())" Color="Color.Neutral" />
+                    Rensa köpta (@items.Count(x => x.IsChecked))
+                </button>
+            }
+            <button type="button" class="btn-danger-custom" @onclick="@(() => showClearAllConfirm = true)">
+                <FluentIcon Value="@(new Icons.Regular.Size16.Delete())" Color="Color.Error" />
+                Töm hela listan
+            </button>
+        </div>
+    }
+</div>
+
+<ConfirmDialog IsVisible="showClearAllConfirm"
+               Title="Töm inköpslistan"
+               Message="Är du säker på att du vill ta bort alla varor från inköpslistan?"
+               ConfirmText="Ja, töm listan"
+               CancelText="Avbryt"
+               OnConfirm="ConfirmClearAll"
+               OnCancel="@(() => showClearAllConfirm = false)" />
+
+<div class="recipe-detail-grid" style="margin-bottom: 32px;">
+    <!-- Vänster kolumn: Lägg till vara manuellt eller från recept -->
+    <div>
+        <div class="detail-card" style="margin-bottom: 20px;">
+            <div class="detail-card-title">
+                <span>Lägg till vara manuellt</span>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <input type="text"
+                       class="form-input-custom"
+                       placeholder="t.ex. 1,5 l mjölk eller 2 förp bacon..."
+                       @bind="manualInput"
+                       @bind:event="oninput"
+                       @onkeydown="HandleManualKeyDown" />
+                <button type="button" class="btn-primary-custom" style="white-space: nowrap;" @onclick="AddManualItem">
+                    + Lägg till
+                </button>
+            </div>
+        </div>
+
+        <div class="detail-card">
+            <div class="detail-card-title">
+                <span>Lägg till från recept</span>
+            </div>
+            @if (recipes.Count == 0)
+            {
+                <p style="font-size: 13px; color: var(--rb-text-muted);">Du har inga sparade recept ännu.</p>
+            }
+            else
+            {
+                <div class="form-group">
+                    <label class="form-label">Välj recept</label>
+                    <select class="form-input-custom" @bind="selectedRecipeId" @bind:after="OnSelectedRecipeChanged">
+                        <option value="0">-- Välj ett recept --</option>
+                        @foreach (var r in recipes)
+                        {
+                            <option value="@r.Id">@r.Title (@r.Servings @r.ServingsUnit)</option>
+                        }
+                    </select>
+                </div>
+
+                @if (selectedRecipeId > 0)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Antal portioner att handla för</label>
+                        <input type="number" min="1" max="100" class="form-input-custom" @bind="selectedRecipeServings" />
+                    </div>
+                    <button type="button" class="btn-primary-custom" style="width: 100%; justify-content: center;" @onclick="AddSelectedRecipeToShoppingList">
+                        🛒 Lägg till receptets ingredienser
+                    </button>
+                }
+            }
+        </div>
+    </div>
+
+    <!-- Höger kolumn: Inköpslistans varor -->
+    <div>
+        <div class="detail-card">
+            <div class="detail-card-title">
+                <span>Att handla (@items.Count(x => !x.IsChecked))</span>
+                @if (items.Count > 0)
+                {
+                    <span style="font-size: 13px; color: var(--rb-text-muted); font-weight: normal;">
+                        @items.Count(x => x.IsChecked) av @items.Count klara
+                    </span>
+                }
+            </div>
+
+            @if (isLoading)
+            {
+                <div style="display: flex; justify-content: center; padding: 40px;">
+                    <FluentProgressRing />
+                </div>
+            }
+            else if (items.Count == 0)
+            {
+                <div style="text-align: center; padding: 36px 16px; color: var(--rb-text-secondary);">
+                    <div style="font-size: 36px; margin-bottom: 10px;">🛍️</div>
+                    <p style="font-weight: 600; color: var(--rb-text-primary); margin-bottom: 4px;">Inköpslistan är tom</p>
+                    <p style="font-size: 13px; color: var(--rb-text-muted);">Lägg till varor ovan eller klicka på "Lägg till i inköpslista" inne på valfritt recept.</p>
+                </div>
+            }
+            else
+            {
+                <ul class="ingredient-list">
+                    @foreach (var item in items.Where(x => !x.IsChecked))
+                    {
+                        <li class="ingredient-item" style="justify-content: space-between; align-items: center;">
+                            @if (editingItemId == item.Id)
+                            {
+                                <div style="display: flex; gap: 8px; flex: 1; align-items: center; flex-wrap: wrap;">
+                                    <input type="number" step="0.01" class="form-input-custom" style="width: 85px;" placeholder="Mängd" @bind="editQuantity" />
+                                    <input type="text" class="form-input-custom" style="width: 85px;" placeholder="Enhet" @bind="editUnit" />
+                                    <input type="text" class="form-input-custom" style="flex: 1; min-width: 140px;" placeholder="Vara" @bind="editName" />
+                                    <button type="button" class="btn-primary-custom" style="padding: 6px 12px;" @onclick="@(() => SaveEdit(item.Id))">Spara</button>
+                                    <button type="button" class="btn-secondary-custom" style="padding: 6px 12px;" @onclick="CancelEdit">Avbryt</button>
+                                </div>
+                            }
+                            else
+                            {
+                                <div style="display: flex; align-items: center; gap: 12px; flex: 1; cursor: pointer;" @onclick="@(() => ToggleItem(item.Id))">
+                                    <input type="checkbox" checked="@item.IsChecked" style="accent-color: var(--rb-accent); width: 18px; height: 18px;" />
+                                    <div class="shopping-item-text">
+                                        @if (item.Quantity.HasValue)
+                                        {
+                                            <span style="font-weight: 700; color: var(--rb-accent-gold);">@($"{ServingCalculator.FormatQuantity(item.Quantity)} ")</span>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(item.Unit))
+                                        {
+                                            <span style="font-weight: 600;">@($"{item.Unit.Trim()} ")</span>
+                                        }
+                                        <span>@item.Name</span>
+                                    </div>
+                                </div>
+                                <div style="display: flex; gap: 6px;">
+                                    <button type="button" class="btn-secondary-custom" style="padding: 4px 8px;" title="Redigera vara" @onclick="@(() => StartEdit(item))">
+                                        ✏️
+                                    </button>
+                                    <button type="button" class="btn-danger-custom" style="padding: 4px 8px;" title="Ta bort vara" @onclick="@(() => DeleteItem(item.Id))">
+                                        ✕
+                                    </button>
+                                </div>
+                            }
+                        </li>
+                    }
+                </ul>
+
+                @if (items.Any(x => x.IsChecked))
+                {
+                    <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--rb-border);">
+                        <h4 style="font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--rb-text-muted); margin-bottom: 10px;">
+                            Redan i korgen (@items.Count(x => x.IsChecked))
+                        </h4>
+                        <ul class="ingredient-list">
+                            @foreach (var item in items.Where(x => x.IsChecked))
+                            {
+                                <li class="ingredient-item checked" style="justify-content: space-between; align-items: center;">
+                                    <div style="display: flex; align-items: center; gap: 12px; flex: 1; cursor: pointer;" @onclick="@(() => ToggleItem(item.Id))">
+                                        <input type="checkbox" checked="@item.IsChecked" style="accent-color: var(--rb-accent); width: 18px; height: 18px;" />
+                                        <span>@item.RawText</span>
+                                    </div>
+                                    <button type="button" class="btn-danger-custom" style="padding: 4px 8px;" title="Ta bort vara" @onclick="@(() => DeleteItem(item.Id))">
+                                        ✕
+                                    </button>
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<ShoppingListItem> items = new();
+    private List<Recipe> recipes = new();
+    private bool isLoading = true;
+    private bool showClearAllConfirm = false;
+
+    private string manualInput = string.Empty;
+    private int selectedRecipeId = 0;
+    private int selectedRecipeServings = 4;
+
+    private int? editingItemId;
+    private decimal? editQuantity;
+    private string? editUnit;
+    private string editName = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        items = await ShoppingListService.GetItemsAsync();
+        recipes = await RecipeService.GetRecipesAsync();
+        isLoading = false;
+    }
+
+    private void OnSelectedRecipeChanged()
+    {
+        var rec = recipes.FirstOrDefault(r => r.Id == selectedRecipeId);
+        if (rec != null)
+        {
+            selectedRecipeServings = rec.Servings;
+        }
+    }
+
+    private async Task HandleManualKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(manualInput))
+        {
+            await AddManualItem();
+        }
+    }
+
+    private async Task AddManualItem()
+    {
+        if (string.IsNullOrWhiteSpace(manualInput))
+            return;
+
+        try
+        {
+            await ShoppingListService.AddManualItemAsync(manualInput);
+            manualInput = string.Empty;
+            items = await ShoppingListService.GetItemsAsync();
+            ToastService.ShowSuccess("Varan lades till i inköpslistan.");
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError(ex.Message);
+        }
+    }
+
+    private async Task AddSelectedRecipeToShoppingList()
+    {
+        if (selectedRecipeId <= 0)
+            return;
+
+        try
+        {
+            var count = await ShoppingListService.AddRecipeIngredientsAsync(selectedRecipeId, selectedRecipeServings);
+            items = await ShoppingListService.GetItemsAsync();
+            ToastService.ShowSuccess($"{count} ingredienser lades till i inköpslistan.");
+            selectedRecipeId = 0;
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError(ex.Message);
+        }
+    }
+
+    private async Task ToggleItem(int id)
+    {
+        await ShoppingListService.ToggleCheckedAsync(id);
+        items = await ShoppingListService.GetItemsAsync();
+    }
+
+    private void StartEdit(ShoppingListItem item)
+    {
+        editingItemId = item.Id;
+        editQuantity = item.Quantity;
+        editUnit = item.Unit;
+        editName = item.Name;
+    }
+
+    private void CancelEdit()
+    {
+        editingItemId = null;
+    }
+
+    private async Task SaveEdit(int id)
+    {
+        try
+        {
+            await ShoppingListService.UpdateItemAsync(id, editQuantity, editUnit, editName);
+            editingItemId = null;
+            items = await ShoppingListService.GetItemsAsync();
+            ToastService.ShowSuccess("Varan uppdaterades.");
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError(ex.Message);
+        }
+    }
+
+    private async Task DeleteItem(int id)
+    {
+        await ShoppingListService.DeleteItemAsync(id);
+        items = await ShoppingListService.GetItemsAsync();
+    }
+
+    private async Task ClearCheckedItems()
+    {
+        var count = await ShoppingListService.ClearCheckedItemsAsync();
+        items = await ShoppingListService.GetItemsAsync();
+        ToastService.ShowSuccess($"{count} köpta varor rensades.");
+    }
+
+    private async Task ConfirmClearAll()
+    {
+        showClearAllConfirm = false;
+        await ShoppingListService.ClearAllItemsAsync();
+        items = await ShoppingListService.GetItemsAsync();
+        ToastService.ShowSuccess("Inköpslistan har tömts.");
+    }
+}

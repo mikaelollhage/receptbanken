@@ -1,0 +1,253 @@
+@page "/recept/{id:int}/laga"
+@implements IAsyncDisposable
+@inject RecipeService RecipeService
+@inject ServingCalculator ServingCalculator
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Matlagningsläge: @(recipe?.Title ?? "Recept") — Receptbanken</PageTitle>
+
+@if (isLoading)
+{
+    <div style="display: flex; justify-content: center; padding: 80px;">
+        <FluentProgressRing />
+    </div>
+}
+else if (recipe == null)
+{
+    <div class="empty-state">
+        <div class="empty-state-icon">🍳</div>
+        <h3 class="empty-state-title">Receptet hittades inte</h3>
+        <a href="/" class="btn-primary-custom">Tillbaka till översikten</a>
+    </div>
+}
+else
+{
+    <div class="cooking-mode-container" style="max-width: 960px; margin: 0 auto;">
+        <!-- Top Header Bar -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+            <div>
+                <a href="@($"/recept/{recipe.Id}")" class="btn-secondary-custom" style="margin-bottom: 8px;">
+                    ← Avsluta matlagningsläge
+                </a>
+                <h1 style="font-size: 26px; font-weight: 700; color: var(--rb-text-primary); margin-top: 6px;">
+                    👨‍🍳 @recipe.Title
+                </h1>
+            </div>
+
+            <div style="display: flex; gap: 10px; align-items: center;">
+                @if (wakeLockActive)
+                {
+                    <span class="category-badge" style="background: rgba(74, 222, 128, 0.12); color: #4ade80; border-color: rgba(74, 222, 128, 0.3);">
+                        🔆 Skärmlås aktivt
+                    </span>
+                }
+                <button type="button" class="btn-secondary-custom" @onclick="ToggleIngredientsDrawer">
+                    🥗 @(showIngredients ? "Dölj ingredienser" : $"Visa ingredienser ({recipe.Ingredients.Count})")
+                </button>
+            </div>
+        </div>
+
+        <!-- Progress Indicator -->
+        @if (steps.Count > 0)
+        {
+            var progressPercent = (int)Math.Round(((double)(currentStepIndex + 1) / steps.Count) * 100);
+            <div style="margin-bottom: 24px;">
+                <div style="display: flex; justify-content: space-between; font-size: 14px; font-weight: 600; color: var(--rb-text-secondary); margin-bottom: 8px;">
+                    <span>Steg @(currentStepIndex + 1) av @steps.Count</span>
+                    <span style="color: var(--rb-accent-gold);">@progressPercent%</span>
+                </div>
+                <div style="width: 100%; height: 10px; background: var(--rb-bg-elevated); border-radius: 999px; overflow: hidden; border: 1px solid var(--rb-border);">
+                    <div style="width: @(progressPercent)%; height: 100%; background: linear-gradient(90deg, var(--rb-accent), var(--rb-accent-gold)); transition: width 0.25s ease;"></div>
+                </div>
+            </div>
+        }
+
+        <div class="cooking-mode-grid @(showIngredients ? "with-ingredients" : "")">
+            @if (showIngredients)
+            {
+                <div class="detail-card cooking-ingredients-drawer">
+                    <div class="detail-card-title">
+                        <span>Ingredienser</span>
+                        <ServingAdjuster CurrentServings="currentServings"
+                                         Unit="@recipe.ServingsUnit"
+                                         OnServingsChanged="@(s => currentServings = s)" />
+                    </div>
+                    <ul class="ingredient-list">
+                        @for (int i = 0; i < recipe.Ingredients.Count; i++)
+                        {
+                            var ing = recipe.Ingredients[i];
+                            var idx = i;
+                            var isChecked = checkedIngredients.Contains(idx);
+                            <li class="ingredient-item @(isChecked ? "checked" : "")" @onclick="@(() => ToggleIngredient(idx))">
+                                <input type="checkbox" checked="@isChecked" style="margin-top: 4px; accent-color: var(--rb-accent);" />
+                                <div>
+                                    <span style="font-weight: 700; color: var(--rb-accent-gold);">
+                                        @ServingCalculator.FormatScaledIngredientPrefix(ing, recipe.Servings, currentServings)
+                                    </span>
+                                    <span>@ing.Name</span>
+                                    @if (!string.IsNullOrWhiteSpace(ing.Comment))
+                                    {
+                                        <span style="color: var(--rb-text-muted); font-size: 0.95em;"> (@ing.Comment)</span>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(ing.Preparation))
+                                    {
+                                        <span style="color: var(--rb-text-muted); font-style: italic;">, @ing.Preparation</span>
+                                    }
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <!-- Active Step Card -->
+            <div class="detail-card cooking-active-step-card">
+                @if (steps.Count == 0)
+                {
+                    <p style="font-size: 18px; color: var(--rb-text-secondary);">Inga instruktionssteg finns i detta recept.</p>
+                }
+                else
+                {
+                    var activeStep = steps[currentStepIndex];
+                    <div>
+                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
+                            <div class="step-number" style="width: 44px; height: 44px; font-size: 20px;">
+                                @(currentStepIndex + 1)
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(activeStep.GroupHeader))
+                            {
+                                <span style="font-size: 16px; font-weight: 600; color: var(--rb-accent-gold);">
+                                    @activeStep.GroupHeader
+                                </span>
+                            }
+                        </div>
+
+                        <p class="cooking-step-text" style="font-size: 24px; line-height: 1.6; color: var(--rb-text-primary); margin-bottom: 36px;">
+                            @activeStep.InstructionText
+                        </p>
+                    </div>
+
+                    <!-- Step Navigation Controls -->
+                    <div class="cooking-step-nav">
+                        <button type="button"
+                                class="btn-secondary-custom"
+                                style="padding: 14px 24px; font-size: 16px;"
+                                disabled="@(currentStepIndex == 0)"
+                                @onclick="PreviousStep">
+                            ← Föregående steg
+                        </button>
+
+                        @if (currentStepIndex < steps.Count - 1)
+                        {
+                            <button type="button"
+                                    class="btn-primary-custom"
+                                    style="padding: 14px 28px; font-size: 16px;"
+                                    @onclick="NextStep">
+                                Nästa steg →
+                            </button>
+                        }
+                        else
+                        {
+                            <a href="@($"/recept/{recipe.Id}")"
+                               class="btn-primary-custom"
+                               style="padding: 14px 28px; font-size: 16px; background: #16a34a;">
+                                🎉 Klart! Tillbaka till receptet
+                            </a>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    [SupplyParameterFromQuery(Name = "portioner")] public int? InitialServings { get; set; }
+
+    private Recipe? recipe;
+    private List<InstructionStep> steps = new();
+    private int currentStepIndex = 0;
+    private int currentServings = 4;
+    private bool showIngredients = false;
+    private bool isLoading = true;
+    private bool wakeLockActive = false;
+    private HashSet<int> checkedIngredients = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isLoading = true;
+        recipe = await RecipeService.GetRecipeByIdAsync(Id);
+        if (recipe != null)
+        {
+            steps = recipe.Instructions.OrderBy(s => s.StepNumber).ToList();
+            currentServings = InitialServings.HasValue && InitialServings.Value > 0
+                ? InitialServings.Value
+                : recipe.Servings;
+            currentStepIndex = 0;
+        }
+        isLoading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                wakeLockActive = await JSRuntime.InvokeAsync<bool>("receptbanken.requestWakeLock");
+                if (wakeLockActive)
+                {
+                    StateHasChanged();
+                }
+            }
+            catch
+            {
+                // Ignore if JS interop or WakeLock is unavailable
+            }
+        }
+    }
+
+    private void NextStep()
+    {
+        if (currentStepIndex < steps.Count - 1)
+        {
+            currentStepIndex++;
+        }
+    }
+
+    private void PreviousStep()
+    {
+        if (currentStepIndex > 0)
+        {
+            currentStepIndex--;
+        }
+    }
+
+    private void ToggleIngredientsDrawer()
+    {
+        showIngredients = !showIngredients;
+    }
+
+    private void ToggleIngredient(int index)
+    {
+        if (!checkedIngredients.Remove(index))
+        {
+            checkedIngredients.Add(index);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("receptbanken.releaseWakeLock");
+        }
+        catch
+        {
+            // Ignore disconnected circuit or test environment
+        }
+    }
+}
+

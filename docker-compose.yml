@@ -1,0 +1,32 @@
+services:
+  receptbanken:
+    image: receptbanken:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: receptbanken
+    restart: unless-stopped
+    stop_grace_period: 15s
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - Storage__DataPath=/app/data
+      - Security__EnableHttpsRedirection=false
+      - TZ=Europe/Stockholm
+    volumes:
+      # Persistent volume for SQLite database (receptbanken.db), images, and DataProtection keys
+      - receptbanken-data:/app/data
+    healthcheck:
+      test: ["CMD", "dotnet", "Receptbanken.Web.dll", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  receptbanken-data:
+    name: receptbanken-data
+
+

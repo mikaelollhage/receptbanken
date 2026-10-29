@@ -1,0 +1,359 @@
+@page "/recept/{id:int}"
+@inject RecipeService RecipeService
+@inject ShoppingListService ShoppingListService
+@inject ServingCalculator ServingCalculator
+@inject NavigationManager Navigation
+@inject IToastService ToastService
+@inject AppNotificationService NotificationService
+
+<PageTitle>@(recipe?.Title ?? "Recept") — Receptbanken</PageTitle>
+
+@if (isLoading)
+{
+    <div style="display: flex; justify-content: center; padding: 80px;">
+        <FluentProgressRing />
+    </div>
+}
+else if (recipe == null)
+{
+    <div class="empty-state">
+        <div class="empty-state-icon">🔍</div>
+        <h3 class="empty-state-title">Receptet hittades inte</h3>
+        <p class="empty-state-desc">Receptet du söker kan ha raderats eller så är länken ogiltig.</p>
+        <a href="/" class="btn-primary-custom">Tillbaka till översikten</a>
+    </div>
+}
+else
+{
+    <!-- Hero Banner -->
+    <div class="recipe-detail-hero">
+        @if (!string.IsNullOrWhiteSpace(recipe.ImagePath) && !imageLoadFailed)
+        {
+            <img src="@($"/{recipe.ImagePath}")" alt="@recipe.Title" class="recipe-detail-hero-img" @onerror="HandleImageError" />
+        }
+        else
+        {
+            <div class="recipe-card-placeholder" style="border-radius: var(--rb-radius-lg);">
+                🍲
+            </div>
+        }
+
+        <div class="recipe-detail-hero-overlay">
+            <div>
+                @if (recipe.RecipeCategories.Count > 0)
+                {
+                    <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">
+                        @foreach (var rc in recipe.RecipeCategories)
+                        {
+                            <CategoryBadge Name="@rc.Category.Name" ColorHex="@rc.Category.ColorHex" />
+                        }
+                    </div>
+                }
+                <h1 style="font-size: 32px; font-weight: 700; color: #fff; margin-bottom: 8px;">
+                    @recipe.Title
+                </h1>
+                @if (!string.IsNullOrWhiteSpace(recipe.Description))
+                {
+                    <p style="color: var(--rb-text-secondary); max-width: 700px; font-size: 15px;">
+                        @recipe.Description
+                    </p>
+                }
+            </div>
+
+            <div style="display: flex; gap: 10px;">
+                <button type="button" class="btn-secondary-custom" @onclick="ToggleFavorite" title="Favorit">
+                    @if (recipe.IsFavorite)
+                    {
+                        <FluentIcon Value="@(new Icons.Filled.Size20.Star())" Color="Color.Custom" CustomColor="var(--rb-accent-gold)" />
+                        <span>Favorit</span>
+                    }
+                    else
+                    {
+                        <FluentIcon Value="@(new Icons.Regular.Size20.Star())" Color="Color.Neutral" />
+                        <span>Spara som favorit</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Action Toolbar & Metadata -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; flex-wrap: wrap; gap: 16px;">
+        <div style="display: flex; gap: 20px; align-items: center; font-size: 14px; color: var(--rb-text-secondary);">
+            @if (recipe.PrepTimeMinutes.HasValue)
+            {
+                <div class="meta-item">
+                    <FluentIcon Value="@(new Icons.Regular.Size16.Clock())" Color="Color.Neutral" />
+                    <span>Förb: @recipe.PrepTimeMinutes min</span>
+                </div>
+            }
+            @if (recipe.CookTimeMinutes.HasValue)
+            {
+                <div class="meta-item">
+                    <FluentIcon Value="@(new Icons.Regular.Size16.Timer())" Color="Color.Neutral" />
+                    <span>Tillagning: @recipe.CookTimeMinutes min</span>
+                </div>
+            }
+            @if (!string.IsNullOrWhiteSpace(recipe.SourceUrl))
+            {
+                <div class="meta-item">
+                    <FluentIcon Value="@(new Icons.Regular.Size16.Link())" Color="Color.Neutral" />
+                    <a href="@recipe.SourceUrl" target="_blank" rel="noopener noreferrer">
+                        @(string.IsNullOrWhiteSpace(recipe.SourceHost) ? "Källänk" : recipe.SourceHost)
+                    </a>
+                </div>
+            }
+        </div>
+
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            @if (recipe.Instructions.Count > 0)
+            {
+                <a href="@($"/recept/{recipe.Id}/laga?portioner={currentServings}")" class="btn-primary-custom">
+                    👨‍🍳 Starta matlagningsläge
+                </a>
+            }
+            <a href="@($"/recept/{recipe.Id}/redigera")" class="btn-secondary-custom">
+                <FluentIcon Value="@(new Icons.Regular.Size16.Edit())" Color="Color.Neutral" /> Redigera
+            </a>
+            <button type="button" class="btn-secondary-custom" @onclick="DuplicateRecipe">
+                <FluentIcon Value="@(new Icons.Regular.Size16.Copy())" Color="Color.Neutral" /> Duplicera
+            </button>
+            <button type="button" class="btn-danger-custom" @onclick="@(() => showDeleteConfirm = true)">
+                <FluentIcon Value="@(new Icons.Regular.Size16.Delete())" Color="Color.Error" /> Radera
+            </button>
+        </div>
+    </div>
+
+    <ConfirmDialog IsVisible="showDeleteConfirm"
+                   Title="Radera recept"
+                   Message="@($"Är du säker på att du vill radera '{recipe.Title}' permanent? Detta går inte att ångra.")"
+                   ConfirmText="Ja, radera recept"
+                   CancelText="Avbryt"
+                   OnConfirm="ConfirmDeleteRecipe"
+                   OnCancel="@(() => showDeleteConfirm = false)" />
+
+    <!-- Main Content Grid -->
+    <div class="recipe-detail-grid">
+        <!-- Vänster kolumn: Ingredienser & Portionsjusterare -->
+        <div>
+            <div class="detail-card">
+                <div class="detail-card-title">
+                    <span>Ingredienser</span>
+                    <ServingAdjuster CurrentServings="currentServings" Unit="@recipe.ServingsUnit"
+                                     OnServingsChanged="HandleServingsChanged" />
+                </div>
+
+                @if (recipe.Ingredients.Count == 0)
+                {
+                    <p style="color: var(--rb-text-muted); font-size: 14px;">Inga ingredienser angivna.</p>
+                }
+                else
+                {
+                    <ul class="ingredient-list">
+                        @{
+                            string? currentGroup = null;
+                        }
+                        @for (int i = 0; i < recipe.Ingredients.Count; i++)
+                        {
+                            var ing = recipe.Ingredients[i];
+                            var index = i;
+
+                            if (!string.IsNullOrWhiteSpace(ing.GroupHeader) && ing.GroupHeader != currentGroup)
+                            {
+                                currentGroup = ing.GroupHeader;
+                                <li style="font-weight: 700; font-size: 14px; color: var(--rb-accent-gold); margin-top: 12px; margin-bottom: 4px; list-style: none;">
+                                    @currentGroup
+                                </li>
+                            }
+
+                            var isChecked = checkedIngredients.Contains(index);
+                            <li class="ingredient-item @(isChecked ? "checked" : "")" @onclick="@(() => ToggleIngredientCheck(index))">
+                                <input type="checkbox" checked="@isChecked" style="margin-top: 4px; accent-color: var(--rb-accent);" />
+                                <div>
+                                    <span style="font-weight: 600;">@GetScaledQuantityText(ing)</span>
+                                    <span>@ing.Name</span>
+                                    @if (!string.IsNullOrWhiteSpace(ing.Comment))
+                                    {
+                                        <span style="color: var(--rb-text-muted); font-size: 0.95em;"> (@ing.Comment)</span>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(ing.Preparation))
+                                    {
+                                        <span style="color: var(--rb-text-muted); font-style: italic;">, @ing.Preparation</span>
+                                    }
+                                </div>
+                            </li>
+                        }
+                    </ul>
+
+                    <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--rb-border);">
+                        <button type="button" class="btn-secondary-custom" style="width: 100%; justify-content: center;" @onclick="AddToShoppingList">
+                            🛒 Lägg till i inköpslista (@currentServings @recipe.ServingsUnit)
+                        </button>
+                    </div>
+                }
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(recipe.Notes))
+            {
+                <div class="detail-card" style="margin-top: 24px; border-left: 4px solid var(--rb-accent-gold);">
+                    <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 8px; color: var(--rb-accent-gold); display: flex; align-items: center; gap: 6px;">
+                        💡 Kockens anteckningar
+                    </h3>
+                    <p style="font-size: 14px; color: var(--rb-text-primary); white-space: pre-wrap;">
+                        @recipe.Notes
+                    </p>
+                </div>
+            }
+        </div>
+
+        <!-- Höger kolumn: Instruktioner -->
+        <div>
+            <div class="detail-card">
+                <div class="detail-card-title">
+                    <span>Instruktioner</span>
+                    <span style="font-size: 13px; color: var(--rb-text-muted); font-weight: normal;">
+                        @recipe.Instructions.Count steg
+                    </span>
+                </div>
+
+                @if (recipe.Instructions.Count == 0)
+                {
+                    <p style="color: var(--rb-text-muted); font-size: 14px;">Inga instruktionssteg angivna.</p>
+                }
+                else
+                {
+                    <div class="step-list">
+                        @{
+                            string? currentStepGroup = null;
+                        }
+                        @foreach (var step in recipe.Instructions)
+                        {
+                            if (!string.IsNullOrWhiteSpace(step.GroupHeader) && step.GroupHeader != currentStepGroup)
+                            {
+                                currentStepGroup = step.GroupHeader;
+                                <h4 style="font-size: 16px; font-weight: 600; color: var(--rb-accent-gold); margin-top: 10px;">
+                                    @currentStepGroup
+                                </h4>
+                            }
+
+                            <div class="step-item">
+                                <div class="step-number">@step.StepNumber</div>
+                                <div class="step-text">@step.InstructionText</div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    [Parameter, SupplyParameterFromQuery] public bool Saved { get; set; }
+
+    private Recipe? recipe;
+    private int currentServings = 4;
+    private HashSet<int> checkedIngredients = new();
+    private bool isLoading = true;
+    private bool showDeleteConfirm = false;
+    private bool imageLoadFailed = false;
+
+    private void HandleImageError()
+    {
+        imageLoadFailed = true;
+        StateHasChanged();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadRecipe();
+        if (Saved && !NotificationService.HasNotification && recipe != null)
+        {
+            NotificationService.ShowSuccess("Receptet har sparats!", $"Receptet '{recipe.Title}' har sparats i din receptbank och är redo att användas.");
+        }
+    }
+
+    private async Task LoadRecipe()
+    {
+        isLoading = true;
+        recipe = await RecipeService.GetRecipeByIdAsync(Id);
+        if (recipe != null)
+        {
+            currentServings = recipe.Servings;
+            checkedIngredients.Clear();
+        }
+        isLoading = false;
+    }
+
+    private void HandleServingsChanged(int newServings)
+    {
+        currentServings = newServings;
+    }
+
+    private string GetScaledQuantityText(Ingredient ing)
+    {
+        if (recipe == null) return string.Empty;
+        return ServingCalculator.FormatScaledIngredientPrefix(ing, recipe.Servings, currentServings);
+    }
+
+    private async Task AddToShoppingList()
+    {
+        if (recipe == null) return;
+        try
+        {
+            var count = await ShoppingListService.AddRecipeIngredientsAsync(recipe.Id, currentServings);
+            ToastService.ShowSuccess($"{count} ingredienser lades till i inköpslistan.");
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError(ex.Message);
+        }
+    }
+
+    private void ToggleIngredientCheck(int index)
+    {
+        if (checkedIngredients.Contains(index))
+            checkedIngredients.Remove(index);
+        else
+            checkedIngredients.Add(index);
+    }
+
+    private async Task ToggleFavorite()
+    {
+        if (recipe == null) return;
+        recipe.IsFavorite = await RecipeService.ToggleFavoriteAsync(recipe.Id);
+    }
+
+    private async Task DuplicateRecipe()
+    {
+        if (recipe == null) return;
+        try
+        {
+            var copy = await RecipeService.DuplicateRecipeAsync(recipe.Id);
+            ToastService.ShowSuccess($"Receptet duplicerades som '{copy.Title}'.");
+            Navigation.NavigateTo($"/recept/{copy.Id}");
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError(ex.Message);
+        }
+    }
+
+    private async Task ConfirmDeleteRecipe()
+    {
+        showDeleteConfirm = false;
+        if (recipe == null) return;
+        try
+        {
+            await RecipeService.DeleteRecipeAsync(recipe.Id);
+            ToastService.ShowSuccess("Receptet har raderats.");
+            Navigation.NavigateTo("/");
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError(ex.Message);
+        }
+    }
+}
+

@@ -1,0 +1,206 @@
+@page "/kategorier"
+@inject CategoryService CategoryService
+@inject IToastService ToastService
+
+<PageTitle>Kategorier — Receptbanken</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">🏷️ Kategorier</h1>
+        <p class="page-subtitle">Organisera dina recept med anpassade taggar och färger.</p>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 32px; align-items: start;">
+    <!-- Form för att skapa eller redigera -->
+    <div class="form-section">
+        <h2 class="form-section-title">
+            @(editingCategoryId.HasValue ? "Redigera kategori" : "Skapa ny kategori")
+        </h2>
+
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+            <FluentTextField @bind-Value="formName" Label="Kategorinamn" Placeholder="t.ex. Snabblunch, Helgmiddag" Style="width: 100%;" />
+
+            <div>
+                <label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--rb-text-secondary);">
+                    Välj färgkod
+                </label>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                    @foreach (var color in presetColors)
+                    {
+                        <div @onclick="@(() => formColor = color)"
+                             style="width: 32px; height: 32px; border-radius: 50%; background-color: @color; cursor: pointer; border: 2px solid @(formColor == color ? "#fff" : "transparent"); transition: transform 0.15s;"
+                             title="@color">
+                        </div>
+                    }
+                    <input type="color" @bind="formColor" style="background: none; border: 1px solid var(--rb-border); border-radius: 4px; width: 36px; height: 36px; cursor: pointer;" />
+                </div>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(formName))
+            {
+                <div style="margin-top: 8px;">
+                    <span style="font-size: 13px; color: var(--rb-text-muted); display: block; margin-bottom: 6px;">Förhandsvisning:</span>
+                    <CategoryBadge Name="@formName" ColorHex="@formColor" />
+                </div>
+            }
+
+            <div style="display: flex; gap: 10px; margin-top: 8px;">
+                <button type="button" class="btn-primary-custom" @onclick="SaveCategory" disabled="@string.IsNullOrWhiteSpace(formName)">
+                    @(editingCategoryId.HasValue ? "Spara ändringar" : "Lägg till kategori")
+                </button>
+                @if (editingCategoryId.HasValue)
+                {
+                    <button type="button" class="btn-secondary-custom" @onclick="CancelEdit">
+                        Avbryt
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Lista över befintliga kategorier -->
+    <div class="detail-card">
+        <h2 class="detail-card-title">Befintliga kategorier (@categories.Count)</h2>
+
+        @if (isLoading)
+        {
+            <FluentProgressRing />
+        }
+        else if (categories.Count == 0)
+        {
+            <p style="color: var(--rb-text-muted); font-size: 14px;">Inga kategorier skapade än.</p>
+        }
+        else
+        {
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+                @foreach (var cat in categories)
+                {
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background-color: var(--rb-bg-surface); border: 1px solid var(--rb-border); border-radius: var(--rb-radius-md);">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="category-dot" style="background-color: @cat.ColorHex; width: 12px; height: 12px;"></span>
+                            <span style="font-weight: 600; font-size: 15px;">@cat.Name</span>
+                            <span style="font-size: 13px; color: var(--rb-text-muted);">(@cat.RecipeCount recept)</span>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button type="button" class="btn-secondary-custom" style="padding: 4px 10px; font-size: 12px;" @onclick="@(() => StartEdit(cat))">
+                                Redigera
+                            </button>
+                            <button type="button" class="btn-danger-custom" style="padding: 4px 10px; font-size: 12px;" @onclick="@(() => PromptDeleteCategory(cat))">
+                                Radera
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<ConfirmDialog IsVisible="@(categoryToDelete != null)"
+               Title="Radera kategori"
+               Message="@(categoryToDelete != null ? $"Är du säker på att du vill radera kategorin '{categoryToDelete.Name}'?" : "")"
+               ConfirmText="Ja, radera"
+               CancelText="Avbryt"
+               OnConfirm="ConfirmDeleteCategory"
+               OnCancel="@(() => categoryToDelete = null)" />
+
+@code {
+    private List<CategoryWithCountDto> categories = new();
+    private bool isLoading = true;
+
+    private int? editingCategoryId = null;
+    private string formName = string.Empty;
+    private string formColor = "#e07a5f";
+    private CategoryWithCountDto? categoryToDelete = null;
+
+    private readonly List<string> presetColors = new()
+    {
+        "#e07a5f", "#f2a65a", "#e76f51", "#2a9d8f", "#264653", "#e9c46a", "#8ab17d", "#9d4edd", "#3a86ff"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCategories();
+    }
+
+    private async Task LoadCategories()
+    {
+        isLoading = true;
+        categories = await CategoryService.GetCategoriesAsync();
+        isLoading = false;
+    }
+
+    private void StartEdit(CategoryWithCountDto cat)
+    {
+        editingCategoryId = cat.Id;
+        formName = cat.Name;
+        formColor = cat.ColorHex ?? "#e07a5f";
+    }
+
+    private void CancelEdit()
+    {
+        editingCategoryId = null;
+        formName = string.Empty;
+        formColor = "#e07a5f";
+    }
+
+    private async Task SaveCategory()
+    {
+        if (string.IsNullOrWhiteSpace(formName)) return;
+
+        try
+        {
+            if (editingCategoryId.HasValue)
+            {
+                await CategoryService.UpdateCategoryAsync(new Category
+                {
+                    Id = editingCategoryId.Value,
+                    Name = formName,
+                    ColorHex = formColor
+                });
+                ToastService.ShowSuccess($"Kategorin '{formName}' har uppdaterats.");
+            }
+            else
+            {
+                await CategoryService.CreateCategoryAsync(new Category
+                {
+                    Name = formName,
+                    ColorHex = formColor
+                });
+                ToastService.ShowSuccess($"Kategorin '{formName}' har skapats.");
+            }
+
+            CancelEdit();
+            await LoadCategories();
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError(ex.Message);
+        }
+    }
+
+    private void PromptDeleteCategory(CategoryWithCountDto cat)
+    {
+        categoryToDelete = cat;
+    }
+
+    private async Task ConfirmDeleteCategory()
+    {
+        if (categoryToDelete == null) return;
+        var cat = categoryToDelete;
+        categoryToDelete = null;
+
+        try
+        {
+            await CategoryService.DeleteCategoryAsync(cat.Id);
+            ToastService.ShowSuccess($"Kategorin '{cat.Name}' har raderats.");
+            await LoadCategories();
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError(ex.Message);
+        }
+    }
+}
+

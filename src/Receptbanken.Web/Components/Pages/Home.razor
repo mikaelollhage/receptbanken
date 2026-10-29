@@ -1,0 +1,152 @@
+@page "/"
+@inject RecipeService RecipeService
+@inject CategoryService CategoryService
+@inject NavigationManager Navigation
+
+<PageTitle>Alla recept — Receptbanken</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Receptöversikt</h1>
+        <p class="page-subtitle">Hitta inspiration och bläddra bland dina sparade favoriter.</p>
+    </div>
+    <div style="display: flex; gap: 12px;">
+        <a href="/importera" class="btn-secondary-custom">
+            <FluentIcon Value="@(new Icons.Regular.Size16.ArrowDownload())" Color="Color.Neutral" /> Importera från länk
+        </a>
+    </div>
+</div>
+
+<div class="filter-bar">
+    <div class="filter-row">
+        <div style="flex: 1; min-width: 260px;">
+            <FluentSearch @bind-Value="searchQuery" @bind-Value:after="FilterRecipes"
+                          Placeholder="Sök bland recept, ingredienser eller kategorier..."
+                          Style="width: 100%;" />
+        </div>
+        <div style="min-width: 180px;">
+            <FluentSelect TOption="string" @bind-Value="selectedSort" @bind-Value:after="SortRecipes" Style="width: 100%;">
+                <FluentOption Value="newest">Senast skapade</FluentOption>
+                <FluentOption Value="favorites">Favoriter först</FluentOption>
+                <FluentOption Value="time">Snabbast tillagning</FluentOption>
+                <FluentOption Value="title">Bokstavsordning (A-Ö)</FluentOption>
+            </FluentSelect>
+        </div>
+    </div>
+
+    @if (categories.Count > 0)
+    {
+        <div class="category-scroll-container">
+            <CategoryBadge Name="Alla kategorier" IsActive="@(!selectedCategoryId.HasValue)"
+                           OnClick="@(() => SelectCategory(null))" />
+            @foreach (var cat in categories)
+            {
+                <CategoryBadge Name="@cat.Name" ColorHex="@cat.ColorHex" Count="@cat.RecipeCount"
+                               IsActive="@(selectedCategoryId == cat.Id)"
+                               OnClick="@(() => SelectCategory(cat.Id))" />
+            }
+        </div>
+    }
+</div>
+
+@if (isLoading)
+{
+    <div style="display: flex; justify-content: center; padding: 60px;">
+        <FluentProgressRing />
+    </div>
+}
+else if (filteredRecipes.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-state-icon">🍽️</div>
+        <h3 class="empty-state-title">Inga recept hittades</h3>
+        <p class="empty-state-desc">
+            @(string.IsNullOrWhiteSpace(searchQuery) && !selectedCategoryId.HasValue 
+                ? "Du har inte lagt till några recept än. Skapa ditt första recept eller importera från en webblänk!" 
+                : "Inga recept matchade din sökning eller det valda kategorifiltret.")
+        </p>
+        <div style="display: flex; justify-content: center; gap: 12px;">
+            <a href="/recept/ny" class="btn-primary-custom">Skapa recept</a>
+            <a href="/importera" class="btn-secondary-custom">Importera från länk</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="recipe-grid">
+        @foreach (var recipe in filteredRecipes)
+        {
+            <RecipeCard Recipe="recipe" OnFavoriteToggled="HandleFavoriteToggled" />
+        }
+    </div>
+}
+
+@code {
+    private List<Recipe> allRecipes = new();
+    private List<Recipe> filteredRecipes = new();
+    private List<CategoryWithCountDto> categories = new();
+    private string searchQuery = string.Empty;
+    private int? selectedCategoryId = null;
+    private string selectedSort = "newest";
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        categories = await CategoryService.GetCategoriesAsync();
+        allRecipes = await RecipeService.GetRecipesAsync();
+        FilterRecipes();
+        isLoading = false;
+    }
+
+    private void SelectCategory(int? categoryId)
+    {
+        selectedCategoryId = categoryId;
+        FilterRecipes();
+    }
+
+    private void FilterRecipes()
+    {
+        var query = allRecipes.AsEnumerable();
+
+        if (selectedCategoryId.HasValue && selectedCategoryId.Value > 0)
+        {
+            query = query.Where(r => r.RecipeCategories.Any(rc => rc.CategoryId == selectedCategoryId.Value));
+        }
+
+        if (!string.IsNullOrWhiteSpace(searchQuery))
+        {
+            var term = searchQuery.Trim().ToLower();
+            query = query.Where(r =>
+                r.Title.ToLower().Contains(term) ||
+                (r.Description != null && r.Description.ToLower().Contains(term)) ||
+                r.Ingredients.Any(i => i.Name.ToLower().Contains(term) || i.RawText.ToLower().Contains(term)) ||
+                r.RecipeCategories.Any(rc => rc.Category.Name.ToLower().Contains(term)));
+        }
+
+        filteredRecipes = query.ToList();
+        SortRecipes();
+    }
+
+    private void SortRecipes()
+    {
+        filteredRecipes = selectedSort switch
+        {
+            "favorites" => filteredRecipes.OrderByDescending(r => r.IsFavorite).ThenByDescending(r => r.CreatedAt).ToList(),
+            "time" => filteredRecipes.OrderBy(r => r.TotalTimeMinutes ?? int.MaxValue).ThenBy(r => r.Title).ToList(),
+            "title" => filteredRecipes.OrderBy(r => r.Title).ToList(),
+            _ => filteredRecipes.OrderByDescending(r => r.CreatedAt).ToList(),
+        };
+    }
+
+    private async Task HandleFavoriteToggled(Recipe recipe)
+    {
+        // Re-evaluate counts if needed
+        categories = await CategoryService.GetCategoriesAsync();
+    }
+}

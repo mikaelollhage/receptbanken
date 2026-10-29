@@ -1,0 +1,34 @@
+<div class="servings-adjuster">
+    <button type="button" class="servings-btn" @onclick="Decrement" disabled="@(CurrentServings <= 1)" title="Minska portioner">
+        -
+    </button>
+    <span class="servings-count">@CurrentServings @Unit</span>
+    <button type="button" class="servings-btn" @onclick="Increment" disabled="@(CurrentServings >= 50)" title="Öka portioner">
+        +
+    </button>
+</div>
+
+@code {
+    [Parameter] public int CurrentServings { get; set; } = 4;
+    [Parameter] public string Unit { get; set; } = "portioner";
+    [Parameter] public EventCallback<int> OnServingsChanged { get; set; }
+
+    private async Task Decrement()
+    {
+        if (CurrentServings > 1)
+        {
+            CurrentServings--;
+            await OnServingsChanged.InvokeAsync(CurrentServings);
+        }
+    }
+
+    private async Task Increment()
+    {
+        if (CurrentServings < 50)
+        {
+            CurrentServings++;
+            await OnServingsChanged.InvokeAsync(CurrentServings);
+        }
+    }
+}
+

@@ -1,0 +1,48 @@
+@if (IsVisible)
+{
+    <div class="modal-backdrop-custom" @onclick="Cancel">
+        <div class="modal-dialog-custom" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
+            <h3 id="confirm-dialog-title" style="font-size: 18px; font-weight: 600; margin-bottom: 10px; color: var(--rb-text-primary);">
+                @Title
+            </h3>
+            <p style="font-size: 14px; color: var(--rb-text-secondary); margin-bottom: 24px;">
+                @Message
+            </p>
+            <div style="display: flex; justify-content: flex-end; gap: 12px;">
+                <button type="button" class="btn-secondary-custom" @onclick="Cancel">
+                    @CancelText
+                </button>
+                <button type="button" class="btn-danger-custom" style="padding: 10px 18px; font-size: 14px;" @onclick="Confirm">
+                    @ConfirmText
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public string Title { get; set; } = "Bekräfta åtgärd";
+    [Parameter] public string Message { get; set; } = "Är du säker på att du vill fortsätta?";
+    [Parameter] public string ConfirmText { get; set; } = "Radera";
+    [Parameter] public string CancelText { get; set; } = "Avbryt";
+    [Parameter] public EventCallback OnConfirm { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private async Task Confirm()
+    {
+        if (OnConfirm.HasDelegate)
+        {
+            await OnConfirm.InvokeAsync();
+        }
+    }
+
+    private async Task Cancel()
+    {
+        if (OnCancel.HasDelegate)
+        {
+            await OnCancel.InvokeAsync();
+        }
+    }
+}
+

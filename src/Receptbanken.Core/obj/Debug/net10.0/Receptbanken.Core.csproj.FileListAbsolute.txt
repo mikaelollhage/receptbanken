@@ -1,0 +1,11 @@
+C:\Users\mikae\Documents\git\Receptbanken\src\Receptbanken.Core\bin\Debug\net10.0\Receptbanken.Core.deps.json
+C:\Users\mikae\Documents\git\Receptbanken\src\Receptbanken.Core\bin\Debug\net10.0\Receptbanken.Core.dll
+C:\Users\mikae\Documents\git\Receptbanken\src\Receptbanken.Core\bin\Debug\net10.0\Receptbanken.Core.pdb
+C:\Users\mikae\Documents\git\Receptbanken\src\Receptbanken.Core\obj\Debug\net10.0\Receptbanken.Core.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\mikae\Documents\git\Receptbanken\src\Receptbanken.Core\obj\Debug\net10.0\Receptbanken.Core.AssemblyInfoInputs.cache
+C:\Users\mikae\Documents\git\Receptbanken\src\Receptbanken.Core\obj\Debug\net10.0\Receptbanken.Core.AssemblyInfo.cs
+C:\Users\mikae\Documents\git\Receptbanken\src\Receptbanken.Core\obj\Debug\net10.0\Receptbanken.Core.csproj.CoreCompileInputs.cache
+C:\Users\mikae\Documents\git\Receptbanken\src\Receptbanken.Core\obj\Debug\net10.0\Receptbanken.Core.dll
+C:\Users\mikae\Documents\git\Receptbanken\src\Receptbanken.Core\obj\Debug\net10.0\refint\Receptbanken.Core.dll
+C:\Users\mikae\Documents\git\Receptbanken\src\Receptbanken.Core\obj\Debug\net10.0\Receptbanken.Core.pdb
+C:\Users\mikae\Documents\git\Receptbanken\src\Receptbanken.Core\obj\Debug\net10.0\ref\Receptbanken.Core.dll

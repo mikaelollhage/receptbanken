@@ -1,0 +1,441 @@
+@page "/recept/ny"
+@page "/recept/{Id:int}/redigera"
+@inject RecipeService RecipeService
+@inject CategoryService CategoryService
+@inject IImageStorageService ImageStorageService
+@inject NavigationManager Navigation
+@inject IToastService ToastService
+@inject AppNotificationService NotificationService
+
+<PageTitle>@(IsEditing ? $"Redigera {model.Title}" : "Skapa nytt recept") — Receptbanken</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">@(IsEditing ? "Redigera recept" : "Skapa nytt recept")</h1>
+        <p class="page-subtitle">Fyll i receptets ingredienser, tillagningstid och steg-för-steg-instruktioner.</p>
+    </div>
+    <div style="display: flex; gap: 12px;">
+        <button type="button" class="btn-secondary-custom" @onclick="Cancel">Avbryt</button>
+        <button type="button" class="btn-primary-custom" @onclick="SaveRecipe" disabled="@isSaving">
+            @(isSaving ? "Sparar..." : (IsEditing ? "Spara ändringar" : "Spara recept"))
+        </button>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <div style="display: flex; justify-content: center; padding: 60px;">
+        <FluentProgressRing />
+    </div>
+}
+else
+{
+    <div style="display: flex; flex-direction: column; gap: 24px;">
+        <!-- Grunduppgifter -->
+        <div class="form-section">
+            <h2 class="form-section-title">Grunduppgifter</h2>
+
+            <div style="display: flex; flex-direction: column; gap: 16px;">
+                <FluentTextField @bind-Value="model.Title" Label="Titel på receptet *" Required="true"
+                                  Placeholder="t.ex. Hemgjord Lasagne al Forno" Style="width: 100%;" />
+
+                <FluentTextArea @bind-Value="model.Description" Label="Kort beskrivning"
+                                 Placeholder="Beskriv rätten med några meningar..." Style="width: 100%;" Rows="3" />
+
+                <div class="recipe-meta-fields">
+                    <div class="recipe-meta-row">
+                        <label class="recipe-meta-label" for="edit-prep-time">Förberedelsetid</label>
+                        <div class="recipe-meta-control">
+                            <FluentNumberField Id="edit-prep-time" @bind-Value="model.PrepTimeMinutes"
+                                               Min="0" Max="1440" Class="recipe-meta-field" Style="width: 160px;" />
+                            <span class="recipe-meta-suffix">min</span>
+                        </div>
+                    </div>
+                    <div class="recipe-meta-row">
+                        <label class="recipe-meta-label" for="edit-cook-time">Tillagningstid</label>
+                        <div class="recipe-meta-control">
+                            <FluentNumberField Id="edit-cook-time" @bind-Value="model.CookTimeMinutes"
+                                               Min="0" Max="1440" Class="recipe-meta-field" Style="width: 160px;" />
+                            <span class="recipe-meta-suffix">min</span>
+                        </div>
+                    </div>
+                    <div class="recipe-meta-row">
+                        <label class="recipe-meta-label" for="edit-servings">Portioner *</label>
+                        <div class="recipe-meta-control">
+                            <FluentNumberField Id="edit-servings" @bind-Value="model.Servings"
+                                               Min="1" Max="100" Class="recipe-meta-field" Style="width: 160px;" />
+                        </div>
+                    </div>
+                    <div class="recipe-meta-row">
+                        <label class="recipe-meta-label" for="edit-servings-unit">Portionsenhet</label>
+                        <div class="recipe-meta-control">
+                            <FluentTextField Id="edit-servings-unit" @bind-Value="model.ServingsUnit"
+                                             Placeholder="portioner" Class="recipe-meta-field" Style="width: 160px;" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <FluentTextField @bind-Value="model.SourceUrl" Label="Källänk / Ursprungs-URL"
+                                      Placeholder="https://..." Style="width: 100%;" />
+                </div>
+            </div>
+        </div>
+
+        <!-- Bildhantering -->
+        <div class="form-section">
+            <h2 class="form-section-title">Receptbild</h2>
+            <div class="image-upload-grid">
+                <div>
+                    <p style="font-size: 14px; color: var(--rb-text-secondary); margin-bottom: 12px;">
+                        Ladda upp en matbild i JPG-, PNG- eller WebP-format (max 10 MB). Bilden konverteras och sparas lokalt.
+                    </p>
+                    <label class="image-upload-dropzone" style="display: block;">
+                        <InputFile OnChange="HandleImageFileSelected" accept=".jpg,.jpeg,.png,.webp" style="display: none;" />
+                        <FluentIcon Value="@(new Icons.Regular.Size32.ArrowUpload())" Color="Color.Neutral" />
+                        <div style="margin-top: 8px; font-weight: 600; font-size: 14px;">
+                            Klicka för att välja bild från datorn
+                        </div>
+                        <div style="font-size: 12px; color: var(--rb-text-muted);">
+                            JPG, PNG eller WebP upp till 10 MB
+                        </div>
+                    </label>
+
+                    @if (isUploadingImage)
+                    {
+                        <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px;">
+                            <FluentProgressRing Style="width: 20px; height: 20px;" />
+                            <span style="font-size: 13px;">Bearbetar och optimerar bild...</span>
+                        </div>
+                    }
+                </div>
+
+                <!-- Bildförhandsvisning -->
+                <div>
+                    @if (!string.IsNullOrWhiteSpace(model.ImagePath))
+                    {
+                        <div class="image-preview-box">
+                            <img src="@($"/{model.ImagePath}")" alt="Förhandsvisning" class="image-preview-img" />
+                            <button type="button" class="btn-danger-custom" style="margin-top: 8px; width: 100%; text-align: center;" @onclick="RemoveImage">
+                                Ta bort bild
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="width: 100%; height: 160px; border-radius: var(--rb-radius-md); background-color: var(--rb-bg-surface); border: 1px solid var(--rb-border); display: flex; align-items: center; justify-content: center; font-size: 36px;">
+                            📷
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Kategorier -->
+        <div class="form-section">
+            <h2 class="form-section-title">Kategorier</h2>
+            @if (availableCategories.Count == 0)
+            {
+                <p style="color: var(--rb-text-muted); font-size: 14px;">
+                    Inga kategorier finns tillgängliga. Du kan skapa kategorier under <a href="/kategorier">Kategorier</a>.
+                </p>
+            }
+            else
+            {
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    @foreach (var cat in availableCategories)
+                    {
+                        var isSelected = selectedCategoryIds.Contains(cat.Id);
+                        <div @onclick="@(() => ToggleCategory(cat.Id))" style="cursor: pointer;">
+                            <CategoryBadge Name="@cat.Name" ColorHex="@cat.ColorHex" IsActive="@isSelected" />
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- Ingredienser -->
+        <div class="form-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <h2 class="form-section-title" style="margin-bottom: 0;">Ingredienser</h2>
+                <button type="button" class="btn-secondary-custom" @onclick="AddIngredientRow">
+                    <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="Color.Neutral" /> Lägg till ingrediens
+                </button>
+            </div>
+
+            <p style="font-size: 13px; color: var(--rb-text-secondary); margin-bottom: 16px;">
+                Ange mängd, enhet och råvara. Om råvaran tillhör en specifik del av rätten kan du ange en grupprubrik (t.ex. "Pajdeg" eller "Sås").
+            </p>
+
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                @for (int i = 0; i < model.Ingredients.Count; i++)
+                {
+                    var ing = model.Ingredients[i];
+                    var index = i;
+
+                    <div class="ingredient-editor-row">
+                        <FluentNumberField @bind-Value="ing.Quantity" Placeholder="Mängd" Min="0" Step="0.25" Style="width: 100%;" />
+                        <FluentTextField @bind-Value="ing.Unit" Placeholder="Enhet (dl, g)" Style="width: 100%;" />
+                        <FluentTextField @bind-Value="ing.Name" Placeholder="Råvara (t.ex. mjölk) *" Style="width: 100%;" />
+                        <FluentTextField @bind-Value="ing.Comment" Placeholder="Kommentar (t.ex. à 200 g)" Style="width: 100%;" />
+                        <FluentTextField @bind-Value="ing.Preparation" Placeholder="Beredning (t.ex. hackad)" Style="width: 100%;" />
+                        <FluentTextField @bind-Value="ing.GroupHeader" Placeholder="Grupp (valfritt)" Style="width: 100%;" />
+                        <button type="button" class="btn-danger-custom ingredient-remove-btn"
+                                @onclick="@(() => RemoveIngredientRow(index))" title="Ta bort rad">
+                            ✕
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Instruktionssteg -->
+        <div class="form-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <h2 class="form-section-title" style="margin-bottom: 0;">Instruktioner</h2>
+                <button type="button" class="btn-secondary-custom" @onclick="AddInstructionRow">
+                    <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="Color.Neutral" /> Lägg till steg
+                </button>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 14px;">
+                @for (int i = 0; i < model.Instructions.Count; i++)
+                {
+                    var step = model.Instructions[i];
+                    var index = i;
+
+                    <div style="display: flex; gap: 12px; align-items: flex-start; background-color: var(--rb-bg-surface); padding: 12px; border-radius: var(--rb-radius-md); border: 1px solid var(--rb-border-subtle);">
+                        <div class="step-number" style="margin-top: 4px;">@(index + 1)</div>
+                        <div style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
+                            <FluentTextField @bind-Value="step.GroupHeader" Placeholder="Eventuell sektionsrubrik (t.ex. Förberedelser)" Style="width: 100%;" />
+                            <FluentTextArea @bind-Value="step.InstructionText" Placeholder="Beskriv vad som ska göras i detta steg..." Style="width: 100%;" Rows="2" />
+                        </div>
+                        <button type="button" class="btn-danger-custom" style="padding: 6px 10px; margin-top: 4px;"
+                                @onclick="@(() => RemoveInstructionRow(index))" title="Ta bort steg">
+                            ✕
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Kockens anteckningar -->
+        <div class="form-section">
+            <h2 class="form-section-title">Anteckningar & Tips</h2>
+            <FluentTextArea @bind-Value="model.Notes" Label="Egna tips, serveringsförslag eller vinmatchningar"
+                             Placeholder="Skriv dina personliga råd här..." Style="width: 100%;" Rows="3" />
+        </div>
+
+        <!-- Nedre åtgärdsfält -->
+        <div style="display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 40px;">
+            <button type="button" class="btn-secondary-custom" @onclick="Cancel">Avbryt</button>
+            <button type="button" class="btn-primary-custom" @onclick="SaveRecipe" disabled="@isSaving">
+                @(isSaving ? "Sparar..." : (IsEditing ? "Spara ändringar" : "Spara recept"))
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int? Id { get; set; }
+    private bool IsEditing => Id.HasValue && Id.Value > 0;
+
+    private Recipe model = new();
+    private List<CategoryWithCountDto> availableCategories = new();
+    private HashSet<int> selectedCategoryIds = new();
+
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private bool isUploadingImage = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        isLoading = true;
+        availableCategories = await CategoryService.GetCategoriesAsync();
+
+        if (IsEditing)
+        {
+            var existing = await RecipeService.GetRecipeByIdAsync(Id!.Value);
+            if (existing != null)
+            {
+                model = existing;
+                selectedCategoryIds = new HashSet<int>(existing.RecipeCategories.Select(rc => rc.CategoryId));
+            }
+            else
+            {
+                ToastService.ShowError("Kunde inte hitta receptet att redigera.");
+                Navigation.NavigateTo("/");
+                return;
+            }
+        }
+        else
+        {
+            model = new Recipe
+            {
+                Servings = 4,
+                ServingsUnit = "portioner",
+                Ingredients = new List<Ingredient>
+                {
+                    new() { Name = string.Empty }
+                },
+                Instructions = new List<InstructionStep>
+                {
+                    new() { InstructionText = string.Empty }
+                }
+            };
+        }
+
+        isLoading = false;
+    }
+
+    private void AddIngredientRow()
+    {
+        model.Ingredients.Add(new Ingredient { Name = string.Empty });
+    }
+
+    private void RemoveIngredientRow(int index)
+    {
+        if (index >= 0 && index < model.Ingredients.Count)
+        {
+            model.Ingredients.RemoveAt(index);
+        }
+    }
+
+    private void AddInstructionRow()
+    {
+        model.Instructions.Add(new InstructionStep { InstructionText = string.Empty });
+    }
+
+    private void RemoveInstructionRow(int index)
+    {
+        if (index >= 0 && index < model.Instructions.Count)
+        {
+            model.Instructions.RemoveAt(index);
+        }
+    }
+
+    private void ToggleCategory(int categoryId)
+    {
+        if (selectedCategoryIds.Contains(categoryId))
+            selectedCategoryIds.Remove(categoryId);
+        else
+            selectedCategoryIds.Add(categoryId);
+    }
+
+    private async Task HandleImageFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        if (!ImageStorageService.IsValidImageExtension(file.Name))
+        {
+            ToastService.ShowError("Ogiltigt bildformat. Vänligen välj en JPG, PNG eller WebP bild.");
+            return;
+        }
+
+        if (file.Size > 10 * 1024 * 1024)
+        {
+            ToastService.ShowError("Bildfilen är för stor. Max 10 MB tillåts.");
+            return;
+        }
+
+        try
+        {
+            isUploadingImage = true;
+            using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            var savedPath = await ImageStorageService.SaveImageAsync(stream, file.Name);
+            model.ImagePath = savedPath;
+            ToastService.ShowSuccess("Bilden har laddats upp och sparats!");
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Fel vid bilduppladdning: {ex.Message}");
+        }
+        finally
+        {
+            isUploadingImage = false;
+        }
+    }
+
+    private void RemoveImage()
+    {
+        model.ImagePath = null;
+    }
+
+    private async Task SaveRecipe()
+    {
+        if (string.IsNullOrWhiteSpace(model.Title))
+        {
+            ToastService.ShowWarning("Vänligen ange en titel för receptet.");
+            return;
+        }
+
+        // Clean up empty ingredient and instruction rows
+        model.Ingredients = model.Ingredients
+            .Where(i => !string.IsNullOrWhiteSpace(i.Name) || !string.IsNullOrWhiteSpace(i.RawText))
+            .ToList();
+
+        // Ensure RawText is filled
+        foreach (var ing in model.Ingredients)
+        {
+            if (string.IsNullOrWhiteSpace(ing.RawText))
+            {
+                var qty = ing.Quantity.HasValue
+                    ? $"{ing.Quantity.Value.ToString("0.##", System.Globalization.CultureInfo.GetCultureInfo("sv-SE"))} "
+                    : "";
+                var unit = !string.IsNullOrWhiteSpace(ing.Unit) ? $"{ing.Unit.Trim()} " : "";
+                var comment = !string.IsNullOrWhiteSpace(ing.Comment) ? $" ({ing.Comment.Trim()})" : "";
+                var prep = !string.IsNullOrWhiteSpace(ing.Preparation) ? $", {ing.Preparation.Trim()}" : "";
+                ing.RawText = $"{qty}{unit}{ing.Name.Trim()}{comment}{prep}".Trim();
+            }
+        }
+
+        model.Instructions = model.Instructions
+            .Where(s => !string.IsNullOrWhiteSpace(s.InstructionText))
+            .ToList();
+
+        // Auto-extract source host if URL provided
+        if (!string.IsNullOrWhiteSpace(model.SourceUrl) && string.IsNullOrWhiteSpace(model.SourceHost))
+        {
+            if (Uri.TryCreate(model.SourceUrl, UriKind.Absolute, out var uri))
+            {
+                model.SourceHost = uri.Host.Replace("www.", "");
+            }
+        }
+
+        try
+        {
+            isSaving = true;
+
+            if (IsEditing)
+            {
+                await RecipeService.UpdateRecipeAsync(model, selectedCategoryIds.ToList());
+                NotificationService.ShowSuccess("Receptet har sparats!", $"Receptet '{model.Title}' har uppdaterats och sparats.");
+                Navigation.NavigateTo($"/recept/{model.Id}?saved=true");
+            }
+            else
+            {
+                var created = await RecipeService.CreateRecipeAsync(model, selectedCategoryIds.ToList());
+                NotificationService.ShowSuccess("Receptet har sparats!", $"Receptet '{created.Title}' har sparats i din receptbank och är redo att användas.");
+                Navigation.NavigateTo($"/recept/{created.Id}?saved=true");
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Fel vid sparande: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void Cancel()
+    {
+        if (IsEditing)
+            Navigation.NavigateTo($"/recept/{Id}");
+        else
+            Navigation.NavigateTo("/");
+    }
+}
+

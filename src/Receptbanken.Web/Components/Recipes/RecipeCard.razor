@@ -1,0 +1,86 @@
+@inject RecipeService RecipeService
+@inject NavigationManager Navigation
+
+<div class="recipe-card" @onclick="NavigateToDetail" style="cursor: pointer;">
+    <div class="recipe-card-image-wrap">
+        @if (!string.IsNullOrWhiteSpace(Recipe.ImagePath) && !imageLoadFailed)
+        {
+            <img src="@($"/{Recipe.ImagePath}")" alt="@Recipe.Title" class="recipe-card-image" loading="lazy" @onerror="() => imageLoadFailed = true" />
+        }
+        else
+        {
+            <div class="recipe-card-placeholder">
+                🥘
+            </div>
+        }
+
+        <button type="button" class="recipe-card-fav-btn @(Recipe.IsFavorite ? "is-fav" : "")" 
+                @onclick="ToggleFavorite" @onclick:stopPropagation="true" title="Favorit">
+            @if (Recipe.IsFavorite)
+            {
+                <FluentIcon Value="@(new Icons.Filled.Size20.Star())" Color="Color.Custom" CustomColor="var(--rb-accent-gold)" />
+            }
+            else
+            {
+                <FluentIcon Value="@(new Icons.Regular.Size20.Star())" Color="Color.Fill" />
+            }
+        </button>
+    </div>
+
+    <div class="recipe-card-body">
+        @if (Recipe.RecipeCategories.Count > 0)
+        {
+            <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px;">
+                @foreach (var rc in Recipe.RecipeCategories.Take(3))
+                {
+                    <CategoryBadge Name="@rc.Category.Name" ColorHex="@rc.Category.ColorHex" />
+                }
+            </div>
+        }
+
+        <h3 class="recipe-card-title">
+            <a href="@($"/recept/{Recipe.Id}")" class="recipe-card-link" @onclick:stopPropagation="true">@Recipe.Title</a>
+        </h3>
+
+        @if (!string.IsNullOrWhiteSpace(Recipe.Description))
+        {
+            <p class="recipe-card-desc">@Recipe.Description</p>
+        }
+
+        <div class="recipe-card-meta">
+            @if (Recipe.TotalTimeMinutes.HasValue)
+            {
+                <div class="meta-item">
+                    <FluentIcon Value="@(new Icons.Regular.Size16.Timer())" Color="Color.Neutral" />
+                    <span>@Recipe.TotalTimeMinutes min</span>
+                </div>
+            }
+            <div class="meta-item">
+                <FluentIcon Value="@(new Icons.Regular.Size16.People())" Color="Color.Neutral" />
+                <span>@Recipe.Servings @Recipe.ServingsUnit</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public Recipe Recipe { get; set; } = null!;
+    [Parameter] public EventCallback<Recipe> OnFavoriteToggled { get; set; }
+
+    private bool imageLoadFailed = false;
+
+    private void NavigateToDetail()
+    {
+        Navigation.NavigateTo($"/recept/{Recipe.Id}");
+    }
+
+    private async Task ToggleFavorite()
+    {
+        Recipe.IsFavorite = await RecipeService.ToggleFavoriteAsync(Recipe.Id);
+        if (OnFavoriteToggled.HasDelegate)
+        {
+            await OnFavoriteToggled.InvokeAsync(Recipe);
+        }
+    }
+}
+
