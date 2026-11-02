@@ -177,6 +177,37 @@ public class RecipeReusableComponentsTests : TestContext
     }
 
     [Fact]
+    public void RecipeIngredientRow_ShouldDisplayAndEditQuantityIntervals()
+    {
+        var ingredient = new Ingredient
+        {
+            Quantity = 0.5m,
+            QuantityMax = 1.0m,
+            Unit = "tsk",
+            Name = "chiliflakes"
+        };
+
+        var cut = RenderComponent<RecipeIngredientRow>(parameters => parameters
+            .Add(p => p.Ingredient, ingredient));
+
+        // Renders fraction interval ½–1
+        cut.Markup.Should().Contain("½–1");
+
+        // Editing via text field updates model Quantity and QuantityMax
+        var qtyInput = cut.Find("fluent-text-field");
+
+        // Simulate user typing a decimal range
+        qtyInput.Change("1-2");
+        ingredient.Quantity.Should().Be(1m);
+        ingredient.QuantityMax.Should().Be(2m);
+
+        // Simulate user typing a single number
+        qtyInput.Change("3");
+        ingredient.Quantity.Should().Be(3m);
+        ingredient.QuantityMax.Should().BeNull();
+    }
+
+    [Fact]
     public void RecipeIngredientEditor_ShouldAddAndRemoveRows()
     {
         var ingredients = new List<Ingredient>

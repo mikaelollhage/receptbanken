@@ -1,0 +1,65 @@
+@if (Dinner != null && Dinner.HasConfirmedMenu && Dinner.Recipe != null)
+{
+    var recipe = Dinner.Recipe;
+    var servings = Dinner.Servings > 0 ? Dinner.Servings : recipe.Servings;
+    var dayHeader = CalendarWeek.FormatDayHeaderSwedish(Dinner.LocalDate);
+
+    <section class="todays-dinner-card" aria-label="Dagens middag">
+        <div class="todays-dinner-content">
+            <div class="todays-dinner-badge-row">
+                <span class="todays-dinner-label">🍽️ DAGENS MIDDAG</span>
+                <span class="todays-dinner-date">@dayHeader</span>
+            </div>
+
+            <h2 class="todays-dinner-title">
+                <a href="@($"/recept/{recipe.Id}")" class="todays-dinner-title-link">@recipe.Title</a>
+            </h2>
+
+            <div class="todays-dinner-meta">
+                @if (recipe.TotalTimeMinutes.HasValue)
+                {
+                    <span>@recipe.TotalTimeMinutes minuter</span>
+                    <span class="todays-dinner-dot">·</span>
+                }
+                <span>@servings @recipe.ServingsUnit</span>
+            </div>
+
+            <div class="todays-dinner-actions">
+                <a href="@($"/recept/{recipe.Id}")" class="btn-secondary-custom todays-dinner-view-btn">
+                    Visa recept
+                </a>
+                <a href="@($"/recept/{recipe.Id}/laga?portioner={servings}")" class="btn-primary-custom todays-dinner-cook-btn">
+                    👨‍🍳 Starta matlagningsläge
+                </a>
+            </div>
+
+            <div class="todays-dinner-footer">
+                <a href="@($"/veckomeny?datum={Dinner.LocalDate:yyyy-MM-dd}")" class="todays-dinner-week-link">
+                    Vecka @Dinner.CalendarWeek.IsoWeek · Visa hela veckomenyn →
+                </a>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(recipe.ImagePath) && !imageLoadFailed)
+        {
+            <div class="todays-dinner-image-wrap">
+                <img src="@($"/{recipe.ImagePath}")" alt="@recipe.Title" class="todays-dinner-image" @onerror="() => imageLoadFailed = true" />
+            </div>
+        }
+    </section>
+}
+else
+{
+    var weekNumber = Dinner?.CalendarWeek.IsoWeek ?? CalendarWeek.FromDate(DateOnly.FromDateTime(DateTime.Today)).IsoWeek;
+    <div class="todays-dinner-discreet">
+        <a href="/veckomeny" class="todays-dinner-discreet-link">
+            <span>📅 Vecka @weekNumber · Planera eller visa veckomenyn →</span>
+        </a>
+    </div>
+}
+
+@code {
+    [Parameter] public TodaysDinnerDto? Dinner { get; set; }
+    private bool imageLoadFailed = false;
+}
+

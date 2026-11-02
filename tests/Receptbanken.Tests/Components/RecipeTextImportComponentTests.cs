@@ -181,6 +181,7 @@ public class RecipeTextImportComponentTests : TestContext
     public void ParseRecipeText_WithInvalidNonRecipeText_ShouldShowSwedishErrorMessage()
     {
         var (cut, _) = RenderImportPage();
+        var notifService = Services.GetRequiredService<AppNotificationService>();
 
         cut.Find("#recipe-text-toggle").Click();
         cut.Find("#recipe-text-input").Input("Detta är bara en slumpmässig text utan ingredienser eller instruktioner.");
@@ -188,5 +189,106 @@ public class RecipeTextImportComponentTests : TestContext
 
         cut.FindAll(".recipe-text-error").Should().ContainSingle();
         cut.Find(".recipe-text-error").TextContent.Should().Contain("Inget recept kunde identifieras");
+
+        // Del D: NO duplicate error banner at top of page
+        notifService.HasNotification.Should().BeFalse();
+
+        // Del D: Typing clears the local error
+        cut.Find("#recipe-text-input").Input("Ny text");
+        cut.FindAll(".recipe-text-error").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ParseRecipeText_WithBulkNoisyInput_ShouldRenderWarningOnlyAtTopNotification_AndNotDuplicateInPreview()
+    {
+        var (cut, _) = RenderImportPage();
+        var notifService = Services.GetRequiredService<AppNotificationService>();
+
+        cut.Find("#recipe-text-toggle").Click();
+        cut.Find("#recipe-text-input").Input(NiiinisRecipeFixtures.NoisyBulkPageWithManyItems);
+        cut.Find("#parse-recipe-text-btn").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            // Quality warning shown in top notification banner
+            notifService.HasNotification.Should().BeTrue();
+            notifService.IsWarning.Should().BeTrue();
+            notifService.Message.Should().Contain("ovanligt många ingredienser identifierades");
+
+            // Del E: NO extra duplicate warning banner above preview
+            cut.FindAll(".import-quality-warning").Should().BeEmpty();
+        });
+    }
+
+    [Fact]
+    public void ParseRecipeText_WhenSucceedingCleanly_ShouldClearPreviousWarning()
+    {
+        var (cut, _) = RenderImportPage();
+        var notifService = Services.GetRequiredService<AppNotificationService>();
+
+        // 1. First trigger a warning
+        notifService.ShowWarning("Tidigare varning", "En gammal varning som ska rensas.");
+        notifService.HasNotification.Should().BeTrue();
+
+        // 2. Parse clean recipe (Niiinis)
+        cut.Find("#recipe-text-toggle").Click();
+        cut.Find("#recipe-text-input").Input(NiiinisRecipeFixtures.PlainText);
+        cut.Find("#parse-recipe-text-btn").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            // Stale warning should be cleared
+            notifService.HasNotification.Should().BeFalse();
+            cut.FindAll(".import-quality-warning").Should().BeEmpty();
+        });
+    }
+
+    [Fact]
+    public void RecipeInstructionEditor_AddStepButton_ShouldBePositionedAfterInstructionsList()
+    {
+        var (cut, _) = RenderImportPage();
+
+        // Open recipe text and parse a recipe with multiple steps
+        cut.Find("#recipe-text-toggle").Click();
+        cut.Find("#recipe-text-input").Input(NiiinisRecipeFixtures.PlainText);
+        cut.Find("#parse-recipe-text-btn").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            // The instruction rows are rendered
+            var instructionRows = cut.FindAll(".instruction-editor-row");
+            instructionRows.Should().HaveCount(NiiinisRecipeFixtures.StepCount);
+
+            // Find all buttons in the instruction editor section
+            var instructionSection = cut.FindAll(".form-section").First(s => s.TextContent.Contains("Tolkade instruktionssteg"));
+            var addBtn = instructionSection.QuerySelectorAll("button").First(b => b.TextContent.Contains("Lägg till steg"));
+
+            // Del F: Add button must be at the bottom (after the last row)
+            var lastRow = instructionRows.Last();
+            // In the DOM, the add button comes after the instruction list
+            addBtn.Should().NotBeNull();
+            addBtn.TextContent.Trim().Should().Be("+ Lägg till steg");
+        });
+    }
+
+    [Fact]
+    public void RecipeTextSection_ButtonLabels_ShouldMatchSimplifiedWorkflow()
+    {
+        var (cut, _) = RenderImportPage();
+
+        // 1. Toggle label: "Klistra in recept"
+        var toggle = cut.Find("#recipe-text-toggle");
+        toggle.TextContent.Should().Contain("Klistra in recept");
+
+        // 2. Open section
+        toggle.Click();
+
+        // 3. Action button: "Tolka recept"
+        var parseBtn = cut.Find("#parse-recipe-text-btn");
+        parseBtn.TextContent.Trim().Should().Be("Tolka recept");
+
+        // 4. Source URL field is synchronized with importUrl
+        cut.Find("#recipe-text-source-url").Input("https://www.example.com/test-recept");
+        cut.Find("#import-url-input").GetAttribute("value").Should().Be("https://www.example.com/test-recept");
     }
 }

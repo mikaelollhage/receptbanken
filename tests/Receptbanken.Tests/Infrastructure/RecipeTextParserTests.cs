@@ -69,6 +69,91 @@ public class RecipeTextParserTests
         recipe.SourceHost.Should().Be("alltommat.expressen.se");
     }
 
+    [Fact]
+    public void Parse_TestA_PlainTextWithLeadingLinksAndAdverts_ShouldExtractCleanRecipeWithoutPrecedingLinksOrAdClauses()
+    {
+        var result = _parser.Parse(NiiinisRecipeFixtures.PlainTextWithLeadingLinksAndAdverts, NiiinisRecipeFixtures.PageUrl);
+
+        result.Success.Should().BeTrue();
+        result.DraftRecipe.Should().NotBeNull();
+        var recipe = result.DraftRecipe!;
+
+        // 1. Should identify the true recipe heading, NOT the related links before it
+        recipe.Title.Should().Be("Ninas Köttfärssås");
+        recipe.Servings.Should().Be(4);
+        recipe.ServingsUnit.Should().Be("portioner");
+
+        // 2. Ingredients should NOT contain the related links ("Julig Köttfärssås", "Köttfärssås med rödvin")
+        recipe.Ingredients.Should().HaveCount(13);
+        recipe.Ingredients.Should().NotContain(i => i.Name.Contains("Julig"));
+        recipe.Ingredients.Should().NotContain(i => i.Name.Contains("rödvin"));
+        recipe.Ingredients.Should().NotContain(i => i.Name.Contains("Ninas Köttfärssås"));
+
+        // 3. Step 1 has ad text and discount code cleaned
+        recipe.Instructions.Should().HaveCount(4);
+        var step1 = recipe.Instructions[0].InstructionText;
+        step1.Should().StartWith("Börja med att steka köttfärsen");
+        step1.Should().NotContain("rabattkod");
+        step1.Should().NotContain("NINAJUL35");
+        step1.Should().NotContain("adlink");
+
+        // 4. Serving tip
+        recipe.Notes.Should().Contain("Tips: Riv över parmesan innan servering.");
+    }
+
+    [Fact]
+    public void Parse_TestB_NoisyBulkPageWithManyItems_ShouldSetWarningMessageForUncertainImport()
+    {
+        var result = _parser.Parse(NiiinisRecipeFixtures.NoisyBulkPageWithManyItems);
+
+        result.Success.Should().BeTrue();
+        result.IsUncertain.Should().BeTrue();
+        result.WarningMessage.Should().NotBeNullOrWhiteSpace();
+        result.WarningMessage.Should().Contain("ovanligt många");
+    }
+
+    [Fact]
+    public void Parse_SpecialSwedishIngredientExpressions_ShouldParseCorrectly()
+    {
+        const string text = """
+            Saffranspannkaka, 4 portioner
+
+            Ingredienser:
+            1 nypa saffran
+            2 burkar krossade tomater à 400 g
+            1 klick smör till stekning
+            salt och nymalen svartpeppar efter smak
+
+            Gör så här:
+            1. Blanda saffran och tomater.
+            2. Stek i smör.
+            """;
+
+        var result = _parser.Parse(text);
+
+        result.Success.Should().BeTrue();
+        var recipe = result.DraftRecipe!;
+        recipe.Ingredients.Should().HaveCount(4);
+
+        var saffran = recipe.Ingredients[0];
+        saffran.Quantity.Should().Be(1);
+        saffran.Unit.Should().Be("nypa");
+        saffran.Name.Should().Be("saffran");
+
+        var tomater = recipe.Ingredients[1];
+        tomater.Quantity.Should().Be(2);
+        tomater.Unit.Should().Be("burkar");
+        tomater.Name.Should().Contain("krossade tomater");
+
+        var smor = recipe.Ingredients[2];
+        smor.Quantity.Should().Be(1);
+        smor.Unit.Should().Be("klick");
+
+        var krydda = recipe.Ingredients[3];
+        krydda.Quantity.Should().BeNull();
+        krydda.Name.Should().Contain("salt och nymalen svartpeppar");
+    }
+
     [Theory]
     [InlineData("Pannkakor, 4 portioner", "Pannkakor", 4, "portioner")]
     [InlineData("Kladdkaka (8 bitar)", "Kladdkaka", 8, "bitar")]

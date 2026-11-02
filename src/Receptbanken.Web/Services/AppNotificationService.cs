@@ -21,6 +21,7 @@ public class AppNotificationService
     public bool HasNotification => !string.IsNullOrWhiteSpace(Title) || !string.IsNullOrWhiteSpace(Message);
     public bool IsSuccess => Type == AppNotificationType.Success;
     public bool IsWarning => Type == AppNotificationType.Warning;
+    public bool IsError => Type == AppNotificationType.Error;
 
     public event Action? OnChange;
 
@@ -37,6 +38,14 @@ public class AppNotificationService
         Title = title;
         Message = message;
         Type = AppNotificationType.Warning;
+        NotifyStateChanged();
+    }
+
+    public void ShowError(string title, string message)
+    {
+        Title = title;
+        Message = message;
+        Type = AppNotificationType.Error;
         NotifyStateChanged();
     }
 

@@ -58,8 +58,15 @@ public class HtmlRecipeTextExtractor
         }
 
         // 1. Remove unwanted tags
-        var unwantedNodes = doc.QuerySelectorAll("script, style, noscript, svg, canvas, iframe, form, nav, footer, header").ToList();
+        var unwantedNodes = doc.QuerySelectorAll("script, style, noscript, svg, canvas, iframe, form, nav, footer, header, aside, menu, dialog, button, input, select, textarea, audio, video").ToList();
         foreach (var node in unwantedNodes)
+        {
+            node.Remove();
+        }
+
+        // 1b. Remove noise containers (sidebars, comments, social sharing, newsletters, cookies, breadcrumbs)
+        var noiseContainers = doc.QuerySelectorAll("[class*='sidebar'], [id*='sidebar'], [class*='comment'], [id*='comment'], [class*='social'], [id*='social'], [class*='share'], [id*='share'], [class*='newsletter'], [class*='breadcrumb'], [class*='cookie'], [id*='cookie'], [class*='widget-ad'], [class*='ad-banner'], [class*='commercial'], [class*='author-box'], [class*='entry-meta']").ToList();
+        foreach (var node in noiseContainers)
         {
             node.Remove();
         }

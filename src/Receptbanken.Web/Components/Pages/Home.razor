@@ -2,6 +2,8 @@
 @inject RecipeService RecipeService
 @inject CategoryService CategoryService
 @inject NavigationManager Navigation
+@inject IServiceProvider ServiceProvider
+@inject IJSRuntime JSRuntime
 
 <PageTitle>Alla recept — Receptbanken</PageTitle>
 
@@ -16,6 +18,8 @@
         </a>
     </div>
 </div>
+
+<TodaysDinnerCard Dinner="todaysDinner" />
 
 <div class="filter-bar">
     <div class="filter-row">
@@ -85,6 +89,7 @@ else
     private List<Recipe> allRecipes = new();
     private List<Recipe> filteredRecipes = new();
     private List<CategoryWithCountDto> categories = new();
+    private TodaysDinnerDto? todaysDinner;
     private string searchQuery = string.Empty;
     private int? selectedCategoryId = null;
     private string selectedSort = "newest";
@@ -95,11 +100,50 @@ else
         await LoadData();
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var clientDateStr = await JSRuntime.InvokeAsync<string?>("receptbanken.getClientLocalDate");
+                if (DateOnly.TryParseExact(clientDateStr, "yyyy-MM-dd", out var clientDate))
+                {
+                    var localDateProvider = ServiceProvider.GetService<ILocalDateProvider>();
+                    var currentLocal = localDateProvider?.GetLocalToday();
+                    localDateProvider?.SetClientLocalDate(clientDate);
+
+                    if (currentLocal != clientDate)
+                    {
+                        var weeklyMenuService = ServiceProvider.GetService<WeeklyMenuService>();
+                        if (weeklyMenuService != null)
+                        {
+                            todaysDinner = await weeklyMenuService.GetTodaysDinnerAsync(clientDate);
+                            StateHasChanged();
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore if JS interop is not available (e.g. prerendering or test environment)
+            }
+        }
+    }
+
     private async Task LoadData()
     {
         isLoading = true;
         categories = await CategoryService.GetCategoriesAsync();
         allRecipes = await RecipeService.GetRecipesAsync();
+
+        var weeklyMenuService = ServiceProvider.GetService<WeeklyMenuService>();
+        var localDateProvider = ServiceProvider.GetService<ILocalDateProvider>() ?? new SwedishLocalDateProvider();
+        if (weeklyMenuService != null)
+        {
+            todaysDinner = await weeklyMenuService.GetTodaysDinnerAsync(localDateProvider.GetLocalToday());
+        }
+
         FilterRecipes();
         isLoading = false;
     }

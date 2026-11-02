@@ -234,8 +234,11 @@ else
         {
             if (string.IsNullOrWhiteSpace(ing.RawText))
             {
+                var culture = System.Globalization.CultureInfo.GetCultureInfo("sv-SE");
                 var qty = ing.Quantity.HasValue
-                    ? $"{ing.Quantity.Value.ToString("0.##", System.Globalization.CultureInfo.GetCultureInfo("sv-SE"))} "
+                    ? (ing.QuantityMax.HasValue && ing.QuantityMax.Value > ing.Quantity.Value
+                        ? $"{ing.Quantity.Value.ToString("0.##", culture)}–{ing.QuantityMax.Value.ToString("0.##", culture)} "
+                        : $"{ing.Quantity.Value.ToString("0.##", culture)} ")
                     : "";
                 var unit = !string.IsNullOrWhiteSpace(ing.Unit) ? $"{ing.Unit.Trim()} " : "";
                 var comment = !string.IsNullOrWhiteSpace(ing.Comment) ? $" ({ing.Comment.Trim()})" : "";

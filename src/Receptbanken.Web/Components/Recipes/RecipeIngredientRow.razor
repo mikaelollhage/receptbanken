@@ -3,7 +3,7 @@
 @if (Ingredient != null)
 {
     <div class="ingredient-editor-row">
-        <FluentNumberField @bind-Value="Ingredient.Quantity" Placeholder="Mängd" Title="Mängd" Min="0" Step="0.25" Style="width: 100%;" />
+        <FluentTextField @bind-Value="QuantityDisplay" Placeholder="Mängd" Title="Mängd" Style="width: 100%;" />
         <FluentTextField @bind-Value="Ingredient.Unit" Placeholder="Enhet" Title="Enhet" Style="width: 100%;" />
         <FluentTextField @bind-Value="Ingredient.Name" Placeholder="Råvara *" Title="Råvara" Style="width: 100%;" />
         <FluentTextField @bind-Value="Ingredient.Comment" Placeholder="Kommentar (t.ex. à 200 g)" Title="Kommentar" Style="width: 100%;" />
@@ -23,6 +23,101 @@
     [Parameter]
     public EventCallback OnRemove { get; set; }
 
+    private string QuantityDisplay
+    {
+        get
+        {
+            if (Ingredient == null) return string.Empty;
+            if (Ingredient.QuantityMax.HasValue && Ingredient.QuantityMax.Value > (Ingredient.Quantity ?? 0m))
+            {
+                var min = FormatQuantity(Ingredient.Quantity);
+                var max = FormatQuantity(Ingredient.QuantityMax);
+                return $"{min}–{max}";
+            }
+            return FormatQuantity(Ingredient.Quantity);
+        }
+        set
+        {
+            if (Ingredient == null) return;
+            SetQuantityFromInput(value);
+        }
+    }
+
+    private static string FormatQuantity(decimal? q)
+    {
+        if (!q.HasValue) return string.Empty;
+        if (q.Value == 0.5m) return "½";
+        if (q.Value == 0.25m) return "¼";
+        if (q.Value == 0.75m) return "¾";
+        if (q.Value == 0.33m) return "⅓";
+        if (q.Value == 0.67m) return "⅔";
+        if (q.Value == 0.125m) return "⅛";
+        if (q.Value == Math.Floor(q.Value)) return ((int)q.Value).ToString();
+        return q.Value.ToString("0.##", System.Globalization.CultureInfo.GetCultureInfo("sv-SE"));
+    }
+
+    private void SetQuantityFromInput(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            Ingredient!.Quantity = null;
+            Ingredient.QuantityMax = null;
+            return;
+        }
+
+        var trimmed = value.Trim();
+        var dashMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"^(.*?)\s*[-–—]\s*(.*)$");
+        if (dashMatch.Success)
+        {
+            if (TryParseToken(dashMatch.Groups[1].Value, out var min) &&
+                TryParseToken(dashMatch.Groups[2].Value, out var max))
+            {
+                Ingredient!.Quantity = min;
+                Ingredient.QuantityMax = max;
+                return;
+            }
+        }
+
+        if (TryParseToken(trimmed, out var single))
+        {
+            Ingredient!.Quantity = single;
+            Ingredient.QuantityMax = null;
+            return;
+        }
+    }
+
+    private static bool TryParseToken(string token, out decimal result)
+    {
+        result = 0;
+        token = token.Trim();
+        if (string.IsNullOrEmpty(token)) return false;
+
+        if (token == "½") { result = 0.5m; return true; }
+        if (token == "¼") { result = 0.25m; return true; }
+        if (token == "¾") { result = 0.75m; return true; }
+        if (token == "⅓") { result = 0.33m; return true; }
+        if (token == "⅔") { result = 0.67m; return true; }
+        if (token == "⅛") { result = 0.125m; return true; }
+
+        var slashMatch = System.Text.RegularExpressions.Regex.Match(token, @"^(?:(\d+)\s+)?(\d+)/(\d+)$");
+        if (slashMatch.Success &&
+            int.TryParse(slashMatch.Groups[2].Value, out var num) &&
+            int.TryParse(slashMatch.Groups[3].Value, out var den) && den > 0)
+        {
+            var whole = slashMatch.Groups[1].Success && int.TryParse(slashMatch.Groups[1].Value, out var w) ? w : 0;
+            result = whole + Math.Round((decimal)num / den, 2);
+            return true;
+        }
+
+        if (decimal.TryParse(token.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+        {
+            result = parsed;
+            return true;
+        }
+
+        return false;
+    }
+
     private async Task HandleRemove()
     {
         if (OnRemove.HasDelegate)
@@ -31,4 +126,3 @@
         }
     }
 }
-

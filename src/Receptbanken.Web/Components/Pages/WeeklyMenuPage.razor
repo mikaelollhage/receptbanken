@@ -1,0 +1,687 @@
+@page "/veckomeny"
+@inject WeeklyMenuService WeeklyMenuService
+@inject RecipeService RecipeService
+@inject CategoryService CategoryService
+@inject ILocalDateProvider LocalDateProvider
+@inject IToastService ToastService
+@inject AppNotificationService NotificationService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Veckomeny — Vecka @currentWeek.IsoWeek — Receptbanken</PageTitle>
+
+<NavigationLock ConfirmExternalNavigation="@hasUnsavedChanges"
+                OnBeforeInternalNavigation="HandleBeforeInternalNavigation" />
+
+<!-- Header with Calendar Week, Date Interval & Week Navigation -->
+<div class="page-header weekly-menu-header">
+    <div>
+        <div class="weekly-menu-title-row">
+            <h1 class="page-title">Vecka @currentWeek.IsoWeek, @currentWeek.IsoYear</h1>
+
+            @if (currentMenu != null)
+            {
+                @if (currentMenu.Status == WeeklyMenuStatus.Confirmed)
+                {
+                    <span class="weekly-status-badge status-confirmed">
+                        📌 Spikad
+                    </span>
+                }
+                else
+                {
+                    <span class="weekly-status-badge status-draft">
+                        📝 Utkast
+                    </span>
+                }
+
+                @if (hasUnsavedChanges)
+                {
+                    <span class="weekly-status-badge status-unsaved">
+                        ● Osparade ändringar
+                    </span>
+                }
+            }
+        </div>
+        <p class="page-subtitle weekly-date-range">@currentWeek.FormatDateRangeSwedish()</p>
+    </div>
+
+    <div class="weekly-nav-controls">
+        <button type="button"
+                class="btn-secondary-custom week-prev-btn"
+                @onclick="RequestPreviousWeek">
+            ← Föregående vecka
+        </button>
+
+        @if (currentWeek.WeekStartDate != CalendarWeek.FromDate(localToday).WeekStartDate)
+        {
+            <button type="button"
+                    class="btn-secondary-custom week-today-btn"
+                    @onclick="RequestCurrentWeek">
+                Denna vecka
+            </button>
+        }
+
+        <button type="button"
+                class="btn-secondary-custom week-next-btn"
+                @onclick="RequestNextWeek">
+            Nästa vecka →
+        </button>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(feedbackBannerMessage))
+{
+    var feedbackClass = feedbackIsWarning ? "weekly-feedback-banner warning" : "weekly-feedback-banner success";
+    <div class="@feedbackClass" role="status">
+        <span>@(feedbackIsWarning ? "⚠️" : "✓") @feedbackBannerMessage</span>
+        <button type="button" class="weekly-feedback-close" @onclick="() => feedbackBannerMessage = null">✕</button>
+    </div>
+}
+
+<!-- Pantry Section: "Ingredienser hemma" (DEL D) -->
+<section class="weekly-pantry-card" aria-label="Ingredienser hemma">
+    <div class="weekly-pantry-header">
+        <div>
+            <h2 class="weekly-pantry-title">🥕 Ingredienser hemma</h2>
+            <p class="weekly-pantry-subtitle">
+                Ange råvaror som du vill prioritera vid generering (t.ex. kycklingfilé, köttfärs, lax).
+            </p>
+        </div>
+    </div>
+
+    <div class="weekly-pantry-tags">
+        @if (currentMenu != null && currentMenu.PantryItems.Count > 0)
+        {
+            @foreach (var item in currentMenu.PantryItems.OrderBy(p => p.OrderIndex))
+            {
+                <span class="pantry-tag-chip" data-pantry-tag="@item.IngredientName">
+                    <span>@item.IngredientName</span>
+                    <button type="button"
+                            class="pantry-tag-remove-btn"
+                            title="@($"Ta bort {item.IngredientName}")"
+                            aria-label="@($"Ta bort {item.IngredientName}")"
+                            @onclick="@(() => RemovePantryIngredient(item.IngredientName))">
+                        ×
+                    </button>
+                </span>
+            }
+        }
+        else
+        {
+            <span class="pantry-empty-hint">Inga ingredienser angivna för veckan.</span>
+        }
+    </div>
+
+    <div class="weekly-pantry-input-row">
+        <input type="text"
+               class="form-input-custom pantry-input"
+               placeholder="Lägg till ingrediens hemma (t.ex. Kycklingfilé, Köttfärs, Lax)..."
+               list="pantry-known-ingredients"
+               @bind="newPantryInput"
+               @bind:event="oninput"
+               @onkeydown="HandlePantryKeyDown" />
+
+        <datalist id="pantry-known-ingredients">
+            @foreach (var suggestion in knownIngredients)
+            {
+                <option value="@suggestion"></option>
+            }
+        </datalist>
+
+        <button type="button"
+                class="btn-secondary-custom pantry-add-btn"
+                @onclick="AddPantryIngredientFromInput">
+            + Lägg till ingrediens
+        </button>
+    </div>
+</section>
+
+<!-- Main Action Toolbar (Generera, Spara utkast, Spika) -->
+<div class="weekly-actions-bar">
+    <div class="weekly-actions-left">
+        <button type="button"
+                class="btn-primary-custom generate-week-btn"
+                disabled="@isLoading"
+                @onclick="HandleGenerateWeekClicked">
+            🎲 Generera veckomeny
+        </button>
+
+        @if (currentMenu != null && currentMenu.Status == WeeklyMenuStatus.Draft)
+        {
+            <button type="button"
+                    class="btn-secondary-custom save-draft-btn"
+                    disabled="@isLoading"
+                    @onclick="SaveDraftAsync">
+                💾 Spara utkast
+            </button>
+        }
+
+        @if (hasUnsavedChanges && hasSavedVersionInDb)
+        {
+            <button type="button"
+                    class="btn-secondary-custom discard-changes-btn"
+                    disabled="@isLoading"
+                    @onclick="RevertUnsavedChangesAsync">
+                Återställ sparad version
+            </button>
+        }
+    </div>
+
+    <div class="weekly-actions-right">
+        @if (currentMenu != null)
+        {
+            <button type="button"
+                    class="btn-primary-custom confirm-week-btn"
+                    style="background-color: var(--rb-success);"
+                    disabled="@isLoading"
+                    @onclick="ConfirmWeeklyMenuAsync">
+                @if (currentMenu.Status == WeeklyMenuStatus.Confirmed)
+                {
+                    <span>📌 Spara ändringar i spikad meny</span>
+                }
+                else
+                {
+                    <span>📌 Spika veckomenyn</span>
+                }
+            </button>
+        }
+    </div>
+</div>
+
+<!-- 7 Large Day Cards in a Vertical List -->
+@if (isLoading || currentMenu == null)
+{
+    <div style="display: flex; justify-content: center; padding: 60px;">
+        <FluentProgressRing />
+    </div>
+}
+else
+{
+    <div class="weekly-days-list">
+        @foreach (var day in currentMenu.Days.OrderBy(d => d.DayIndex))
+        {
+            <WeeklyMenuDayCard @key="@($"{currentMenu.WeekStartDate:yyyy-MM-dd}-{day.DayIndex}")"
+                               Day="day"
+                               AllDays="currentMenu.Days"
+                               AllCategories="allCategories"
+                               AllRecipes="allRecipes"
+                               IsToday="@(day.Date == localToday)"
+                               OnRerollDay="HandleRerollDayAsync"
+                               OnMoveRecipe="HandleMoveRecipe"
+                               OnCategoriesChanged="HandleDayCategoriesChanged"
+                               OnManualRecipeChanged="HandleManualRecipeChanged"
+                               OnDragStartDay="HandleDragStartDay"
+                               OnDropOnDay="HandleDropOnDay" />
+        }
+    </div>
+
+    <div class="weekly-bottom-bar">
+        @if (currentMenu.Status == WeeklyMenuStatus.Draft)
+        {
+            <button type="button"
+                    class="btn-secondary-custom save-draft-bottom-btn"
+                    @onclick="SaveDraftAsync">
+                💾 Spara utkast
+            </button>
+        }
+        <button type="button"
+                class="btn-primary-custom confirm-week-bottom-btn"
+                style="background-color: var(--rb-success);"
+                @onclick="ConfirmWeeklyMenuAsync">
+            @(currentMenu.Status == WeeklyMenuStatus.Confirmed ? "📌 Spara ändringar i spikad meny" : "📌 Spika veckomenyn")
+        </button>
+    </div>
+}
+
+<!-- Confirmation Dialog before overwriting modified draft / existing proposals -->
+<ConfirmDialog IsVisible="showRegenerateConfirm"
+               Title="Generera ny veckomeny?"
+               Message="Det finns redan valda recept eller ändringar i veckomenyn. Vill du generera ett nytt förslag för alla sju dagar och ersätta nuvarande val?"
+               ConfirmText="Ja, generera ny veckomeny"
+               CancelText="Behåll nuvarande"
+               OnConfirm="ConfirmGenerateWeekAsync"
+               OnCancel="@(() => showRegenerateConfirm = false)" />
+
+<!-- Confirmation Dialog before discarding unsaved edits on week switch / navigation -->
+<ConfirmDialog IsVisible="showUnsavedNavigationConfirm"
+               Title="Osparade ändringar"
+               Message="Du har gjort ändringar i veckomenyn som inte har sparats än. Vill du lämna veckan och förlora dina osparade ändringar?"
+               ConfirmText="Lämna utan att spara"
+               CancelText="Stanna kvar"
+               OnConfirm="ConfirmDiscardAndNavigateAsync"
+               OnCancel="CancelPendingNavigation" />
+
+@code {
+    [SupplyParameterFromQuery(Name = "datum")] public string? DateQuery { get; set; }
+
+    private DateOnly localToday;
+    private CalendarWeek currentWeek;
+    private WeeklyMenu? currentMenu;
+    private List<Category> allCategories = new();
+    private List<Recipe> allRecipes = new();
+    private List<string> knownIngredients = new();
+
+    private string newPantryInput = string.Empty;
+    private string? feedbackBannerMessage;
+    private bool feedbackIsWarning;
+    private bool isLoading = true;
+    private bool hasUnsavedChanges = false;
+    private bool hasUserModifiedDraft = false;
+    private bool hasSavedVersionInDb = false;
+
+    private bool showRegenerateConfirm = false;
+    private bool showUnsavedNavigationConfirm = false;
+    private DateOnly? pendingWeekDate;
+    private string? pendingInternalNavigationUrl;
+    private bool bypassInternalNavigationLock = false;
+
+    private int? draggedSourceDayIndex;
+
+    protected override async Task OnInitializedAsync()
+    {
+        localToday = LocalDateProvider.GetLocalToday();
+        var initialDate = ParseQueryDateOrDefault(DateQuery, localToday);
+        currentWeek = CalendarWeek.FromDate(initialDate);
+
+        await LoadReferenceDataAsync();
+        await LoadWeekAsync(currentWeek.WeekStartDate);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(DateQuery) &&
+            DateOnly.TryParseExact(DateQuery, "yyyy-MM-dd", out var queriedDate))
+        {
+            var requestedWeek = CalendarWeek.FromDate(queriedDate);
+            if (requestedWeek.WeekStartDate != currentWeek.WeekStartDate && !isLoading)
+            {
+                currentWeek = requestedWeek;
+                await LoadWeekAsync(currentWeek.WeekStartDate);
+            }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var clientDateStr = await JSRuntime.InvokeAsync<string?>("receptbanken.getClientLocalDate");
+                if (DateOnly.TryParseExact(clientDateStr, "yyyy-MM-dd", out var clientDate))
+                {
+                    LocalDateProvider.SetClientLocalDate(clientDate);
+                    if (clientDate != localToday)
+                    {
+                        var previousLocalWeek = CalendarWeek.FromDate(localToday);
+                        localToday = clientDate;
+                        var newLocalWeek = CalendarWeek.FromDate(localToday);
+
+                        if (string.IsNullOrWhiteSpace(DateQuery) &&
+                            previousLocalWeek.WeekStartDate != newLocalWeek.WeekStartDate &&
+                            !hasUnsavedChanges)
+                        {
+                            currentWeek = newLocalWeek;
+                            await LoadWeekAsync(currentWeek.WeekStartDate);
+                        }
+
+                        StateHasChanged();
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore if JS interop is unavailable (e.g. unit test environment)
+            }
+        }
+    }
+
+    private static DateOnly ParseQueryDateOrDefault(string? query, DateOnly fallback)
+    {
+        if (!string.IsNullOrWhiteSpace(query) &&
+            DateOnly.TryParseExact(query.Trim(), "yyyy-MM-dd", out var parsed))
+        {
+            return parsed;
+        }
+        return fallback;
+    }
+
+    private async Task LoadReferenceDataAsync()
+    {
+        var categoryDtos = await CategoryService.GetCategoriesAsync();
+        allCategories = categoryDtos
+            .Select(c => new Category { Id = c.Id, Name = c.Name, ColorHex = c.ColorHex })
+            .ToList();
+
+        allRecipes = await RecipeService.GetRecipesAsync();
+        knownIngredients = await WeeklyMenuService.GetKnownIngredientSuggestionsAsync();
+    }
+
+    private async Task LoadWeekAsync(DateOnly dateInWeek)
+    {
+        isLoading = true;
+        feedbackBannerMessage = null;
+        draggedSourceDayIndex = null;
+
+        currentWeek = CalendarWeek.FromDate(dateInWeek);
+        var saved = await WeeklyMenuService.GetSavedMenuForWeekAsync(currentWeek.WeekStartDate);
+        if (saved != null)
+        {
+            currentMenu = saved;
+            hasSavedVersionInDb = true;
+        }
+        else
+        {
+            currentMenu = WeeklyMenuService.CreateDefaultDraftMenu(currentWeek, allCategories);
+            hasSavedVersionInDb = false;
+        }
+
+        hasUnsavedChanges = false;
+        hasUserModifiedDraft = false;
+        isLoading = false;
+    }
+
+    private void RequestPreviousWeek() => RequestWeekChange(currentWeek.PreviousWeek().WeekStartDate);
+
+    private void RequestNextWeek() => RequestWeekChange(currentWeek.NextWeek().WeekStartDate);
+
+    private void RequestCurrentWeek() => RequestWeekChange(CalendarWeek.FromDate(localToday).WeekStartDate);
+
+    private void RequestWeekChange(DateOnly targetWeekStart)
+    {
+        if (hasUnsavedChanges)
+        {
+            pendingWeekDate = targetWeekStart;
+            pendingInternalNavigationUrl = null;
+            showUnsavedNavigationConfirm = true;
+            return;
+        }
+
+        _ = LoadWeekAsync(targetWeekStart);
+    }
+
+    private void HandleBeforeInternalNavigation(LocationChangingContext context)
+    {
+        if (bypassInternalNavigationLock || !hasUnsavedChanges)
+            return;
+
+        context.PreventNavigation();
+        pendingInternalNavigationUrl = context.TargetLocation;
+        pendingWeekDate = null;
+        showUnsavedNavigationConfirm = true;
+        StateHasChanged();
+    }
+
+    private async Task ConfirmDiscardAndNavigateAsync()
+    {
+        showUnsavedNavigationConfirm = false;
+        hasUnsavedChanges = false;
+        hasUserModifiedDraft = false;
+
+        if (pendingWeekDate.HasValue)
+        {
+            var target = pendingWeekDate.Value;
+            pendingWeekDate = null;
+            await LoadWeekAsync(target);
+        }
+        else if (!string.IsNullOrWhiteSpace(pendingInternalNavigationUrl))
+        {
+            var targetUrl = pendingInternalNavigationUrl;
+            pendingInternalNavigationUrl = null;
+            bypassInternalNavigationLock = true;
+            Navigation.NavigateTo(targetUrl);
+        }
+    }
+
+    private void CancelPendingNavigation()
+    {
+        showUnsavedNavigationConfirm = false;
+        pendingWeekDate = null;
+        pendingInternalNavigationUrl = null;
+    }
+
+    private async Task HandlePantryKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await AddPantryIngredientFromInput();
+        }
+    }
+
+    private Task AddPantryIngredientFromInput()
+    {
+        if (currentMenu == null || string.IsNullOrWhiteSpace(newPantryInput))
+            return Task.CompletedTask;
+
+        var parts = newPantryInput
+            .Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .ToList();
+
+        var existingList = currentMenu.PantryIngredients;
+        bool addedAny = false;
+
+        foreach (var part in parts)
+        {
+            if (!existingList.Contains(part, StringComparer.OrdinalIgnoreCase))
+            {
+                existingList.Add(part);
+                addedAny = true;
+            }
+        }
+
+        newPantryInput = string.Empty;
+
+        if (addedAny)
+        {
+            currentMenu.PantryIngredients = existingList;
+            MarkMenuEdited();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void RemovePantryIngredient(string ingredientName)
+    {
+        if (currentMenu == null)
+            return;
+
+        var updated = currentMenu.PantryIngredients
+            .Where(p => !string.Equals(p, ingredientName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        currentMenu.PantryIngredients = updated;
+        MarkMenuEdited();
+    }
+
+    private async Task HandleGenerateWeekClicked()
+    {
+        if (currentMenu == null)
+            return;
+
+        bool alreadyHasRecipesOrEdits =
+            hasUserModifiedDraft ||
+            currentMenu.Status == WeeklyMenuStatus.Confirmed ||
+            currentMenu.Days.Any(d => d.RecipeId.HasValue);
+
+        if (alreadyHasRecipesOrEdits)
+        {
+            showRegenerateConfirm = true;
+            return;
+        }
+
+        await ExecuteGenerateWeekAsync();
+    }
+
+    private async Task ConfirmGenerateWeekAsync()
+    {
+        showRegenerateConfirm = false;
+        await ExecuteGenerateWeekAsync();
+    }
+
+    private async Task ExecuteGenerateWeekAsync()
+    {
+        if (currentMenu == null)
+            return;
+
+        var result = await WeeklyMenuService.GenerateWeekProposalAsync(currentMenu);
+
+        // Generating a proposal does NOT automatically confirm ("spika") the menu (E6).
+        if (currentMenu.Status == WeeklyMenuStatus.Draft)
+        {
+            currentMenu = await WeeklyMenuService.SaveDraftAsync(currentMenu);
+            hasSavedVersionInDb = true;
+            hasUnsavedChanges = false;
+            hasUserModifiedDraft = true;
+        }
+        else
+        {
+            // When editing an already confirmed menu, keep changes in working copy until user clicks Save
+            hasUnsavedChanges = true;
+            hasUserModifiedDraft = true;
+        }
+
+        if (result.AllDaysFilled)
+        {
+            feedbackIsWarning = false;
+            feedbackBannerMessage = "Ett nytt veckoförslag med sju middagar har genererats!";
+        }
+        else
+        {
+            feedbackIsWarning = true;
+            feedbackBannerMessage = result.FilledDaysCount == 0
+                ? "Kunde inte fylla några dagar med nuvarande kategorival."
+                : $"Genererade {result.FilledDaysCount} av 7 dagar. {result.EmptyDaysCount} dag(ar) saknar tillräckligt många matchande recept.";
+        }
+    }
+
+    private async Task HandleRerollDayAsync(int dayIndex)
+    {
+        if (currentMenu == null)
+            return;
+
+        var result = await WeeklyMenuService.RerollDayProposalAsync(currentMenu, dayIndex);
+        if (result.Changed)
+        {
+            MarkMenuEdited();
+            var dayName = CalendarWeek.GetSwedishDayName(dayIndex);
+            var day = currentMenu.Days.First(d => d.DayIndex == dayIndex);
+            feedbackIsWarning = false;
+            feedbackBannerMessage = $"{dayName} uppdaterades till '{day.Recipe?.Title}'.";
+        }
+        else if (!string.IsNullOrWhiteSpace(result.Message))
+        {
+            var dayName = CalendarWeek.GetSwedishDayName(dayIndex);
+            feedbackIsWarning = true;
+            feedbackBannerMessage = $"{dayName}: {result.Message}";
+        }
+    }
+
+    private void HandleMoveRecipe((int SourceDayIndex, int TargetDayIndex) moveArgs)
+    {
+        if (currentMenu == null || moveArgs.SourceDayIndex == moveArgs.TargetDayIndex)
+            return;
+
+        WeeklyMenuService.MoveOrSwapDayRecipe(currentMenu, moveArgs.SourceDayIndex, moveArgs.TargetDayIndex);
+        MarkMenuEdited();
+
+        var srcName = CalendarWeek.GetSwedishDayName(moveArgs.SourceDayIndex);
+        var dstName = CalendarWeek.GetSwedishDayName(moveArgs.TargetDayIndex);
+        feedbackIsWarning = false;
+        feedbackBannerMessage = $"Flyttade recept mellan {srcName.ToLower()} och {dstName.ToLower()}.";
+    }
+
+    private void HandleDragStartDay(int dayIndex)
+    {
+        draggedSourceDayIndex = dayIndex;
+    }
+
+    private void HandleDropOnDay(int targetDayIndex)
+    {
+        if (draggedSourceDayIndex.HasValue && draggedSourceDayIndex.Value != targetDayIndex)
+        {
+            HandleMoveRecipe((draggedSourceDayIndex.Value, targetDayIndex));
+        }
+        draggedSourceDayIndex = null;
+    }
+
+    private void HandleDayCategoriesChanged((int DayIndex, List<int> CategoryIds) args)
+    {
+        MarkMenuEdited();
+    }
+
+    private void HandleManualRecipeChanged((int DayIndex, int? RecipeId) args)
+    {
+        if (currentMenu == null)
+            return;
+
+        var day = currentMenu.Days.FirstOrDefault(d => d.DayIndex == args.DayIndex);
+        if (day == null)
+            return;
+
+        if (args.RecipeId.HasValue)
+        {
+            var chosen = allRecipes.FirstOrDefault(r => r.Id == args.RecipeId.Value);
+            day.RecipeId = chosen?.Id;
+            day.Recipe = chosen;
+            day.Servings = chosen?.Servings ?? 4;
+            day.StatusMessage = null;
+        }
+        else
+        {
+            day.RecipeId = null;
+            day.Recipe = null;
+            day.Servings = null;
+            day.StatusMessage = null;
+        }
+
+        MarkMenuEdited();
+    }
+
+    private async Task SaveDraftAsync()
+    {
+        if (currentMenu == null)
+            return;
+
+        currentMenu = await WeeklyMenuService.SaveDraftAsync(currentMenu);
+        hasSavedVersionInDb = true;
+        hasUnsavedChanges = false;
+        feedbackIsWarning = false;
+        feedbackBannerMessage = $"Utkastet för vecka {currentWeek.IsoWeek} har sparats.";
+        ToastService.ShowSuccess(feedbackBannerMessage);
+    }
+
+    private async Task ConfirmWeeklyMenuAsync()
+    {
+        if (currentMenu == null)
+            return;
+
+        bool wasAlreadyConfirmed = currentMenu.Status == WeeklyMenuStatus.Confirmed;
+        currentMenu = await WeeklyMenuService.ConfirmMenuAsync(currentMenu);
+        hasSavedVersionInDb = true;
+        hasUnsavedChanges = false;
+        hasUserModifiedDraft = false;
+
+        feedbackIsWarning = false;
+        feedbackBannerMessage = wasAlreadyConfirmed
+            ? $"Ändringarna i veckomenyn för vecka {currentWeek.IsoWeek} har sparats!"
+            : $"Veckomenyn för vecka {currentWeek.IsoWeek} är nu spikad!";
+
+        ToastService.ShowSuccess(feedbackBannerMessage);
+        NotificationService.ShowSuccess("Veckomenyn sparad!", feedbackBannerMessage);
+    }
+
+    private async Task RevertUnsavedChangesAsync()
+    {
+        await LoadWeekAsync(currentWeek.WeekStartDate);
+        feedbackIsWarning = false;
+        feedbackBannerMessage = "Osparade ändringar har återställts.";
+    }
+
+    private void MarkMenuEdited()
+    {
+        hasUnsavedChanges = true;
+        hasUserModifiedDraft = true;
+    }
+}
+

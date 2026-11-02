@@ -1,7 +1,7 @@
 @namespace Receptbanken.Web.Components.Recipes
 
 <div class="form-section">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+    <div style="margin-bottom: 16px;">
         @if (HeadingLevel == 3)
         {
             <h3 class="form-section-title" style="margin-bottom: 0;">@HeadingText</h3>
@@ -10,14 +10,6 @@
         {
             <h2 class="form-section-title" style="margin-bottom: 0;">@HeadingText</h2>
         }
-
-        <button type="button" class="btn-secondary-custom" @onclick="AddInstruction">
-            @if (ShowAddIcon)
-            {
-                <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="Color.Neutral" />
-            }
-            @AddButtonText
-        </button>
     </div>
 
     @if (!string.IsNullOrWhiteSpace(HelpText))
@@ -34,6 +26,16 @@
             var index = i;
             <RecipeInstructionRow @key="step" Step="step" StepNumber="@(index + 1)" OnRemove="@(() => RemoveInstruction(index))" />
         }
+    </div>
+
+    <div style="margin-top: 16px;">
+        <button type="button" class="btn-secondary-custom" @onclick="AddInstruction">
+            @if (ShowAddIcon)
+            {
+                <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="Color.Neutral" />
+            }
+            @AddButtonText
+        </button>
     </div>
 </div>
 

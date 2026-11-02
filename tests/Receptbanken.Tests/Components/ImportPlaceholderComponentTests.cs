@@ -332,14 +332,16 @@ public class ImportPlaceholderComponentTests : TestContext
             cut.Find(".import-error-box").Should().NotBeNull();
             cut.Find(".import-error-title").TextContent.Trim().Should().Be("Det gick inte att hämta receptet automatiskt");
             cut.Find(".import-error-desc").TextContent.Trim().Should().Be("Webbplatsen blockerar automatisk hämtning.");
-            cut.Find(".import-error-hint").TextContent.Should().Contain("Du kan ändå importera receptet genom att kopiera dess receptdata från webbläsaren.");
+            cut.Find(".import-error-hint").TextContent.Should().Contain("Du kan fortfarande importera det genom att kopiera recepttexten från webbsidan och klistra in den här.");
 
-            // Primary recommended action: JSON-LD import button
+            // Primary recommended action: Paste recipe text button
+            var textImportBtn = cut.Find("#btn-open-textimport");
+            textImportBtn.TextContent.Should().Contain("Klistra in recept");
+
+            // Secondary options: JSON-LD and Manual input
+            cut.Find(".import-alt-label").TextContent.Trim().Should().Be("Alternativt:");
             var jsonLdBtn = cut.Find("#btn-open-jsonld");
             jsonLdBtn.TextContent.Should().Contain("Importera receptdata (JSON-LD)");
-
-            // Secondary option: Manual input
-            cut.Find(".import-alt-label").TextContent.Trim().Should().Be("Alternativt:");
             var manualBtn = cut.Find("#btn-manual-input");
             manualBtn.TextContent.Should().Contain("Fyll i receptet manuellt");
         });

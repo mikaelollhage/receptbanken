@@ -60,6 +60,8 @@ public class RecipeImportResult
     public Recipe? DraftRecipe { get; set; }
     public string? RemoteImageUrl { get; set; }
     public bool HasImageProperty { get; set; }
+    public string? WarningMessage { get; set; }
+    public bool IsUncertain => !string.IsNullOrWhiteSpace(WarningMessage);
 
     public static RecipeImportResult Failure(RecipeImportFailureReason reason, string errorMessage) => new()
     {

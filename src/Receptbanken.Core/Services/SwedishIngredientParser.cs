@@ -30,7 +30,8 @@ public class SwedishIngredientParser
         "nypa", "nypor",
         "blad", "kvist", "kvistar",
         "port", "portion", "portioner",
-        "knippe", "ask", "askar", "flaska", "flaskor"
+        "knippe", "ask", "askar", "flaska", "flaskor",
+        "klick", "klickar", "stänk", "skvätt", "droppe", "droppar"
     };
 
     public Ingredient Parse(string rawLine, int orderIndex = 1, string? groupHeader = null)
@@ -184,15 +185,31 @@ public class SwedishIngredientParser
         if (string.IsNullOrWhiteSpace(input))
             return input;
 
-        // Range: e.g. "1-2 klyftor", "1,5 - 2 dl"
-        var rangeMatch = Regex.Match(input, @"^(\d+(?:[.,]\d+)?)\s*[-–]\s*(\d+(?:[.,]\d+)?)(?:\s+|(?=[a-zA-ZåäöÅÄÖ])|$)(.*)$");
+        // Range: e.g. "1-2 klyftor", "1–2 tsk", "1—2 tsk", "½–1 tsk", "1/2–1 tsk", "1,5 - 2 dl", "ca 1–2 msk"
+        var rangeMatch = Regex.Match(
+            input,
+            @"^(?:ca\.?\s*|cirka\s*)?((?:\d+\s+)?\d+/\d+|[½¼¾⅓⅔⅛]|\d+(?:\s+[½¼¾⅓⅔⅛]|(?:[.,]\d+)?))\s*[-–—]\s*((?:\d+\s+)?\d+/\d+|[½¼¾⅓⅔⅛]|\d+(?:\s+[½¼¾⅓⅔⅛]|(?:[.,]\d+)?))(?:\s+|(?=[a-zA-ZåäöÅÄÖ])|$)(.*)$",
+            RegexOptions.IgnoreCase);
         if (rangeMatch.Success &&
-            TryParseDecimal(rangeMatch.Groups[1].Value, out var minVal) &&
-            TryParseDecimal(rangeMatch.Groups[2].Value, out var maxVal))
+            TryParseQuantityToken(rangeMatch.Groups[1].Value, out var minVal) &&
+            TryParseQuantityToken(rangeMatch.Groups[2].Value, out var maxVal))
         {
             quantity = minVal;
             quantityMax = maxVal;
             return rangeMatch.Groups[3].Value.Trim();
+        }
+
+        // Leading Swedish word numbers "en" / "ett" before a known unit (e.g. "En skvätt balsamvinäger", "Ett paket jäst")
+        var wordNumberMatch = Regex.Match(input, @"^(?:en|ett)\s+(.*)$", RegexOptions.IgnoreCase);
+        if (wordNumberMatch.Success)
+        {
+            var candidateRest = wordNumberMatch.Groups[1].Value;
+            var nextTokenMatch = Regex.Match(candidateRest, @"^([a-zA-ZåäöÅÄÖ]+)\.?(?:\s+|(?=\()|$)(.*)$");
+            if (nextTokenMatch.Success && KnownUnits.Contains(nextTokenMatch.Groups[1].Value))
+            {
+                quantity = 1m;
+                return candidateRest;
+            }
         }
 
         // Mixed fraction with unicode: e.g. "1 ½ dl" or "1½ dl"
@@ -244,6 +261,49 @@ public class SwedishIngredientParser
         }
 
         return input;
+    }
+
+    private static bool TryParseQuantityToken(string token, out decimal val)
+    {
+        val = 0;
+        token = token.Trim();
+        if (string.IsNullOrEmpty(token)) return false;
+
+        if (token.Length == 1 && UnicodeFractions.TryGetValue(token[0], out var frac))
+        {
+            val = frac;
+            return true;
+        }
+
+        var mixedUnicode = Regex.Match(token, @"^(\d+)\s*([½¼¾⅓⅔⅛])$");
+        if (mixedUnicode.Success &&
+            int.TryParse(mixedUnicode.Groups[1].Value, out var wholePart) &&
+            UnicodeFractions.TryGetValue(mixedUnicode.Groups[2].Value[0], out var fracPart))
+        {
+            val = wholePart + fracPart;
+            return true;
+        }
+
+        var slash = Regex.Match(token, @"^(?:(\d+)\s+)?(\d+)/(\d+)$");
+        if (slash.Success &&
+            int.TryParse(slash.Groups[2].Value, out var num) &&
+            int.TryParse(slash.Groups[3].Value, out var den) && den > 0)
+        {
+            var whole = slash.Groups[1].Success && int.TryParse(slash.Groups[1].Value, out var w) ? w : 0;
+            val = whole + Math.Round((decimal)num / den, 2);
+            return true;
+        }
+
+        return TryParseDecimal(token, out val);
+    }
+
+    private static string FormatQuantityDisplay(decimal? q)
+    {
+        if (!q.HasValue) return string.Empty;
+        if (q.Value == 0.5m) return "½";
+        if (q.Value == 0.25m) return "¼";
+        if (q.Value == 0.75m) return "¾";
+        return q.Value.ToString("0.##", CultureInfo.GetCultureInfo("sv-SE"));
     }
 
     private static bool TryParseDecimal(string text, out decimal result)

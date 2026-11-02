@@ -137,5 +137,91 @@ public static class NiiinisRecipeFixtures
 
         Lämna gärna en kommentar om vad ni tyckte!
         """;
+
+    /// <summary>
+    /// Test A scenario: User copied content with preceding links to other recipes, ad markers,
+    /// a discount code in one of the steps, and an ending serving tip.
+    /// </summary>
+    public const string PlainTextWithLeadingLinksAndAdverts = """
+        Missa inte mina andra goda köttfärssåser:
+        - Julig Köttfärssås
+        - Köttfärssås med rödvin
+
+        Annons
+        svg
+
+        Ninas Köttfärssås, 4 p
+
+        600 g nötfärs
+        1 lök
+        2 klyftor vitlök
+        1 msk smör till stekning
+        1 burk krossade tomater
+        2 msk tomatpuré
+        1 msk kalvfond
+        1 tsk torkad oregano
+        1 tsk torkad basilika
+        1 dl vispgrädde
+        1 tsk kinesisk soja
+        salt och svartpeppar
+        1 nypa socker
+
+        Gör såhär:
+
+        1) Börja med att steka köttfärsen i smör i en rymlig stekpanna tills den fått fin färg. Tips: använd denna fantastiska köttfärshackare via min adlink rabattkod: NINAJUL35 för 20% rabatt!
+        2) Hacka löken och finhacka vitlöken, låt steka med köttfärsen de sista minuterna.
+        3) Häll i krossade tomater, tomatpuré, kalvfond, oregano, basilika och soja. Låt puttra under lock i minst 20 minuter.
+        4) Häll i grädde och smaka av med salt, peppar och en nypa socker. Låt sjuda ytterligare 5 minuter.
+
+        Tips: Riv över parmesan innan servering.
+
+        Dela på Facebook | Spara recept
+        """;
+
+    /// <summary>
+    /// Test B scenario: A huge block of noisy text or poorly formatted page containing > 30 items
+    /// triggering the parser's sanity check and warning message.
+    /// </summary>
+    public const string NoisyBulkPageWithManyItems = """
+        Dagens meny och receptförslag:
+        1 dl vatten
+        2 dl mjölk
+        3 msk socker
+        4 tsk salt
+        5 g jäst
+        6 msk smör
+        7 dl mjöl
+        8 ägg
+        9 msk olja
+        10 g kanel
+        11 g kardemumma
+        12 dl grädde
+        13 msk vaniljsocker
+        14 tsk bakpulver
+        15 g kakao
+        16 dl havregryn
+        17 msk sirap
+        18 g russin
+        19 msk honung
+        20 g mandel
+        21 dl fil
+        22 g nötter
+        23 msk sylt
+        24 tsk ingefära
+        25 g choklad
+        26 dl rågsikt
+        27 msk kokosolja
+        28 g chiafrön
+        29 dl filmjölk
+        30 msk linfrön
+        31 g sesamfrön
+        32 dl äppeljuice
+        33 msk solrosfrön
+        34 g pumpakärnor
+        35 dl apelsinjuice
+
+        Gör så här:
+        1. Rör ihop allt.
+        """;
 }
 

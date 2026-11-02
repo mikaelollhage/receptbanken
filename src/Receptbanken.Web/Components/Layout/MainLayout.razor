@@ -15,9 +15,11 @@
     <div class="app-main">
         @if (NotificationService.HasNotification)
         {
-            <div class="app-top-banner @(NotificationService.IsSuccess ? "app-top-banner-success" : "app-top-banner-warning")" role="alert">
+            var bannerClass = NotificationService.IsSuccess ? "app-top-banner-success" : (NotificationService.IsError ? "app-top-banner-error" : "app-top-banner-warning");
+            var icon = NotificationService.IsSuccess ? "✓" : (NotificationService.IsError ? "✕" : "⚠️");
+            <div class="app-top-banner @bannerClass" role="alert">
                 <div class="app-top-banner-content">
-                    <span class="app-top-banner-icon">@(NotificationService.IsSuccess ? "✓" : "⚠️")</span>
+                    <span class="app-top-banner-icon">@icon</span>
                     <div class="app-top-banner-text">
                         <div class="app-top-banner-title">@NotificationService.Title</div>
                         <div class="app-top-banner-desc">@NotificationService.Message</div>

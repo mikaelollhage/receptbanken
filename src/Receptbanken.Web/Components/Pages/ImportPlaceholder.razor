@@ -59,34 +59,16 @@
         <div class="import-error-box" role="alert">
             <div class="import-error-title">Det gick inte att hämta receptet automatiskt</div>
             <p class="import-error-desc">@GetPrimaryErrorDescription()</p>
-            @if (urlFailureReason.SuggestsStructuredDataFallback())
-            {
-                <p class="import-error-hint">Du kan ändå importera receptet genom att kopiera dess receptdata från webbläsaren.</p>
-                <div class="import-alternative-actions">
-                    <div class="import-action-primary">
-                        <button type="button" id="btn-open-jsonld" class="btn-primary-custom" @onclick="OpenAndFocusJsonLd">
-                            <FluentIcon Value="@(new Icons.Regular.Size16.ArrowDownload())" Color="Color.Fill" />
-                            <span>Importera receptdata (JSON-LD)</span>
-                        </button>
-                    </div>
-                    <div class="import-action-secondary-group">
-                        <span class="import-alt-label">Alternativt:</span>
-                        <div class="import-alt-buttons">
-                            <button type="button" id="btn-open-textimport" class="btn-secondary-custom" @onclick="OpenAndFocusRecipeText">
-                                <FluentIcon Value="@(new Icons.Regular.Size16.DocumentBulletList())" />
-                                <span>Importera från recepttext</span>
-                            </button>
-                            <button type="button" id="btn-manual-input" class="btn-secondary-custom" @onclick="StartManualFromFailedUrl">
-                                <FluentIcon Value="@(new Icons.Regular.Size16.Edit())" />
-                                <span>Fyll i receptet manuellt</span>
-                            </button>
-                        </div>
-                    </div>
+            <p class="import-error-hint">Du kan fortfarande importera det genom att kopiera recepttexten från webbsidan och klistra in den här.</p>
+            <div class="import-alternative-actions">
+                <div class="import-action-primary">
+                    <button type="button" id="btn-open-textimport" class="btn-primary-custom" @onclick="OpenAndFocusRecipeText">
+                        <FluentIcon Value="@(new Icons.Regular.Size16.DocumentBulletList())" Color="Color.Fill" />
+                        <span>Klistra in recept</span>
+                    </button>
                 </div>
-            }
-            else
-            {
-                <div class="import-alternative-actions">
+                <div class="import-action-secondary-group">
+                    <span class="import-alt-label">Alternativt:</span>
                     <div class="import-alt-buttons">
                         @if (urlFailureReason.IsTransient())
                         {
@@ -96,54 +78,52 @@
                                 <span>Försök igen</span>
                             </button>
                         }
-                        <button type="button" id="btn-open-textimport" class="btn-secondary-custom" @onclick="OpenAndFocusRecipeText">
-                            <FluentIcon Value="@(new Icons.Regular.Size16.DocumentBulletList())" />
-                            <span>Importera från recepttext</span>
-                        </button>
+                        @if (urlFailureReason.SuggestsStructuredDataFallback())
+                        {
+                            <button type="button" id="btn-open-jsonld" class="btn-secondary-custom" @onclick="OpenAndFocusJsonLd">
+                                <FluentIcon Value="@(new Icons.Regular.Size16.ArrowDownload())" />
+                                <span>Importera receptdata (JSON-LD)</span>
+                            </button>
+                        }
                         <button type="button" id="btn-manual-input" class="btn-secondary-custom" @onclick="StartManualFromFailedUrl">
                             <FluentIcon Value="@(new Icons.Regular.Size16.Edit())" />
                             <span>Fyll i receptet manuellt</span>
                         </button>
                     </div>
                 </div>
-            }
+            </div>
         </div>
     }
 
-    <!-- Alternativ importmetod: manuellt inklistrad recepttext eller HTML -->
+    <!-- Gemensam sektion för inklistrat innehåll (text eller HTML) -->
     <div class="recipe-text-import">
         <button type="button" id="recipe-text-toggle" class="recipe-text-toggle"
                 aria-expanded="@(isRecipeTextSectionOpen ? "true" : "false")" aria-controls="recipe-text-panel"
                 @onclick="ToggleRecipeTextSection">
             <span class="recipe-text-toggle-icon" aria-hidden="true">@(isRecipeTextSectionOpen ? "▾" : "▸")</span>
-            <span>Importera från recepttext</span>
+            <span>Klistra in recept</span>
         </button>
 
         @if (isRecipeTextSectionOpen)
         {
             <div id="recipe-text-panel" class="recipe-text-panel">
                 <p class="recipe-text-intro">
-                    Kopiera text eller HTML från en receptwebbplats och klistra in här. Receptbanken tolkar automatiskt ingredienser, instruktioner, portioner och tillagningstid utan att hämta sidan från servern.
+                    Kopiera receptet från en webbsida och klistra in det här. Receptbanken försöker automatiskt hitta titel, portioner, ingredienser och tillagningssteg.
                 </p>
 
                 <div style="margin-bottom: 8px;">
-                    <FluentTextField @bind-Value="recipeTextSourceUrl" Immediate="true" Id="recipe-text-source-url"
+                    <FluentTextField @bind-Value="importUrl" Immediate="true" Id="recipe-text-source-url"
                                      Label="Receptets webbadress (valfritt)" Placeholder="https://..." Style="width: 100%;" />
                 </div>
 
-                <FluentTextArea @bind-Value="recipeTextInput" Immediate="true" Id="recipe-text-input"
-                                Label="Recepttext eller HTML" Placeholder="Klistra in recepttext eller HTML här..."
+                <FluentTextArea @bind-Value="RecipeTextInput" Immediate="true" Id="recipe-text-input"
+                                Label="Recepttext" Placeholder="Klistra in receptet här..."
                                 Rows="8" Maxlength="@RecipeImportLimits.MaxRecipeTextLength" Style="width: 100%;" />
 
                 <div class="recipe-text-actions" style="display: flex; gap: 10px; align-items: center; justify-content: flex-end; flex-wrap: wrap;">
-                    <button type="button" id="paste-clipboard-btn" class="btn-secondary-custom"
-                            @onclick="PasteFromClipboardAsync" title="Klistra in från urklipp">
-                        <FluentIcon Value="@(new Icons.Regular.Size16.ClipboardPaste())" />
-                        <span>Klistra in från urklipp</span>
-                    </button>
                     <button type="button" id="parse-recipe-text-btn" class="btn-primary-custom"
                             @onclick="ParseRecipeText" disabled="@(isImporting || string.IsNullOrWhiteSpace(recipeTextInput))">
-                        Tolka recepttext
+                        Tolka recept
                     </button>
                 </div>
 
@@ -421,7 +401,18 @@
 
     private bool isRecipeTextSectionOpen = false;
     private string recipeTextInput = string.Empty;
-    private string recipeTextSourceUrl = string.Empty;
+    private string RecipeTextInput
+    {
+        get => recipeTextInput;
+        set
+        {
+            recipeTextInput = value;
+            if (!string.IsNullOrWhiteSpace(recipeTextErrorMessage))
+            {
+                recipeTextErrorMessage = null;
+            }
+        }
+    }
     private string? recipeTextErrorMessage;
 
     private bool isJsonLdSectionOpen = false;
@@ -504,10 +495,6 @@
     {
         isRecipeTextSectionOpen = true;
         isJsonLdSectionOpen = false;
-        if (string.IsNullOrWhiteSpace(recipeTextSourceUrl) && !string.IsNullOrWhiteSpace(importUrl))
-        {
-            recipeTextSourceUrl = importUrl.Trim();
-        }
         StateHasChanged();
         try
         {
@@ -519,41 +506,18 @@
         }
     }
 
-    private async Task PasteFromClipboardAsync()
-    {
-        try
-        {
-            var content = await JSRuntime.InvokeAsync<string?>("receptbanken.readClipboardContent");
-            if (!string.IsNullOrWhiteSpace(content))
-            {
-                recipeTextInput = content;
-                recipeTextErrorMessage = null;
-                StateHasChanged();
-            }
-            else
-            {
-                ToastService.ShowInfo("Kunde inte läsa från urklipp automatiskt. Använd Ctrl+V för att klistra in.");
-            }
-        }
-        catch (Exception)
-        {
-            ToastService.ShowInfo("Kunde inte läsa från urklipp automatiskt. Använd Ctrl+V för att klistra in.");
-        }
-    }
-
     private async Task ParseRecipeText()
     {
         recipeTextErrorMessage = null;
+        NotificationService.Clear();
 
         if (string.IsNullOrWhiteSpace(recipeTextInput))
         {
-            recipeTextErrorMessage = "Klistra in recepttext eller HTML innan du tolkar.";
+            recipeTextErrorMessage = "Klistra in recepttext innan du tolkar.";
             return;
         }
 
-        var fallbackSourceUrl = !string.IsNullOrWhiteSpace(recipeTextSourceUrl)
-            ? recipeTextSourceUrl.Trim()
-            : (!string.IsNullOrWhiteSpace(importUrl) ? importUrl.Trim() : null);
+        var fallbackSourceUrl = !string.IsNullOrWhiteSpace(importUrl) ? importUrl.Trim() : null;
 
         RecipeImportResult result;
         try
@@ -568,7 +532,7 @@
 
         if (!result.Success || result.DraftRecipe == null)
         {
-            recipeTextErrorMessage = result.ErrorMessage ?? "Recepttexten kunde inte tolkas.";
+            recipeTextErrorMessage = result.ErrorMessage ?? "Inget recept kunde identifieras i texten. Prova att kopiera receptets titel, ingredienser och tillagningsinstruktioner.";
             return;
         }
 
@@ -583,7 +547,11 @@
         imageLoadFailed = false;
         imageFetchNotice = null;
 
-        if (!string.IsNullOrWhiteSpace(result.RemoteImageUrl))
+        if (!string.IsNullOrWhiteSpace(result.WarningMessage))
+        {
+            NotificationService.ShowWarning("Tolkningen kan vara ofullständig", result.WarningMessage);
+        }
+        else if (!string.IsNullOrWhiteSpace(result.RemoteImageUrl))
         {
             imageFetchNotice = "Receptet innehöll en bildreferens. Av säkerhetsskäl hämtas den inte automatiskt vid textimport. Du kan ladda upp en bild från din dator nedan.";
             NotificationService.ShowWarning("Receptbild", imageFetchNotice);
@@ -857,8 +825,11 @@
         {
             if (string.IsNullOrWhiteSpace(ing.RawText))
             {
+                var culture = System.Globalization.CultureInfo.GetCultureInfo("sv-SE");
                 var qty = ing.Quantity.HasValue
-                    ? $"{ing.Quantity.Value.ToString("0.##", System.Globalization.CultureInfo.GetCultureInfo("sv-SE"))} "
+                    ? (ing.QuantityMax.HasValue && ing.QuantityMax.Value > ing.Quantity.Value
+                        ? $"{ing.Quantity.Value.ToString("0.##", culture)}–{ing.QuantityMax.Value.ToString("0.##", culture)} "
+                        : $"{ing.Quantity.Value.ToString("0.##", culture)} ")
                     : "";
                 var unit = !string.IsNullOrWhiteSpace(ing.Unit) ? $"{ing.Unit.Trim()} " : "";
                 var comment = !string.IsNullOrWhiteSpace(ing.Comment) ? $" ({ing.Comment.Trim()})" : "";

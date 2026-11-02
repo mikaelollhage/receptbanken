@@ -66,6 +66,42 @@ public class SwedishIngredientParserTests
         result.Preparation.Should().Be("finhackade");
     }
 
+    [Theory]
+    [InlineData("1-2 tsk spiskummin", 1.0, 2.0, "tsk", "spiskummin")]
+    [InlineData("1–2 tsk spiskummin", 1.0, 2.0, "tsk", "spiskummin")]
+    [InlineData("1—2 tsk spiskummin", 1.0, 2.0, "tsk", "spiskummin")]
+    [InlineData("½–1 tsk chiliflakes", 0.5, 1.0, "tsk", "chiliflakes")]
+    [InlineData("ca 1–2 msk olivolja", 1.0, 2.0, "msk", "olivolja")]
+    [InlineData("1 1/2 dl grädde", 1.5, null, "dl", "grädde")]
+    public void Parse_RequiredIntervalsAndFractions_ShouldExtractAccurately(
+        string rawLine, double expectedMin, double? expectedMax, string expectedUnit, string expectedName)
+    {
+        var result = _parser.Parse(rawLine);
+
+        result.Quantity.Should().Be((decimal)expectedMin);
+        if (expectedMax.HasValue)
+        {
+            result.QuantityMax.Should().Be((decimal)expectedMax.Value);
+            result.Comment.Should().BeNull(); // Del B5: Interval is not dumped into Comment
+        }
+        else
+        {
+            result.QuantityMax.Should().BeNull();
+        }
+        result.Unit.Should().Be(expectedUnit);
+        result.Name.Should().Be(expectedName);
+    }
+
+    [Fact]
+    public void Parse_SwedishWordNumbers_EnSkvattBalsamvinager_ShouldExtractQuantityAndUnit()
+    {
+        var result = _parser.Parse("En skvätt balsamvinäger");
+
+        result.Quantity.Should().Be(1m);
+        result.Unit.Should().Be("skvätt");
+        result.Name.Should().Be("balsamvinäger");
+    }
+
     [Fact]
     public void Parse_CountWithoutExplicitUnit_ShouldExtractQuantityAndName()
     {

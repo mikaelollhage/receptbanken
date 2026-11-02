@@ -23,6 +23,10 @@ public class AppDbContext : DbContext
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<RecipeCategory> RecipeCategories => Set<RecipeCategory>();
     public DbSet<ShoppingListItem> ShoppingListItems => Set<ShoppingListItem>();
+    public DbSet<WeeklyMenu> WeeklyMenus => Set<WeeklyMenu>();
+    public DbSet<WeeklyMenuDay> WeeklyMenuDays => Set<WeeklyMenuDay>();
+    public DbSet<WeeklyMenuDayCategory> WeeklyMenuDayCategories => Set<WeeklyMenuDayCategory>();
+    public DbSet<WeeklyMenuPantryItem> WeeklyMenuPantryItems => Set<WeeklyMenuPantryItem>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -130,6 +134,61 @@ public class AppDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.RecipeId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // WeeklyMenu
+        modelBuilder.Entity<WeeklyMenu>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.WeekStartDate).IsUnique();
+            entity.HasIndex(e => new { e.IsoYear, e.IsoWeek }).IsUnique();
+            entity.HasIndex(e => e.Status);
+
+            entity.HasMany(e => e.Days)
+                .WithOne(d => d.WeeklyMenu)
+                .HasForeignKey(d => d.WeeklyMenuId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.PantryItems)
+                .WithOne(p => p.WeeklyMenu)
+                .HasForeignKey(p => p.WeeklyMenuId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // WeeklyMenuDay
+        modelBuilder.Entity<WeeklyMenuDay>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.WeeklyMenuId, e.DayIndex }).IsUnique();
+            entity.HasIndex(e => new { e.WeeklyMenuId, e.Date }).IsUnique();
+
+            entity.HasOne(e => e.Recipe)
+                .WithMany()
+                .HasForeignKey(e => e.RecipeId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // WeeklyMenuDayCategory (Join Table)
+        modelBuilder.Entity<WeeklyMenuDayCategory>(entity =>
+        {
+            entity.HasKey(dc => new { dc.WeeklyMenuDayId, dc.CategoryId });
+
+            entity.HasOne(dc => dc.WeeklyMenuDay)
+                .WithMany(d => d.SelectedCategories)
+                .HasForeignKey(dc => dc.WeeklyMenuDayId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(dc => dc.Category)
+                .WithMany()
+                .HasForeignKey(dc => dc.CategoryId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // WeeklyMenuPantryItem
+        modelBuilder.Entity<WeeklyMenuPantryItem>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.IngredientName).IsRequired().HasMaxLength(150);
         });
     }
 }

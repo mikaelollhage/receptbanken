@@ -1,0 +1,381 @@
+<div class="weekly-day-card @(IsToday ? "is-today" : "") @(isDragOver ? "drag-over" : "") @(Day.Recipe != null ? "has-recipe" : "is-empty")"
+     data-day-index="@Day.DayIndex"
+     draggable="@(Day.Recipe != null ? "true" : "false")"
+     @ondragstart="HandleDragStart"
+     @ondragover="HandleDragOver"
+     @ondragover:preventDefault="true"
+     @ondragenter="HandleDragEnter"
+     @ondragleave="HandleDragLeave"
+     @ondrop="HandleDrop">
+
+    <!-- Top Row: Day Name, Date & Drag Handle -->
+    <div class="weekly-day-header">
+        <div class="weekly-day-title-group">
+            <span class="weekly-day-name">@CalendarWeek.FormatDayHeaderSwedish(Day.Date)</span>
+            @if (IsToday)
+            {
+                <span class="weekly-day-today-badge">Idag</span>
+            }
+        </div>
+
+        @if (Day.Recipe != null)
+        {
+            <span class="weekly-day-drag-hint" title="Dra kortet för att byta dag på dator">
+                ⠿ Dra för att flytta
+            </span>
+        }
+    </div>
+
+    <!-- Category Selection Row (Per Day) -->
+    <div class="weekly-day-categories-row">
+        <span class="weekly-day-categories-label">Kategorier:</span>
+
+        <div class="weekly-day-categories-list">
+            @if (Day.SelectedCategories.Count == 0)
+            {
+                <span class="day-category-all-badge">Alla kategorier</span>
+            }
+            else
+            {
+                @foreach (var sc in Day.SelectedCategories)
+                {
+                    var catName = sc.Category?.Name ?? AllCategories.FirstOrDefault(c => c.Id == sc.CategoryId)?.Name ?? $"Kategori #{sc.CategoryId}";
+                    var catColor = sc.Category?.ColorHex ?? AllCategories.FirstOrDefault(c => c.Id == sc.CategoryId)?.ColorHex ?? "#e07a5f";
+                    <span class="day-category-chip" data-category-id="@sc.CategoryId">
+                        <span class="category-dot" style="background-color: @catColor;"></span>
+                        <span>@catName</span>
+                        <button type="button"
+                                class="day-category-remove-btn"
+                                title="@($"Ta bort {catName}")"
+                                aria-label="@($"Ta bort {catName}")"
+                                @onclick="@(() => RemoveCategory(sc.CategoryId))">
+                            ×
+                        </button>
+                    </span>
+                }
+            }
+
+            <button type="button"
+                    class="day-category-add-toggle"
+                    @onclick="ToggleCategoryPicker"
+                    aria-expanded="@showCategoryPicker">
+                @(showCategoryPicker ? "Stäng kategorival" : "+ Lägg till")
+            </button>
+        </div>
+    </div>
+
+    @if (showCategoryPicker)
+    {
+        <div class="weekly-day-category-picker" role="group" aria-label="Välj kategorier för dagen">
+            @if (AllCategories.Count == 0)
+            {
+                <span style="font-size: 13px; color: var(--rb-text-muted);">Inga kategorier finns tillgängliga.</span>
+            }
+            else
+            {
+                @foreach (var cat in AllCategories)
+                {
+                    bool isSelected = Day.SelectedCategories.Any(sc => sc.CategoryId == cat.Id);
+                    <button type="button"
+                            class="day-category-option @(isSelected ? "selected" : "")"
+                            data-option-category-id="@cat.Id"
+                            @onclick="@(() => ToggleCategory(cat))">
+                        <span class="category-dot" style="background-color: @(cat.ColorHex ?? "#e07a5f");"></span>
+                        <span>@cat.Name</span>
+                        <span>@(isSelected ? "✓" : "+")</span>
+                    </button>
+                }
+            }
+        </div>
+    }
+
+    <!-- Main Recipe Content or Empty State -->
+    @if (Day.Recipe != null)
+    {
+        var recipe = Day.Recipe;
+        var servings = Day.Servings ?? recipe.Servings;
+
+        <div class="weekly-day-body">
+            <div class="weekly-day-image-box">
+                @if (!string.IsNullOrWhiteSpace(recipe.ImagePath) && !imageLoadFailed)
+                {
+                    <img src="@($"/{recipe.ImagePath}")"
+                         alt="@recipe.Title"
+                         class="weekly-day-image"
+                         loading="lazy"
+                         @onerror="() => imageLoadFailed = true" />
+                }
+                else
+                {
+                    <div class="weekly-day-image-placeholder">🍝</div>
+                }
+            </div>
+
+            <div class="weekly-day-info">
+                <h3 class="weekly-day-recipe-title">
+                    <a href="@($"/recept/{recipe.Id}")" class="weekly-day-recipe-link">@recipe.Title</a>
+                </h3>
+
+                <div class="weekly-day-meta">
+                    @if (recipe.TotalTimeMinutes.HasValue)
+                    {
+                        <span class="weekly-day-meta-item">@recipe.TotalTimeMinutes minuter</span>
+                        <span class="weekly-day-meta-sep">·</span>
+                    }
+                    <span class="weekly-day-meta-item">@servings @recipe.ServingsUnit</span>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(Day.StatusMessage))
+                {
+                    <div class="weekly-day-status-message" role="status">
+                        ⚠️ @Day.StatusMessage
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="weekly-day-actions">
+            <a href="@($"/recept/{recipe.Id}")" class="btn-secondary-custom weekly-day-view-link">
+                Visa recept
+            </a>
+
+            <button type="button"
+                    class="btn-secondary-custom weekly-day-reroll-btn"
+                    @onclick="HandleRerollClicked">
+                🎲 Slumpa nytt
+            </button>
+
+            <div class="weekly-day-move-wrapper">
+                <button type="button"
+                        class="btn-secondary-custom weekly-day-move-toggle"
+                        @onclick="ToggleMoveMenu"
+                        aria-expanded="@showMoveMenu">
+                    Flytta till…
+                </button>
+
+                @if (showMoveMenu)
+                {
+                    <div class="weekly-day-move-menu" role="menu" aria-label="Välj dag att flytta receptet till">
+                        @for (int targetIdx = 0; targetIdx < 7; targetIdx++)
+                        {
+                            if (targetIdx == Day.DayIndex)
+                                continue;
+
+                            int capturedTarget = targetIdx;
+                            var targetDayName = CalendarWeek.GetSwedishDayName(capturedTarget);
+                            var targetDay = AllDays.FirstOrDefault(d => d.DayIndex == capturedTarget);
+                            var targetSummary = targetDay?.Recipe != null
+                                ? $"Byt plats med {targetDay.Recipe.Title}"
+                                : "Tom dag (flytta hit)";
+
+                            <button type="button"
+                                    class="weekly-day-move-option"
+                                    data-target-day-index="@capturedTarget"
+                                    role="menuitem"
+                                    @onclick="@(() => SelectMoveTarget(capturedTarget))">
+                                <span class="move-option-day">@targetDayName</span>
+                                <span class="move-option-desc">@targetSummary</span>
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+
+            <button type="button"
+                    class="btn-secondary-custom weekly-day-change-recipe-toggle"
+                    @onclick="ToggleRecipePicker">
+                @(showRecipePicker ? "Stäng receptval" : "Byt recept…")
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="weekly-day-empty">
+            @if (!string.IsNullOrWhiteSpace(Day.StatusMessage))
+            {
+                <div class="weekly-day-status-message" role="alert">
+                    ⚠️ @Day.StatusMessage
+                </div>
+            }
+            else
+            {
+                <p class="weekly-day-empty-text">Inget recept valt för denna dag.</p>
+            }
+
+            <div class="weekly-day-actions" style="margin-top: 12px;">
+                <button type="button"
+                        class="btn-secondary-custom weekly-day-reroll-btn"
+                        @onclick="HandleRerollClicked">
+                    🎲 Slumpa nytt
+                </button>
+
+                <button type="button"
+                        class="btn-secondary-custom weekly-day-change-recipe-toggle"
+                        @onclick="ToggleRecipePicker">
+                    @(showRecipePicker ? "Stäng receptval" : "Välj recept…")
+                </button>
+            </div>
+        </div>
+    }
+
+    @if (showRecipePicker)
+    {
+        <div class="weekly-day-recipe-picker">
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <select class="form-input-custom weekly-day-recipe-select"
+                        style="flex: 1; min-width: 200px;"
+                        value="@(Day.RecipeId?.ToString() ?? "")"
+                        @onchange="HandleManualRecipeSelected">
+                    <option value="">— Ingen middag (töm dag) —</option>
+                    @foreach (var r in AllRecipes.OrderBy(r => r.Title))
+                    {
+                        <option value="@r.Id">@r.Title</option>
+                    }
+                </select>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WeeklyMenuDay Day { get; set; } = null!;
+    [Parameter] public IReadOnlyList<WeeklyMenuDay> AllDays { get; set; } = Array.Empty<WeeklyMenuDay>();
+    [Parameter] public IReadOnlyList<Category> AllCategories { get; set; } = Array.Empty<Category>();
+    [Parameter] public IReadOnlyList<Recipe> AllRecipes { get; set; } = Array.Empty<Recipe>();
+    [Parameter] public bool IsToday { get; set; }
+
+    [Parameter] public EventCallback<int> OnRerollDay { get; set; }
+    [Parameter] public EventCallback<(int SourceDayIndex, int TargetDayIndex)> OnMoveRecipe { get; set; }
+    [Parameter] public EventCallback<(int DayIndex, List<int> CategoryIds)> OnCategoriesChanged { get; set; }
+    [Parameter] public EventCallback<(int DayIndex, int? RecipeId)> OnManualRecipeChanged { get; set; }
+    [Parameter] public EventCallback<int> OnDragStartDay { get; set; }
+    [Parameter] public EventCallback<int> OnDropOnDay { get; set; }
+
+    private bool showCategoryPicker = false;
+    private bool showMoveMenu = false;
+    private bool showRecipePicker = false;
+    private bool isDragOver = false;
+    private bool imageLoadFailed = false;
+
+    private void ToggleCategoryPicker()
+    {
+        showCategoryPicker = !showCategoryPicker;
+    }
+
+    private void ToggleMoveMenu()
+    {
+        showMoveMenu = !showMoveMenu;
+    }
+
+    private void ToggleRecipePicker()
+    {
+        showRecipePicker = !showRecipePicker;
+    }
+
+    private async Task RemoveCategory(int categoryId)
+    {
+        var updatedIds = Day.SelectedCategories
+            .Where(sc => sc.CategoryId != categoryId)
+            .Select(sc => sc.CategoryId)
+            .Distinct()
+            .ToList();
+
+        await ApplyCategoriesAsync(updatedIds);
+    }
+
+    private async Task ToggleCategory(Category category)
+    {
+        var currentIds = Day.SelectedCategories.Select(sc => sc.CategoryId).ToHashSet();
+        if (!currentIds.Remove(category.Id))
+        {
+            currentIds.Add(category.Id);
+        }
+
+        await ApplyCategoriesAsync(currentIds.ToList());
+    }
+
+    private async Task ApplyCategoriesAsync(List<int> categoryIds)
+    {
+        Day.SelectedCategories = categoryIds
+            .Select(id => new WeeklyMenuDayCategory
+            {
+                WeeklyMenuDayId = Day.Id,
+                CategoryId = id,
+                Category = AllCategories.FirstOrDefault(c => c.Id == id)
+            })
+            .ToList();
+
+        Day.StatusMessage = null;
+
+        if (OnCategoriesChanged.HasDelegate)
+        {
+            await OnCategoriesChanged.InvokeAsync((Day.DayIndex, categoryIds));
+        }
+    }
+
+    private async Task HandleRerollClicked()
+    {
+        showMoveMenu = false;
+        if (OnRerollDay.HasDelegate)
+        {
+            await OnRerollDay.InvokeAsync(Day.DayIndex);
+        }
+    }
+
+    private async Task SelectMoveTarget(int targetDayIndex)
+    {
+        showMoveMenu = false;
+        if (OnMoveRecipe.HasDelegate)
+        {
+            await OnMoveRecipe.InvokeAsync((Day.DayIndex, targetDayIndex));
+        }
+    }
+
+    private async Task HandleManualRecipeSelected(ChangeEventArgs e)
+    {
+        showRecipePicker = false;
+        var raw = e.Value?.ToString();
+        int? selectedRecipeId = int.TryParse(raw, out int parsed) && parsed > 0 ? parsed : null;
+
+        if (OnManualRecipeChanged.HasDelegate)
+        {
+            await OnManualRecipeChanged.InvokeAsync((Day.DayIndex, selectedRecipeId));
+        }
+    }
+
+    private async Task HandleDragStart()
+    {
+        if (Day.Recipe == null)
+            return;
+
+        if (OnDragStartDay.HasDelegate)
+        {
+            await OnDragStartDay.InvokeAsync(Day.DayIndex);
+        }
+    }
+
+    private void HandleDragOver()
+    {
+        isDragOver = true;
+    }
+
+    private void HandleDragEnter()
+    {
+        isDragOver = true;
+    }
+
+    private void HandleDragLeave()
+    {
+        isDragOver = false;
+    }
+
+    private async Task HandleDrop()
+    {
+        isDragOver = false;
+        if (OnDropOnDay.HasDelegate)
+        {
+            await OnDropOnDay.InvokeAsync(Day.DayIndex);
+        }
+    }
+}
+

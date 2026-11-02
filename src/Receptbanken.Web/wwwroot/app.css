@@ -191,6 +191,12 @@ a:hover {
   border-left: 6px solid #b33939;
 }
 
+.app-top-banner-error {
+  background-color: rgba(150, 25, 25, 0.45);
+  border-bottom: 1px solid rgba(220, 50, 50, 0.55);
+  border-left: 6px solid #e11d48;
+}
+
 .app-top-banner-success {
   background-color: rgba(30, 95, 60, 0.35);
   border-bottom: 1px solid rgba(46, 175, 110, 0.45);
@@ -1610,4 +1616,682 @@ fluent-number-field::part(control) {
 .jsonld-help-note {
   font-size: 13px;
   color: var(--rb-text-muted);
+}
+
+/* ============================================================
+   Todays Dinner Card (Start Page / DEL H)
+   ============================================================ */
+.todays-dinner-card {
+  background: linear-gradient(135deg, var(--rb-bg-card) 0%, #242228 100%);
+  border: 1px solid rgba(224, 122, 95, 0.35);
+  border-left: 5px solid var(--rb-accent);
+  border-radius: var(--rb-radius-lg);
+  padding: 24px 28px;
+  margin-bottom: 28px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  box-shadow: var(--rb-shadow);
+}
+
+.todays-dinner-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.todays-dinner-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.todays-dinner-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  color: var(--rb-accent-gold);
+  background-color: var(--rb-accent-gold-subtle);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.todays-dinner-date {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rb-text-secondary);
+  letter-spacing: 0.4px;
+}
+
+.todays-dinner-title {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 2px 0;
+}
+
+.todays-dinner-title-link {
+  color: var(--rb-text-primary);
+  text-decoration: none;
+}
+
+.todays-dinner-title-link:hover {
+  color: var(--rb-accent);
+}
+
+.todays-dinner-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--rb-text-secondary);
+}
+
+.todays-dinner-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.todays-dinner-footer {
+  margin-top: 6px;
+}
+
+.todays-dinner-week-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rb-accent-gold);
+}
+
+.todays-dinner-image-wrap {
+  width: 200px;
+  height: 140px;
+  border-radius: var(--rb-radius-md);
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1px solid var(--rb-border);
+}
+
+.todays-dinner-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.todays-dinner-discreet {
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+}
+
+.todays-dinner-discreet-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--rb-text-secondary);
+  background-color: var(--rb-bg-surface);
+  border: 1px solid var(--rb-border);
+  border-radius: var(--rb-radius-md);
+  padding: 8px 14px;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.todays-dinner-discreet-link:hover {
+  border-color: var(--rb-accent);
+  color: var(--rb-text-primary);
+}
+
+/* ============================================================
+   Weekly Menu Page (/veckomeny)
+   ============================================================ */
+.weekly-menu-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.weekly-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+.weekly-status-badge.status-confirmed {
+  background-color: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.weekly-status-badge.status-draft {
+  background-color: var(--rb-accent-gold-subtle);
+  color: var(--rb-accent-gold);
+  border: 1px solid rgba(242, 166, 90, 0.35);
+}
+
+.weekly-status-badge.status-unsaved {
+  background-color: rgba(224, 122, 95, 0.18);
+  color: var(--rb-accent);
+  border: 1px solid rgba(224, 122, 95, 0.4);
+}
+
+.weekly-nav-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.weekly-feedback-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-radius: var(--rb-radius-md);
+  margin-bottom: 20px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.weekly-feedback-banner.success {
+  background-color: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #a7f3d0;
+}
+
+.weekly-feedback-banner.warning {
+  background-color: rgba(242, 166, 90, 0.14);
+  border: 1px solid rgba(242, 166, 90, 0.45);
+  color: #fde68a;
+}
+
+.weekly-feedback-close {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+}
+
+/* Pantry Section ("Ingredienser hemma") */
+.weekly-pantry-card {
+  background-color: var(--rb-bg-card);
+  border: 1px solid var(--rb-border);
+  border-radius: var(--rb-radius-lg);
+  padding: 20px 24px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.weekly-pantry-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--rb-text-primary);
+}
+
+.weekly-pantry-subtitle {
+  font-size: 13px;
+  color: var(--rb-text-secondary);
+  margin-top: 2px;
+}
+
+.weekly-pantry-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.pantry-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  background-color: var(--rb-bg-elevated);
+  border: 1px solid var(--rb-accent);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--rb-text-primary);
+}
+
+.pantry-tag-remove-btn {
+  background: none;
+  border: none;
+  color: var(--rb-text-secondary);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.pantry-tag-remove-btn:hover {
+  color: var(--rb-danger);
+}
+
+.pantry-empty-hint {
+  font-size: 13px;
+  color: var(--rb-text-muted);
+  font-style: italic;
+}
+
+.weekly-pantry-input-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.weekly-pantry-input-row .pantry-input {
+  flex: 1;
+  min-width: 240px;
+}
+
+/* Action Bar */
+.weekly-actions-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+  padding: 14px 20px;
+  background-color: var(--rb-bg-surface);
+  border: 1px solid var(--rb-border);
+  border-radius: var(--rb-radius-lg);
+}
+
+.weekly-actions-left,
+.weekly-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Vertical List of 7 Large Day Cards */
+.weekly-days-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.weekly-day-card {
+  background-color: var(--rb-bg-card);
+  border: 1px solid var(--rb-border);
+  border-radius: var(--rb-radius-lg);
+  padding: 22px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: var(--rb-shadow-sm);
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
+}
+
+.weekly-day-card.is-today {
+  border-left: 4px solid var(--rb-accent-gold);
+}
+
+.weekly-day-card.drag-over {
+  border-color: var(--rb-accent);
+  box-shadow: 0 0 0 2px var(--rb-accent-subtle);
+  background-color: #22222a;
+}
+
+.weekly-day-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--rb-border-subtle);
+  padding-bottom: 10px;
+}
+
+.weekly-day-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.weekly-day-name {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: var(--rb-accent-gold);
+}
+
+.weekly-day-today-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background-color: var(--rb-accent-gold-subtle);
+  color: var(--rb-accent-gold);
+}
+
+.weekly-day-drag-hint {
+  font-size: 12px;
+  color: var(--rb-text-muted);
+  cursor: grab;
+  user-select: none;
+}
+
+/* Day Categories Row */
+.weekly-day-categories-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.weekly-day-categories-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rb-text-secondary);
+}
+
+.weekly-day-categories-list {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.day-category-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background-color: var(--rb-bg-elevated);
+  border: 1px solid var(--rb-border);
+  color: var(--rb-text-primary);
+}
+
+.day-category-remove-btn {
+  background: none;
+  border: none;
+  color: var(--rb-text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.day-category-remove-btn:hover {
+  color: var(--rb-danger);
+}
+
+.day-category-all-badge {
+  font-size: 12px;
+  color: var(--rb-text-muted);
+  padding: 3px 10px;
+  border-radius: 999px;
+  background-color: var(--rb-bg-surface);
+  border: 1px dashed var(--rb-border);
+}
+
+.day-category-add-toggle {
+  background-color: transparent;
+  border: 1px dashed var(--rb-border);
+  color: var(--rb-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.day-category-add-toggle:hover {
+  border-color: var(--rb-accent);
+  color: var(--rb-text-primary);
+}
+
+.weekly-day-category-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  background-color: var(--rb-bg-surface);
+  border: 1px solid var(--rb-border);
+  border-radius: var(--rb-radius-md);
+}
+
+.day-category-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background-color: var(--rb-bg-elevated);
+  border: 1px solid var(--rb-border);
+  color: var(--rb-text-secondary);
+  cursor: pointer;
+}
+
+.day-category-option.selected {
+  border-color: var(--rb-accent);
+  background-color: var(--rb-accent-subtle);
+  color: var(--rb-text-primary);
+}
+
+/* Day Recipe Body */
+.weekly-day-body {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.weekly-day-image-box {
+  width: 120px;
+  height: 84px;
+  border-radius: var(--rb-radius-md);
+  overflow: hidden;
+  background-color: var(--rb-bg-elevated);
+  flex-shrink: 0;
+  border: 1px solid var(--rb-border-subtle);
+}
+
+.weekly-day-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.weekly-day-image-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  background: linear-gradient(135deg, #1f1f26 0%, #2a2a35 100%);
+}
+
+.weekly-day-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.weekly-day-recipe-title {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.weekly-day-recipe-link {
+  color: var(--rb-text-primary);
+  text-decoration: none;
+}
+
+.weekly-day-recipe-link:hover {
+  color: var(--rb-accent);
+}
+
+.weekly-day-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--rb-text-secondary);
+}
+
+.weekly-day-status-message {
+  font-size: 13px;
+  color: #fde68a;
+  background-color: rgba(242, 166, 90, 0.12);
+  border: 1px solid rgba(242, 166, 90, 0.35);
+  padding: 8px 12px;
+  border-radius: var(--rb-radius-sm);
+}
+
+.weekly-day-empty {
+  padding: 12px 16px;
+  background-color: var(--rb-bg-surface);
+  border: 1px dashed var(--rb-border);
+  border-radius: var(--rb-radius-md);
+}
+
+.weekly-day-empty-text {
+  font-size: 14px;
+  color: var(--rb-text-muted);
+}
+
+.weekly-day-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 6px;
+}
+
+.weekly-day-move-wrapper {
+  position: relative;
+}
+
+.weekly-day-move-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 260px;
+  background-color: var(--rb-bg-surface);
+  border: 1px solid var(--rb-border);
+  border-radius: var(--rb-radius-md);
+  box-shadow: var(--rb-shadow);
+  padding: 6px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.weekly-day-move-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-radius: var(--rb-radius-sm);
+  color: var(--rb-text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.weekly-day-move-option:hover {
+  background-color: var(--rb-bg-elevated);
+}
+
+.move-option-day {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rb-accent-gold);
+}
+
+.move-option-desc {
+  font-size: 12px;
+  color: var(--rb-text-secondary);
+}
+
+.weekly-day-recipe-picker {
+  padding: 12px;
+  background-color: var(--rb-bg-surface);
+  border: 1px solid var(--rb-border);
+  border-radius: var(--rb-radius-md);
+}
+
+.weekly-bottom-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--rb-border);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .todays-dinner-card {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 18px;
+  }
+
+  .todays-dinner-image-wrap {
+    width: 100%;
+    height: 180px;
+  }
+
+  .weekly-day-card {
+    padding: 16px;
+  }
+
+  .weekly-day-drag-hint {
+    display: none;
+  }
+
+  .weekly-day-body {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .weekly-day-image-box {
+    width: 100%;
+    height: 150px;
+  }
+
+  .weekly-day-move-menu {
+    position: static;
+    margin-top: 8px;
+    width: 100%;
+  }
 }
