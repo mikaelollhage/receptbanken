@@ -1,6 +1,6 @@
 @page "/kategorier"
 @inject CategoryService CategoryService
-@inject IToastService ToastService
+@inject ILogger<Categories> Logger
 
 <PageTitle>Kategorier — Receptbanken</PageTitle>
 
@@ -19,7 +19,7 @@
         </h2>
 
         <div style="display: flex; flex-direction: column; gap: 16px;">
-            <FluentTextField @bind-Value="formName" Label="Kategorinamn" Placeholder="t.ex. Snabblunch, Helgmiddag" Style="width: 100%;" />
+            <FluentTextField @bind-Value="FormName" Immediate="true" Label="Kategorinamn" Placeholder="t.ex. Snabblunch, Helgmiddag" Style="width: 100%;" />
 
             <div>
                 <label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--rb-text-secondary);">
@@ -45,6 +45,8 @@
                 </div>
             }
 
+            <ContextualFeedback State="formFeedback" CssClass="category-form-feedback" />
+
             <div style="display: flex; gap: 10px; margin-top: 8px;">
                 <button type="button" class="btn-primary-custom" @onclick="SaveCategory" disabled="@string.IsNullOrWhiteSpace(formName)">
                     @(editingCategoryId.HasValue ? "Spara ändringar" : "Lägg till kategori")
@@ -62,6 +64,8 @@
     <!-- Lista över befintliga kategorier -->
     <div class="detail-card">
         <h2 class="detail-card-title">Befintliga kategorier (@categories.Count)</h2>
+
+        <ContextualFeedback State="listFeedback" CssClass="category-list-feedback" />
 
         @if (isLoading)
         {
@@ -111,8 +115,23 @@
 
     private int? editingCategoryId = null;
     private string formName = string.Empty;
+    private string FormName
+    {
+        get => formName;
+        set
+        {
+            formName = value;
+            if (formFeedback.HasMessage && formFeedback.Severity == FeedbackSeverity.Error)
+            {
+                formFeedback.Clear();
+            }
+        }
+    }
     private string formColor = "#e07a5f";
     private CategoryWithCountDto? categoryToDelete = null;
+
+    private readonly FeedbackState formFeedback = new();
+    private readonly FeedbackState listFeedback = new();
 
     private readonly List<string> presetColors = new()
     {
@@ -133,6 +152,7 @@
 
     private void StartEdit(CategoryWithCountDto cat)
     {
+        formFeedback.Clear();
         editingCategoryId = cat.Id;
         formName = cat.Name;
         formColor = cat.ColorHex ?? "#e07a5f";
@@ -140,6 +160,7 @@
 
     private void CancelEdit()
     {
+        formFeedback.Clear();
         editingCategoryId = null;
         formName = string.Empty;
         formColor = "#e07a5f";
@@ -147,7 +168,13 @@
 
     private async Task SaveCategory()
     {
-        if (string.IsNullOrWhiteSpace(formName)) return;
+        if (string.IsNullOrWhiteSpace(formName))
+        {
+            formFeedback.ShowError("Kategorinamn får inte vara tomt.");
+            return;
+        }
+
+        var trimmedName = formName.Trim();
 
         try
         {
@@ -156,27 +183,36 @@
                 await CategoryService.UpdateCategoryAsync(new Category
                 {
                     Id = editingCategoryId.Value,
-                    Name = formName,
+                    Name = trimmedName,
                     ColorHex = formColor
                 });
-                ToastService.ShowSuccess($"Kategorin '{formName}' har uppdaterats.");
+                editingCategoryId = null;
+                formName = string.Empty;
+                formColor = "#e07a5f";
+                formFeedback.ShowSuccess($"Kategorin '{trimmedName}' har uppdaterats.");
             }
             else
             {
                 await CategoryService.CreateCategoryAsync(new Category
                 {
-                    Name = formName,
+                    Name = trimmedName,
                     ColorHex = formColor
                 });
-                ToastService.ShowSuccess($"Kategorin '{formName}' har skapats.");
+                formName = string.Empty;
+                formColor = "#e07a5f";
+                formFeedback.ShowSuccess($"Kategorin '{trimmedName}' har skapats.");
             }
 
-            CancelEdit();
             await LoadCategories();
+        }
+        catch (InvalidOperationException ex)
+        {
+            formFeedback.ShowError(ex.Message);
         }
         catch (Exception ex)
         {
-            ToastService.ShowError(ex.Message);
+            Logger.LogError(ex, "Fel vid sparning av kategori.");
+            formFeedback.ShowError("Kunde inte spara kategorin. Försök igen.");
         }
     }
 
@@ -194,13 +230,13 @@
         try
         {
             await CategoryService.DeleteCategoryAsync(cat.Id);
-            ToastService.ShowSuccess($"Kategorin '{cat.Name}' har raderats.");
+            listFeedback.ShowSuccess($"Kategorin '{cat.Name}' har raderats.");
             await LoadCategories();
         }
         catch (Exception ex)
         {
-            ToastService.ShowError(ex.Message);
+            Logger.LogError(ex, "Fel vid radering av kategori.");
+            listFeedback.ShowError("Kategorin kunde inte raderas. Försök igen.");
         }
     }
 }
-

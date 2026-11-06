@@ -14,7 +14,7 @@
             <span class="weekly-day-name">@CalendarWeek.FormatDayHeaderSwedish(Day.Date)</span>
             @if (IsToday)
             {
-                <span class="weekly-day-today-badge">Idag</span>
+                <span class="weekly-day-today-badge">IDAG</span>
             }
         </div>
 
@@ -128,7 +128,14 @@
                 @if (!string.IsNullOrWhiteSpace(Day.StatusMessage))
                 {
                     <div class="weekly-day-status-message" role="status">
-                        ⚠️ @Day.StatusMessage
+                        <span>⚠️ @Day.StatusMessage</span>
+                        <button type="button"
+                                class="rb-feedback-close"
+                                aria-label="Stäng meddelande"
+                                title="Stäng meddelande"
+                                @onclick="DismissDayStatus">
+                            ✕
+                        </button>
                     </div>
                 }
             </div>
@@ -193,8 +200,8 @@
         <div class="weekly-day-empty">
             @if (!string.IsNullOrWhiteSpace(Day.StatusMessage))
             {
-                <div class="weekly-day-status-message" role="alert">
-                    ⚠️ @Day.StatusMessage
+                <div class="weekly-day-status-message" role="status">
+                    <span>⚠️ @Day.StatusMessage</span>
                 </div>
             }
             else
@@ -270,6 +277,11 @@
     private void ToggleRecipePicker()
     {
         showRecipePicker = !showRecipePicker;
+    }
+
+    private void DismissDayStatus()
+    {
+        Day.StatusMessage = null;
     }
 
     private async Task RemoveCategory(int categoryId)

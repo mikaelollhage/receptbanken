@@ -5,13 +5,17 @@
     <div class="recipe-basic-info-fields" style="display: flex; flex-direction: column; gap: 16px;">
         <div style="display: flex; flex-direction: column; gap: 6px;">
             <label class="form-label" for="@TitleId">
-                <span>Titel</span>@if (string.IsNullOrWhiteSpace(Recipe.Title))
+                <span>Titel</span>@if (!RecipeFormValidator.IsTitleValid(Recipe))
                 {
                     <span class="required-asterisk" style="color: var(--rb-danger); margin-left: 3px; font-weight: bold;">*</span>
                 }
             </label>
-            <FluentTextField Id="@TitleId" @bind-Value="Recipe.Title" Immediate="true"
+            <FluentTextField Id="@TitleId" @bind-Value="TitleModel" Immediate="true"
                              Placeholder="t.ex. Hemgjord Lasagne al Forno" Style="width: 100%;" />
+            @if (ShowValidationErrors && !RecipeFormValidator.IsTitleValid(Recipe))
+            {
+                <div class="field-validation-error" role="alert">Ange en titel för receptet.</div>
+            }
         </div>
 
         <FluentTextArea @bind-Value="Recipe.Description" Label="Beskrivning"
@@ -36,15 +40,19 @@
             </div>
             <div class="recipe-meta-row">
                 <label class="recipe-meta-label" for="@ServingsId">
-                    <span>Portioner</span>@if (Recipe.Servings <= 0)
+                    <span>Portioner</span>@if (!RecipeFormValidator.IsServingsValid(Recipe))
                     {
                         <span class="required-asterisk" style="color: var(--rb-danger); margin-left: 3px; font-weight: bold;">*</span>
                     }
                 </label>
                 <div class="recipe-meta-control">
                     <FluentNumberField Id="@ServingsId" @bind-Value="ServingsModel" Immediate="true"
-                                       Min="1" Max="100" Class="recipe-meta-field" Style="width: 160px;" />
+                                       Max="100" Class="recipe-meta-field" Style="width: 160px;" />
                 </div>
+                @if (ShowValidationErrors && !RecipeFormValidator.IsServingsValid(Recipe))
+                {
+                    <div class="field-validation-error" role="alert">Antal portioner måste vara minst 1.</div>
+                }
             </div>
             <div class="recipe-meta-row">
                 <label class="recipe-meta-label" for="@ServingsUnitId">Portionsenhet</label>
@@ -69,20 +77,61 @@
     [Parameter]
     public string IdPrefix { get; set; } = "recipe";
 
+    [Parameter]
+    public bool ShowValidationErrors { get; set; }
+
+    [Parameter]
+    public EventCallback OnValidationStateChanged { get; set; }
+
     private string TitleId => $"{IdPrefix}-title";
     private string PrepTimeId => $"{IdPrefix}-prep-time";
     private string CookTimeId => $"{IdPrefix}-cook-time";
     private string ServingsId => $"{IdPrefix}-servings";
     private string ServingsUnitId => $"{IdPrefix}-servings-unit";
 
-    private int? ServingsModel
+    private string? TitleModel
     {
-        get => Recipe != null && Recipe.Servings > 0 ? Recipe.Servings : null;
+        get => Recipe?.Title;
         set
         {
             if (Recipe != null)
             {
+                Recipe.Title = value ?? string.Empty;
+                _ = OnValidationStateChanged.InvokeAsync();
+            }
+        }
+    }
+
+    private Recipe? _trackedRecipe;
+    private int _lastSyncedServings;
+    private int? _servingsInput;
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(_trackedRecipe, Recipe))
+        {
+            _trackedRecipe = Recipe;
+            _lastSyncedServings = Recipe?.Servings ?? 0;
+            _servingsInput = Recipe != null && Recipe.Servings != 0 ? Recipe.Servings : null;
+        }
+        else if (Recipe != null && Recipe.Servings != _lastSyncedServings)
+        {
+            _lastSyncedServings = Recipe.Servings;
+            _servingsInput = Recipe.Servings != 0 ? Recipe.Servings : null;
+        }
+    }
+
+    private int? ServingsModel
+    {
+        get => _servingsInput;
+        set
+        {
+            _servingsInput = value;
+            if (Recipe != null)
+            {
                 Recipe.Servings = value ?? 0;
+                _lastSyncedServings = Recipe.Servings;
+                _ = OnValidationStateChanged.InvokeAsync();
             }
         }
     }

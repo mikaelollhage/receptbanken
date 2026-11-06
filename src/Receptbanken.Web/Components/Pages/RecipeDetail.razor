@@ -3,8 +3,7 @@
 @inject ShoppingListService ShoppingListService
 @inject ServingCalculator ServingCalculator
 @inject NavigationManager Navigation
-@inject IToastService ToastService
-@inject AppNotificationService NotificationService
+@inject ILogger<RecipeDetail> Logger
 
 <PageTitle>@(recipe?.Title ?? "Recept") — Receptbanken</PageTitle>
 
@@ -25,6 +24,8 @@ else if (recipe == null)
 }
 else
 {
+    <ContextualFeedback State="actionFeedback" CssClass="recipe-detail-feedback" />
+
     <!-- Hero Banner -->
     <div class="recipe-detail-hero">
         @if (!string.IsNullOrWhiteSpace(recipe.ImagePath) && !imageLoadFailed)
@@ -189,6 +190,7 @@ else
                         <button type="button" class="btn-secondary-custom" style="width: 100%; justify-content: center;" @onclick="AddToShoppingList">
                             🛒 Lägg till i inköpslista (@currentServings @recipe.ServingsUnit)
                         </button>
+                        <ContextualFeedback State="shoppingFeedback" CssClass="recipe-shopping-feedback" />
                     </div>
                 }
             </div>
@@ -250,14 +252,20 @@ else
 
 @code {
     [Parameter] public int Id { get; set; }
-    [Parameter, SupplyParameterFromQuery] public bool Saved { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "saved")] public bool Saved { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "duplicated")] public bool Duplicated { get; set; }
 
     private Recipe? recipe;
+    private int? loadedRecipeId;
+    private int? acknowledgedBannerRecipeId;
     private int currentServings = 4;
     private HashSet<int> checkedIngredients = new();
     private bool isLoading = true;
     private bool showDeleteConfirm = false;
     private bool imageLoadFailed = false;
+
+    private readonly FeedbackState actionFeedback = new();
+    private readonly FeedbackState shoppingFeedback = new();
 
     private void HandleImageError()
     {
@@ -267,10 +275,26 @@ else
 
     protected override async Task OnParametersSetAsync()
     {
-        await LoadRecipe();
-        if (Saved && !NotificationService.HasNotification && recipe != null)
+        if (loadedRecipeId != Id)
         {
-            NotificationService.ShowSuccess("Receptet har sparats!", $"Receptet '{recipe.Title}' har sparats i din receptbank och är redo att användas.");
+            actionFeedback.Clear();
+            shoppingFeedback.Clear();
+            await LoadRecipe();
+            loadedRecipeId = Id;
+        }
+
+        if (recipe != null && acknowledgedBannerRecipeId != recipe.Id)
+        {
+            if (Saved)
+            {
+                acknowledgedBannerRecipeId = recipe.Id;
+                actionFeedback.ShowSuccess($"Receptet '{recipe.Title}' har sparats i din receptbank och är redo att användas.", "Receptet har sparats!");
+            }
+            else if (Duplicated)
+            {
+                acknowledgedBannerRecipeId = recipe.Id;
+                actionFeedback.ShowSuccess($"Receptet har duplicerats som '{recipe.Title}'.", "Receptet har duplicerats!");
+            }
         }
     }
 
@@ -282,6 +306,7 @@ else
         {
             currentServings = recipe.Servings;
             checkedIngredients.Clear();
+            imageLoadFailed = false;
         }
         isLoading = false;
     }
@@ -303,11 +328,12 @@ else
         try
         {
             var count = await ShoppingListService.AddRecipeIngredientsAsync(recipe.Id, currentServings);
-            ToastService.ShowSuccess($"{count} ingredienser lades till i inköpslistan.");
+            shoppingFeedback.ShowSuccess($"{count} ingredienser lades till i inköpslistan.");
         }
         catch (Exception ex)
         {
-            ToastService.ShowError(ex.Message);
+            Logger.LogError(ex, "Fel vid tillägg av receptets ingredienser i inköpslistan.");
+            shoppingFeedback.ShowError("Kunde inte lägga till ingredienserna i inköpslistan. Försök igen.");
         }
     }
 
@@ -322,7 +348,15 @@ else
     private async Task ToggleFavorite()
     {
         if (recipe == null) return;
-        recipe.IsFavorite = await RecipeService.ToggleFavoriteAsync(recipe.Id);
+        try
+        {
+            recipe.IsFavorite = await RecipeService.ToggleFavoriteAsync(recipe.Id);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fel vid ändring av favoritstatus för recept.");
+            actionFeedback.ShowError("Kunde inte uppdatera favoritstatus. Försök igen.");
+        }
     }
 
     private async Task DuplicateRecipe()
@@ -331,12 +365,12 @@ else
         try
         {
             var copy = await RecipeService.DuplicateRecipeAsync(recipe.Id);
-            ToastService.ShowSuccess($"Receptet duplicerades som '{copy.Title}'.");
-            Navigation.NavigateTo($"/recept/{copy.Id}");
+            Navigation.NavigateTo($"/recept/{copy.Id}?duplicated=true");
         }
         catch (Exception ex)
         {
-            ToastService.ShowError(ex.Message);
+            Logger.LogError(ex, "Fel vid duplicering av recept.");
+            actionFeedback.ShowError("Receptet kunde inte dupliceras. Försök igen.");
         }
     }
 
@@ -347,13 +381,12 @@ else
         try
         {
             await RecipeService.DeleteRecipeAsync(recipe.Id);
-            ToastService.ShowSuccess("Receptet har raderats.");
-            Navigation.NavigateTo("/");
+            Navigation.NavigateTo("/?deleted=true");
         }
         catch (Exception ex)
         {
-            ToastService.ShowError(ex.Message);
+            Logger.LogError(ex, "Fel vid radering av recept.");
+            actionFeedback.ShowError("Receptet kunde inte raderas. Försök igen.");
         }
     }
 }
-

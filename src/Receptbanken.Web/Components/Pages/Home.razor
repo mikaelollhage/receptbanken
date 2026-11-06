@@ -19,6 +19,8 @@
     </div>
 </div>
 
+<ContextualFeedback State="homeFeedback" CssClass="home-feedback" />
+
 <TodaysDinnerCard Dinner="todaysDinner" />
 
 <div class="filter-bar">
@@ -28,7 +30,7 @@
                           Placeholder="Sök bland recept, ingredienser eller kategorier..."
                           Style="width: 100%;" />
         </div>
-        <div style="min-width: 180px;">
+        <div class="filter-sort-wrapper">
             <FluentSelect TOption="string" @bind-Value="selectedSort" @bind-Value:after="SortRecipes" Style="width: 100%;">
                 <FluentOption Value="newest">Senast skapade</FluentOption>
                 <FluentOption Value="favorites">Favoriter först</FluentOption>
@@ -86,6 +88,8 @@ else
 }
 
 @code {
+    [Parameter, SupplyParameterFromQuery(Name = "deleted")] public bool Deleted { get; set; }
+
     private List<Recipe> allRecipes = new();
     private List<Recipe> filteredRecipes = new();
     private List<CategoryWithCountDto> categories = new();
@@ -94,10 +98,21 @@ else
     private int? selectedCategoryId = null;
     private string selectedSort = "newest";
     private bool isLoading = true;
+    private bool deletedAcknowledged = false;
+    private readonly FeedbackState homeFeedback = new();
 
     protected override async Task OnInitializedAsync()
     {
         await LoadData();
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (Deleted && !deletedAcknowledged)
+        {
+            deletedAcknowledged = true;
+            homeFeedback.ShowSuccess("Receptet har raderats.");
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

@@ -4,23 +4,9 @@
 @inject CategoryService CategoryService
 @inject IImageStorageService ImageStorageService
 @inject NavigationManager Navigation
-@inject IToastService ToastService
-@inject AppNotificationService NotificationService
+@inject ILogger<RecipeEdit> Logger
 
 <PageTitle>@(IsEditing ? $"Redigera {model.Title}" : "Skapa nytt recept") — Receptbanken</PageTitle>
-
-<div class="page-header">
-    <div>
-        <h1 class="page-title">@(IsEditing ? "Redigera recept" : "Skapa nytt recept")</h1>
-        <p class="page-subtitle">Fyll i receptets ingredienser, tillagningstid och steg-för-steg-instruktioner.</p>
-    </div>
-    <div style="display: flex; gap: 12px;">
-        <button type="button" class="btn-secondary-custom" @onclick="Cancel">Avbryt</button>
-        <button type="button" class="btn-primary-custom" @onclick="SaveRecipe" disabled="@isSaving">
-            @(isSaving ? "Sparar..." : (IsEditing ? "Spara ändringar" : "Spara recept"))
-        </button>
-    </div>
-</div>
 
 @if (isLoading)
 {
@@ -28,13 +14,43 @@
         <FluentProgressRing />
     </div>
 }
+else if (recipeNotFound)
+{
+    <div class="empty-state" role="alert">
+        <span class="empty-state-icon">🔍</span>
+        <div class="empty-state-title">Receptet hittades inte</div>
+        <p class="empty-state-desc">Receptet du försöker redigera verkar ha tagits bort eller finns inte.</p>
+        <a href="/" class="btn-primary-custom">Tillbaka till receptsamlingen</a>
+    </div>
+}
 else
 {
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">@(IsEditing ? "Redigera recept" : "Skapa nytt recept")</h1>
+            <p class="page-subtitle">Fyll i receptets ingredienser, tillagningstid och steg-för-steg-instruktioner.</p>
+        </div>
+        <div style="display: flex; gap: 12px;">
+            <button type="button" class="btn-secondary-custom" @onclick="Cancel">Avbryt</button>
+            <button type="button" class="btn-primary-custom" @onclick="() => SaveRecipe(FeedbackPlacement.Top)" disabled="@isSaving">
+                @(isSaving ? "Sparar..." : (IsEditing ? "Spara ändringar" : "Spara recept"))
+            </button>
+        </div>
+    </div>
+
+    @if (saveFeedback.Placement == FeedbackPlacement.Top)
+    {
+        <ContextualFeedback State="saveFeedback" CssClass="recipe-save-feedback recipe-save-feedback-top" />
+    }
+
     <div style="display: flex; flex-direction: column; gap: 24px;">
         <!-- Grunduppgifter -->
         <div class="form-section">
             <h2 class="form-section-title">Grunduppgifter</h2>
-            <RecipeBasicInfoFields Recipe="model" IdPrefix="edit" />
+            <RecipeBasicInfoFields Recipe="model"
+                                   IdPrefix="edit"
+                                   ShowValidationErrors="showValidationErrors"
+                                   OnValidationStateChanged="HandleValidationStateChanged" />
         </div>
 
         <!-- Bildhantering -->
@@ -63,6 +79,8 @@ else
                             <span style="font-size: 13px;">Bearbetar och optimerar bild...</span>
                         </div>
                     }
+
+                    <ContextualFeedback State="imageUploadFeedback" CssClass="image-upload-feedback" />
                 </div>
 
                 <!-- Bildförhandsvisning -->
@@ -114,10 +132,15 @@ else
                              Placeholder="Skriv dina personliga råd här..." Style="width: 100%;" Rows="3" />
         </div>
 
+        @if (saveFeedback.Placement == FeedbackPlacement.Bottom)
+        {
+            <ContextualFeedback State="saveFeedback" CssClass="recipe-save-feedback recipe-save-feedback-bottom" />
+        }
+
         <!-- Nedre åtgärdsfält -->
         <div style="display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 40px;">
             <button type="button" class="btn-secondary-custom" @onclick="Cancel">Avbryt</button>
-            <button type="button" class="btn-primary-custom" @onclick="SaveRecipe" disabled="@isSaving">
+            <button type="button" class="btn-primary-custom" @onclick="() => SaveRecipe(FeedbackPlacement.Bottom)" disabled="@isSaving">
                 @(isSaving ? "Sparar..." : (IsEditing ? "Spara ändringar" : "Spara recept"))
             </button>
         </div>
@@ -133,12 +156,18 @@ else
     private HashSet<int> selectedCategoryIds = new();
 
     private bool isLoading = true;
+    private bool recipeNotFound = false;
     private bool isSaving = false;
     private bool isUploadingImage = false;
+    private bool showValidationErrors = false;
+
+    private readonly FeedbackState imageUploadFeedback = new();
+    private readonly FeedbackState saveFeedback = new();
 
     protected override async Task OnInitializedAsync()
     {
         isLoading = true;
+        recipeNotFound = false;
         availableCategories = await CategoryService.GetCategoriesAsync();
 
         if (IsEditing)
@@ -151,16 +180,14 @@ else
             }
             else
             {
-                ToastService.ShowError("Kunde inte hitta receptet att redigera.");
-                Navigation.NavigateTo("/");
-                return;
+                recipeNotFound = true;
             }
         }
         else
         {
             model = new Recipe
             {
-                Servings = 4,
+                Servings = 1,
                 ServingsUnit = "portioner",
                 Ingredients = new List<Ingredient>
                 {
@@ -176,20 +203,31 @@ else
         isLoading = false;
     }
 
+    private void HandleValidationStateChanged()
+    {
+        if (showValidationErrors && RecipeFormValidator.Validate(model).Count == 0)
+        {
+            showValidationErrors = false;
+            saveFeedback.Clear();
+        }
+    }
+
     private async Task HandleImageFileSelected(InputFileChangeEventArgs e)
     {
         var file = e.File;
         if (file == null) return;
 
+        imageUploadFeedback.Clear();
+
         if (!ImageStorageService.IsValidImageExtension(file.Name))
         {
-            ToastService.ShowError("Ogiltigt bildformat. Vänligen välj en JPG, PNG eller WebP bild.");
+            imageUploadFeedback.ShowError("Ogiltigt bildformat. Vänligen välj en JPG-, PNG- eller WebP-bild.");
             return;
         }
 
         if (file.Size > 10 * 1024 * 1024)
         {
-            ToastService.ShowError("Bildfilen är för stor. Max 10 MB tillåts.");
+            imageUploadFeedback.ShowError("Bildfilen är för stor. Max 10 MB tillåts.");
             return;
         }
 
@@ -199,11 +237,12 @@ else
             using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
             var savedPath = await ImageStorageService.SaveImageAsync(stream, file.Name);
             model.ImagePath = savedPath;
-            ToastService.ShowSuccess("Bilden har laddats upp och sparats!");
+            imageUploadFeedback.ShowSuccess("Bilden har laddats upp och sparats!");
         }
         catch (Exception ex)
         {
-            ToastService.ShowError($"Fel vid bilduppladdning: {ex.Message}");
+            Logger.LogError(ex, "Fel vid bilduppladdning i receptredigering.");
+            imageUploadFeedback.ShowError("Bilden kunde inte laddas upp. Försök med en annan bildfil.");
         }
         finally
         {
@@ -214,15 +253,21 @@ else
     private void RemoveImage()
     {
         model.ImagePath = null;
+        imageUploadFeedback.Clear();
     }
 
-    private async Task SaveRecipe()
+    private async Task SaveRecipe(FeedbackPlacement placement = FeedbackPlacement.Top)
     {
-        if (string.IsNullOrWhiteSpace(model.Title))
+        var validationErrors = RecipeFormValidator.Validate(model);
+        if (validationErrors.Count > 0)
         {
-            ToastService.ShowWarning("Vänligen ange en titel för receptet.");
+            showValidationErrors = true;
+            saveFeedback.ShowError(string.Join(" ", validationErrors), "Kontrollera uppgifterna", placement);
             return;
         }
+
+        showValidationErrors = false;
+        saveFeedback.Clear();
 
         // Clean up empty ingredient and instruction rows
         model.Ingredients = model.Ingredients
@@ -267,19 +312,18 @@ else
             if (IsEditing)
             {
                 await RecipeService.UpdateRecipeAsync(model, selectedCategoryIds.ToList());
-                NotificationService.ShowSuccess("Receptet har sparats!", $"Receptet '{model.Title}' har uppdaterats och sparats.");
                 Navigation.NavigateTo($"/recept/{model.Id}?saved=true");
             }
             else
             {
                 var created = await RecipeService.CreateRecipeAsync(model, selectedCategoryIds.ToList());
-                NotificationService.ShowSuccess("Receptet har sparats!", $"Receptet '{created.Title}' har sparats i din receptbank och är redo att användas.");
                 Navigation.NavigateTo($"/recept/{created.Id}?saved=true");
             }
         }
         catch (Exception ex)
         {
-            ToastService.ShowError($"Fel vid sparande: {ex.Message}");
+            Logger.LogError(ex, "Fel vid sparning av recept.");
+            saveFeedback.ShowError("Kunde inte spara receptet. Kontrollera uppgifterna och försök igen.", placement: placement);
         }
         finally
         {
@@ -295,4 +339,3 @@ else
             Navigation.NavigateTo("/");
     }
 }
-

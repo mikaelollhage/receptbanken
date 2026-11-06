@@ -3,10 +3,9 @@
 @inject RecipeService RecipeService
 @inject CategoryService CategoryService
 @inject ILocalDateProvider LocalDateProvider
-@inject IToastService ToastService
-@inject AppNotificationService NotificationService
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
+@inject ILogger<WeeklyMenuPage> Logger
 
 <PageTitle>Veckomeny — Vecka @currentWeek.IsoWeek — Receptbanken</PageTitle>
 
@@ -46,36 +45,39 @@
     </div>
 
     <div class="weekly-nav-controls">
-        <button type="button"
-                class="btn-secondary-custom week-prev-btn"
-                @onclick="RequestPreviousWeek">
-            ← Föregående vecka
-        </button>
+        <div class="weekly-nav-primary-row">
+            <button type="button"
+                    class="btn-secondary-custom week-prev-btn"
+                    disabled="@(isLoading || isSaving)"
+                    @onclick="RequestPreviousWeek">
+                ← Föregående vecka
+            </button>
+
+            <button type="button"
+                    class="btn-secondary-custom week-next-btn"
+                    disabled="@(isLoading || isSaving)"
+                    @onclick="RequestNextWeek">
+                Nästa vecka →
+            </button>
+        </div>
 
         @if (currentWeek.WeekStartDate != CalendarWeek.FromDate(localToday).WeekStartDate)
         {
-            <button type="button"
-                    class="btn-secondary-custom week-today-btn"
-                    @onclick="RequestCurrentWeek">
-                Denna vecka
-            </button>
+            <div class="weekly-nav-today-row">
+                <button type="button"
+                        class="btn-secondary-custom week-today-btn"
+                        disabled="@(isLoading || isSaving)"
+                        @onclick="RequestCurrentWeek">
+                    Denna vecka
+                </button>
+            </div>
         }
-
-        <button type="button"
-                class="btn-secondary-custom week-next-btn"
-                @onclick="RequestNextWeek">
-            Nästa vecka →
-        </button>
     </div>
 </div>
 
-@if (!string.IsNullOrWhiteSpace(feedbackBannerMessage))
+@if (feedbackPlacement == FeedbackPlacement.Top)
 {
-    var feedbackClass = feedbackIsWarning ? "weekly-feedback-banner warning" : "weekly-feedback-banner success";
-    <div class="@feedbackClass" role="status">
-        <span>@(feedbackIsWarning ? "⚠️" : "✓") @feedbackBannerMessage</span>
-        <button type="button" class="weekly-feedback-close" @onclick="() => feedbackBannerMessage = null">✕</button>
-    </div>
+    <ContextualFeedback State="feedback" CssClass="weekly-feedback-banner" />
 }
 
 <!-- Pantry Section: "Ingredienser hemma" (DEL D) -->
@@ -141,7 +143,7 @@
     <div class="weekly-actions-left">
         <button type="button"
                 class="btn-primary-custom generate-week-btn"
-                disabled="@isLoading"
+                disabled="@(isLoading || isSaving)"
                 @onclick="HandleGenerateWeekClicked">
             🎲 Generera veckomeny
         </button>
@@ -150,8 +152,8 @@
         {
             <button type="button"
                     class="btn-secondary-custom save-draft-btn"
-                    disabled="@isLoading"
-                    @onclick="SaveDraftAsync">
+                    disabled="@(isLoading || isSaving)"
+                    @onclick="@(() => SaveDraftAsync(FeedbackPlacement.Top))">
                 💾 Spara utkast
             </button>
         }
@@ -160,7 +162,7 @@
         {
             <button type="button"
                     class="btn-secondary-custom discard-changes-btn"
-                    disabled="@isLoading"
+                    disabled="@(isLoading || isSaving)"
                     @onclick="RevertUnsavedChangesAsync">
                 Återställ sparad version
             </button>
@@ -173,8 +175,8 @@
             <button type="button"
                     class="btn-primary-custom confirm-week-btn"
                     style="background-color: var(--rb-success);"
-                    disabled="@isLoading"
-                    @onclick="ConfirmWeeklyMenuAsync">
+                    disabled="@(isLoading || isSaving)"
+                    @onclick="@(() => ConfirmWeeklyMenuAsync(FeedbackPlacement.Top))">
                 @if (currentMenu.Status == WeeklyMenuStatus.Confirmed)
                 {
                     <span>📌 Spara ändringar i spikad meny</span>
@@ -215,19 +217,26 @@ else
         }
     </div>
 
+    @if (feedbackPlacement == FeedbackPlacement.Bottom)
+    {
+        <ContextualFeedback State="feedback" CssClass="weekly-feedback-banner weekly-feedback-bottom" />
+    }
+
     <div class="weekly-bottom-bar">
         @if (currentMenu.Status == WeeklyMenuStatus.Draft)
         {
             <button type="button"
                     class="btn-secondary-custom save-draft-bottom-btn"
-                    @onclick="SaveDraftAsync">
+                    disabled="@(isLoading || isSaving)"
+                    @onclick="@(() => SaveDraftAsync(FeedbackPlacement.Bottom))">
                 💾 Spara utkast
             </button>
         }
         <button type="button"
                 class="btn-primary-custom confirm-week-bottom-btn"
                 style="background-color: var(--rb-success);"
-                @onclick="ConfirmWeeklyMenuAsync">
+                disabled="@(isLoading || isSaving)"
+                @onclick="@(() => ConfirmWeeklyMenuAsync(FeedbackPlacement.Bottom))">
             @(currentMenu.Status == WeeklyMenuStatus.Confirmed ? "📌 Spara ändringar i spikad meny" : "📌 Spika veckomenyn")
         </button>
     </div>
@@ -262,9 +271,10 @@ else
     private List<string> knownIngredients = new();
 
     private string newPantryInput = string.Empty;
-    private string? feedbackBannerMessage;
-    private bool feedbackIsWarning;
+    private readonly FeedbackState feedback = new();
+    private FeedbackPlacement feedbackPlacement = FeedbackPlacement.Top;
     private bool isLoading = true;
+    private bool isSaving = false;
     private bool hasUnsavedChanges = false;
     private bool hasUserModifiedDraft = false;
     private bool hasSavedVersionInDb = false;
@@ -348,46 +358,73 @@ else
 
     private async Task LoadReferenceDataAsync()
     {
-        var categoryDtos = await CategoryService.GetCategoriesAsync();
-        allCategories = categoryDtos
-            .Select(c => new Category { Id = c.Id, Name = c.Name, ColorHex = c.ColorHex })
-            .ToList();
+        try
+        {
+            var categoryDtos = await CategoryService.GetCategoriesAsync();
+            allCategories = categoryDtos
+                .Select(c => new Category { Id = c.Id, Name = c.Name, ColorHex = c.ColorHex })
+                .ToList();
 
-        allRecipes = await RecipeService.GetRecipesAsync();
-        knownIngredients = await WeeklyMenuService.GetKnownIngredientSuggestionsAsync();
+            allRecipes = await RecipeService.GetRecipesAsync();
+            knownIngredients = await WeeklyMenuService.GetKnownIngredientSuggestionsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Kunde inte läsa in referensdata för veckomenyn.");
+            feedbackPlacement = FeedbackPlacement.Top;
+            feedback.ShowError("Kunde inte läsa in recept och kategorier för veckomenyn. Försök att ladda om sidan.");
+        }
     }
 
-    private async Task LoadWeekAsync(DateOnly dateInWeek)
+    private async Task LoadWeekAsync(DateOnly dateInWeek, bool preserveErrorFeedback = false)
     {
         isLoading = true;
-        feedbackBannerMessage = null;
+        if (!preserveErrorFeedback)
+        {
+            feedback.Clear();
+        }
+        feedbackPlacement = FeedbackPlacement.Top;
         draggedSourceDayIndex = null;
 
         currentWeek = CalendarWeek.FromDate(dateInWeek);
-        var saved = await WeeklyMenuService.GetSavedMenuForWeekAsync(currentWeek.WeekStartDate);
-        if (saved != null)
-        {
-            currentMenu = saved;
-            hasSavedVersionInDb = true;
-        }
-        else
-        {
-            currentMenu = WeeklyMenuService.CreateDefaultDraftMenu(currentWeek, allCategories);
-            hasSavedVersionInDb = false;
-        }
 
-        hasUnsavedChanges = false;
-        hasUserModifiedDraft = false;
-        isLoading = false;
+        try
+        {
+            var saved = await WeeklyMenuService.GetSavedMenuForWeekAsync(currentWeek.WeekStartDate);
+            if (saved != null)
+            {
+                currentMenu = saved;
+                hasSavedVersionInDb = true;
+            }
+            else
+            {
+                currentMenu = WeeklyMenuService.CreateDefaultDraftMenu(currentWeek, allCategories);
+                hasSavedVersionInDb = false;
+            }
+
+            hasUnsavedChanges = false;
+            hasUserModifiedDraft = false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Kunde inte läsa in veckomeny för vecka {WeekStartDate}.", currentWeek.WeekStartDate);
+            currentMenu ??= WeeklyMenuService.CreateDefaultDraftMenu(currentWeek, allCategories);
+            feedbackPlacement = FeedbackPlacement.Top;
+            feedback.ShowError("Kunde inte hämta veckomenyn från databasen. Försök igen om en stund.");
+        }
+        finally
+        {
+            isLoading = false;
+        }
     }
 
-    private void RequestPreviousWeek() => RequestWeekChange(currentWeek.PreviousWeek().WeekStartDate);
+    private Task RequestPreviousWeek() => RequestWeekChangeAsync(currentWeek.PreviousWeek().WeekStartDate);
 
-    private void RequestNextWeek() => RequestWeekChange(currentWeek.NextWeek().WeekStartDate);
+    private Task RequestNextWeek() => RequestWeekChangeAsync(currentWeek.NextWeek().WeekStartDate);
 
-    private void RequestCurrentWeek() => RequestWeekChange(CalendarWeek.FromDate(localToday).WeekStartDate);
+    private Task RequestCurrentWeek() => RequestWeekChangeAsync(CalendarWeek.FromDate(localToday).WeekStartDate);
 
-    private void RequestWeekChange(DateOnly targetWeekStart)
+    private async Task RequestWeekChangeAsync(DateOnly targetWeekStart)
     {
         if (hasUnsavedChanges)
         {
@@ -397,7 +434,7 @@ else
             return;
         }
 
-        _ = LoadWeekAsync(targetWeekStart);
+        await LoadWeekAsync(targetWeekStart);
     }
 
     private void HandleBeforeInternalNavigation(LocationChangingContext context)
@@ -521,59 +558,108 @@ else
 
     private async Task ExecuteGenerateWeekAsync()
     {
-        if (currentMenu == null)
+        if (currentMenu == null || isSaving)
             return;
 
-        var result = await WeeklyMenuService.GenerateWeekProposalAsync(currentMenu);
+        feedbackPlacement = FeedbackPlacement.Top;
+        var previousDaysSnapshot = currentMenu.Days
+            .Select(d => (d.DayIndex, d.RecipeId, d.Recipe, d.Servings, d.StatusMessage))
+            .ToList();
+        var previousUnsaved = hasUnsavedChanges;
+        var previousModified = hasUserModifiedDraft;
 
-        // Generating a proposal does NOT automatically confirm ("spika") the menu (E6).
-        if (currentMenu.Status == WeeklyMenuStatus.Draft)
-        {
-            currentMenu = await WeeklyMenuService.SaveDraftAsync(currentMenu);
-            hasSavedVersionInDb = true;
-            hasUnsavedChanges = false;
-            hasUserModifiedDraft = true;
-        }
-        else
-        {
-            // When editing an already confirmed menu, keep changes in working copy until user clicks Save
-            hasUnsavedChanges = true;
-            hasUserModifiedDraft = true;
-        }
+        bool proposalGenerated = false;
+        WeeklyMenuGenerationResult? result = null;
 
-        if (result.AllDaysFilled)
+        try
         {
-            feedbackIsWarning = false;
-            feedbackBannerMessage = "Ett nytt veckoförslag med sju middagar har genererats!";
+            isSaving = true;
+            result = await WeeklyMenuService.GenerateWeekProposalAsync(currentMenu);
+            proposalGenerated = true;
+
+            // Generating a proposal does NOT automatically confirm ("spika") the menu (E6).
+            if (currentMenu.Status == WeeklyMenuStatus.Draft)
+            {
+                currentMenu = await WeeklyMenuService.SaveDraftAsync(currentMenu);
+                hasSavedVersionInDb = true;
+                hasUnsavedChanges = false;
+                hasUserModifiedDraft = true;
+            }
+            else
+            {
+                // When editing an already confirmed menu, keep changes in working copy until user clicks Save
+                hasUnsavedChanges = true;
+                hasUserModifiedDraft = true;
+            }
+
+            if (result.AllDaysFilled)
+            {
+                feedback.ShowSuccess("Ett nytt veckoförslag med sju middagar har genererats!");
+            }
+            else
+            {
+                var warningText = result.FilledDaysCount == 0
+                    ? "Kunde inte fylla några dagar med nuvarande kategorival."
+                    : $"Genererade {result.FilledDaysCount} av 7 dagar. {result.EmptyDaysCount} dag(ar) saknar tillräckligt många matchande recept.";
+                feedback.ShowWarning(warningText);
+            }
         }
-        else
+        catch (Exception ex)
         {
-            feedbackIsWarning = true;
-            feedbackBannerMessage = result.FilledDaysCount == 0
-                ? "Kunde inte fylla några dagar med nuvarande kategorival."
-                : $"Genererade {result.FilledDaysCount} av 7 dagar. {result.EmptyDaysCount} dag(ar) saknar tillräckligt många matchande recept.";
+            Logger.LogError(ex, "Fel vid generering av veckomeny för vecka {WeekStartDate}.", currentWeek.WeekStartDate);
+
+            if (!proposalGenerated)
+            {
+                foreach (var snap in previousDaysSnapshot)
+                {
+                    var day = currentMenu.Days.FirstOrDefault(d => d.DayIndex == snap.DayIndex);
+                    if (day != null)
+                    {
+                        day.RecipeId = snap.RecipeId;
+                        day.Recipe = snap.Recipe;
+                        day.Servings = snap.Servings;
+                        day.StatusMessage = snap.StatusMessage;
+                    }
+                }
+                hasUnsavedChanges = previousUnsaved;
+                hasUserModifiedDraft = previousModified;
+                feedback.ShowError("Det gick inte att generera ett nytt veckoförslag. Dina tidigare val har behållits.");
+            }
+            else
+            {
+                hasUnsavedChanges = true;
+                hasUserModifiedDraft = true;
+                feedback.ShowError("Veckoförslaget skapades men utkastet kunde inte sparas i databasen. Klicka på 'Spara utkast' för att försöka igen.");
+            }
+        }
+        finally
+        {
+            isSaving = false;
         }
     }
 
     private async Task HandleRerollDayAsync(int dayIndex)
     {
-        if (currentMenu == null)
+        if (currentMenu == null || isSaving)
             return;
 
-        var result = await WeeklyMenuService.RerollDayProposalAsync(currentMenu, dayIndex);
-        if (result.Changed)
+        try
         {
-            MarkMenuEdited();
-            var dayName = CalendarWeek.GetSwedishDayName(dayIndex);
-            var day = currentMenu.Days.First(d => d.DayIndex == dayIndex);
-            feedbackIsWarning = false;
-            feedbackBannerMessage = $"{dayName} uppdaterades till '{day.Recipe?.Title}'.";
+            var result = await WeeklyMenuService.RerollDayProposalAsync(currentMenu, dayIndex);
+            if (result.Changed)
+            {
+                MarkMenuEdited();
+            }
+            else if (feedback.IsSuccess || feedback.IsError)
+            {
+                feedback.Clear();
+            }
         }
-        else if (!string.IsNullOrWhiteSpace(result.Message))
+        catch (Exception ex)
         {
-            var dayName = CalendarWeek.GetSwedishDayName(dayIndex);
-            feedbackIsWarning = true;
-            feedbackBannerMessage = $"{dayName}: {result.Message}";
+            Logger.LogError(ex, "Fel vid omslumpning av dag {DayIndex} för vecka {WeekStartDate}.", dayIndex, currentWeek.WeekStartDate);
+            feedbackPlacement = FeedbackPlacement.Top;
+            feedback.ShowError("Det gick inte att slumpa fram ett nytt recept för dagen. Försök igen.");
         }
     }
 
@@ -584,11 +670,6 @@ else
 
         WeeklyMenuService.MoveOrSwapDayRecipe(currentMenu, moveArgs.SourceDayIndex, moveArgs.TargetDayIndex);
         MarkMenuEdited();
-
-        var srcName = CalendarWeek.GetSwedishDayName(moveArgs.SourceDayIndex);
-        var dstName = CalendarWeek.GetSwedishDayName(moveArgs.TargetDayIndex);
-        feedbackIsWarning = false;
-        feedbackBannerMessage = $"Flyttade recept mellan {srcName.ToLower()} och {dstName.ToLower()}.";
     }
 
     private void HandleDragStartDay(int dayIndex)
@@ -638,50 +719,87 @@ else
         MarkMenuEdited();
     }
 
-    private async Task SaveDraftAsync()
+    private async Task SaveDraftAsync(FeedbackPlacement placement = FeedbackPlacement.Top)
     {
-        if (currentMenu == null)
+        if (currentMenu == null || isSaving)
             return;
 
-        currentMenu = await WeeklyMenuService.SaveDraftAsync(currentMenu);
-        hasSavedVersionInDb = true;
-        hasUnsavedChanges = false;
-        feedbackIsWarning = false;
-        feedbackBannerMessage = $"Utkastet för vecka {currentWeek.IsoWeek} har sparats.";
-        ToastService.ShowSuccess(feedbackBannerMessage);
+        feedbackPlacement = placement;
+
+        try
+        {
+            isSaving = true;
+            currentMenu = await WeeklyMenuService.SaveDraftAsync(currentMenu);
+            hasSavedVersionInDb = true;
+            hasUnsavedChanges = false;
+            feedback.ShowSuccess($"Utkastet för vecka {currentWeek.IsoWeek} har sparats.");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Kunde inte spara utkast för vecka {WeekStartDate}.", currentWeek.WeekStartDate);
+            feedback.ShowError("Det gick inte att spara utkastet. Dina osparade ändringar finns kvar på sidan – försök igen.");
+        }
+        finally
+        {
+            isSaving = false;
+        }
     }
 
-    private async Task ConfirmWeeklyMenuAsync()
+    private async Task ConfirmWeeklyMenuAsync(FeedbackPlacement placement = FeedbackPlacement.Top)
     {
-        if (currentMenu == null)
+        if (currentMenu == null || isSaving)
             return;
 
+        feedbackPlacement = placement;
         bool wasAlreadyConfirmed = currentMenu.Status == WeeklyMenuStatus.Confirmed;
-        currentMenu = await WeeklyMenuService.ConfirmMenuAsync(currentMenu);
-        hasSavedVersionInDb = true;
-        hasUnsavedChanges = false;
-        hasUserModifiedDraft = false;
 
-        feedbackIsWarning = false;
-        feedbackBannerMessage = wasAlreadyConfirmed
-            ? $"Ändringarna i veckomenyn för vecka {currentWeek.IsoWeek} har sparats!"
-            : $"Veckomenyn för vecka {currentWeek.IsoWeek} är nu spikad!";
+        try
+        {
+            isSaving = true;
+            currentMenu = await WeeklyMenuService.ConfirmMenuAsync(currentMenu);
+            hasSavedVersionInDb = true;
+            hasUnsavedChanges = false;
+            hasUserModifiedDraft = false;
 
-        ToastService.ShowSuccess(feedbackBannerMessage);
-        NotificationService.ShowSuccess("Veckomenyn sparad!", feedbackBannerMessage);
+            var message = wasAlreadyConfirmed
+                ? $"Ändringarna i veckomenyn för vecka {currentWeek.IsoWeek} har sparats!"
+                : $"Veckomenyn för vecka {currentWeek.IsoWeek} är nu spikad!";
+
+            feedback.ShowSuccess(message);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Kunde inte spika/spara veckomeny för vecka {WeekStartDate}.", currentWeek.WeekStartDate);
+            feedback.ShowError("Det gick inte att spara veckomenyn. Dina osparade ändringar finns kvar på sidan – försök igen.");
+        }
+        finally
+        {
+            isSaving = false;
+        }
     }
 
     private async Task RevertUnsavedChangesAsync()
     {
+        feedbackPlacement = FeedbackPlacement.Top;
         await LoadWeekAsync(currentWeek.WeekStartDate);
-        feedbackIsWarning = false;
-        feedbackBannerMessage = "Osparade ändringar har återställts.";
+        if (!feedback.IsError)
+        {
+            feedback.ShowSuccess("Osparade ändringar har återställts.");
+        }
     }
 
     private void MarkMenuEdited()
     {
         hasUnsavedChanges = true;
         hasUserModifiedDraft = true;
+
+        if (feedback.IsSuccess || feedback.IsError)
+        {
+            feedback.Clear();
+        }
+        else if (feedback.IsWarning && currentMenu != null && currentMenu.Days.All(d => d.RecipeId.HasValue))
+        {
+            feedback.Clear();
+        }
     }
 }
-

@@ -482,21 +482,14 @@ public class ImportPlaceholderComponentTests : TestContext
             // Placeholder icon is shown because image was not downloaded
             cut.FindAll(".recipe-card-placeholder").Should().NotBeEmpty();
             cut.Find(".recipe-card-placeholder").TextContent.Should().Contain("🍲");
-            // Informative notice is displayed in the Receptbild section
+            // Informative notice is displayed contextually in the Receptbild section
             cut.FindAll(".import-image-notice").Should().ContainSingle();
             cut.Find(".import-image-notice").TextContent.Should().Contain("Receptet innehöll en bildadress, men bilden kunde inte hämtas");
 
-            // Warning is set on AppNotificationService for the layout banner above the header
+            // No duplicate warning is sent to the global AppNotificationService banner
             var notificationService = Services.GetRequiredService<AppNotificationService>();
-            notificationService.IsWarning.Should().BeTrue();
-            notificationService.Title.Should().Be("Receptbilden kunde inte importeras");
-            notificationService.Message.Should().Contain("Receptet innehöll en bildadress, men bilden kunde inte hämtas");
+            notificationService.HasNotification.Should().BeFalse();
         });
-
-        // Dismissing notification clears it
-        var notif = Services.GetRequiredService<AppNotificationService>();
-        notif.Clear();
-        notif.HasNotification.Should().BeFalse();
     }
 
     [Fact]
@@ -562,7 +555,7 @@ public class ImportPlaceholderComponentTests : TestContext
     }
 
     [Fact]
-    public async Task RecipeDetail_WhenSavedQueryParamIsTrue_ShouldDisplayGreenSuccessBanner()
+    public async Task RecipeDetail_WhenSavedQueryParamIsTrue_ShouldDisplayContextualSuccessBanner_WithoutGlobalTopBanner()
     {
         var dbFactory = new TestDbContextFactory();
         var imageStorage = new MockImageStorageService();
@@ -595,15 +588,18 @@ public class ImportPlaceholderComponentTests : TestContext
 
         cut.WaitForAssertion(() =>
         {
-            notifService.HasNotification.Should().BeTrue();
-            notifService.IsSuccess.Should().BeTrue();
-            notifService.Title.Should().Be("Receptet har sparats!");
-            notifService.Message.Should().Contain("Sparad kyckling");
+            // Global top banner is NOT used (single contextual confirmation on RecipeDetail)
+            notifService.HasNotification.Should().BeFalse();
+
+            var banner = cut.Find(".recipe-detail-feedback.rb-feedback-success");
+            banner.GetAttribute("role").Should().Be("status");
+            banner.TextContent.Should().Contain("Receptet har sparats!");
+            banner.TextContent.Should().Contain("Sparad kyckling");
         });
 
-        // Dismiss the banner
-        notifService.Clear();
-        notifService.HasNotification.Should().BeFalse();
+        // Dismiss the contextual banner manually
+        cut.Find(".recipe-detail-feedback .rb-feedback-close").Click();
+        cut.FindAll(".recipe-detail-feedback").Should().BeEmpty();
     }
 
     [Fact]

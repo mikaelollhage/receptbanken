@@ -6,9 +6,8 @@
 @inject CategoryService CategoryService
 @inject IImageStorageService ImageStorageService
 @inject NavigationManager Navigation
-@inject IToastService ToastService
-@inject AppNotificationService NotificationService
 @inject IJSRuntime JSRuntime
+@inject ILogger<ImportPlaceholder> Logger
 
 <PageTitle>Importera recept — Receptbanken</PageTitle>
 
@@ -20,6 +19,8 @@
         </p>
     </div>
 </div>
+
+<ContextualFeedback State="discardFeedback" CssClass="import-discard-feedback" />
 
 <!-- Steg 1: URL-inmatning -->
 <div class="form-section">
@@ -152,7 +153,7 @@
                     webbläsare och klistras in här. Inget sparas förrän du har granskat och godkänt receptet.
                 </p>
 
-                <FluentTextArea @bind-Value="jsonLdInput" Immediate="true" Id="jsonld-input"
+                <FluentTextArea @bind-Value="JsonLdInput" Immediate="true" Id="jsonld-input"
                                 Label="Receptdata (JSON-LD)" Placeholder="Klistra in JSON-LD här..."
                                 Rows="8" Maxlength="@RecipeImportLimits.MaxJsonLdLength" Style="width: 100%;" />
 
@@ -181,7 +182,7 @@
                             <li>Tryck <kbd>F12</kbd> och välj fliken <strong>Console</strong>.</li>
                             <li>
                                 Klistra in och kör följande kod (tryck <kbd>Enter</kbd>). Om webbläsaren varnar för inklistring kan du
-                                behöva skriva <code>allow pasting</code> först.
+                                behöver skriva <code>allow pasting</code> först.
                                 <div class="jsonld-help-code-container">
                                     <pre class="jsonld-help-code" id="jsonld-help-code"><code>@JsonLdConsoleSnippet</code></pre>
                                     <button type="button" id="copy-jsonld-snippet-btn" class="jsonld-copy-btn @(isSnippetCopied ? "copied" : "")"
@@ -237,11 +238,18 @@
             <button type="button" class="btn-danger-custom" @onclick="DiscardDraft" disabled="@isSaving">
                 Förkasta utkast
             </button>
-            <button type="button" class="btn-primary-custom" @onclick="ApproveAndSaveRecipe" disabled="@isSaving">
+            <button type="button" class="btn-primary-custom" @onclick="() => ApproveAndSaveRecipe(FeedbackPlacement.Top)" disabled="@isSaving">
                 @(isSaving ? "Sparar..." : "✓ Godkänn & Spara recept")
             </button>
         </div>
     </div>
+
+    <ContextualFeedback State="qualityWarningFeedback" CssClass="import-quality-warning" />
+
+    @if (saveFeedback.Placement == FeedbackPlacement.Top)
+    {
+        <ContextualFeedback State="saveFeedback" CssClass="import-save-feedback import-save-feedback-top" />
+    }
 
     <!-- Visuell kortförhandsgranskning i Receptbankens egen design -->
     <div class="recipe-detail-hero" style="height: 280px; margin-bottom: 24px;">
@@ -271,7 +279,10 @@
     <div style="display: flex; flex-direction: column; gap: 24px;">
         <div class="form-section">
             <h3 class="form-section-title">Grunduppgifter</h3>
-            <RecipeBasicInfoFields Recipe="draft" IdPrefix="import" />
+            <RecipeBasicInfoFields Recipe="draft"
+                                   IdPrefix="import"
+                                   ShowValidationErrors="showValidationErrors"
+                                   OnValidationStateChanged="HandleValidationStateChanged" />
         </div>
 
         <!-- Receptbild -->
@@ -281,7 +292,7 @@
             @if (!string.IsNullOrWhiteSpace(imageFetchNotice))
             {
                 <div class="import-image-notice" style="margin-bottom: 16px; padding: 12px 16px; border-radius: var(--rb-radius-md); background-color: rgba(230, 160, 40, 0.12); border-left: 4px solid var(--rb-accent-gold); display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--rb-text-primary);" role="status">
-                    <span style="font-size: 18px;">ℹ️</span>
+                    <span style="font-size: 18px;" aria-hidden="true">ℹ️</span>
                     <span>@imageFetchNotice</span>
                 </div>
             }
@@ -309,6 +320,8 @@
                             <span style="font-size: 13px;">@(isDownloadingImage ? "Hämtar och optimerar receptbild..." : "Bearbetar och optimerar bild...")</span>
                         </div>
                     }
+
+                    <ContextualFeedback State="imageUploadFeedback" CssClass="image-upload-feedback" />
                 </div>
 
                 <!-- Bildförhandsvisning -->
@@ -354,11 +367,16 @@
             <FluentTextArea @bind-Value="draft.Notes" Placeholder="Lägg till egna kommentarer..." Style="width: 100%;" Rows="2" />
         </div>
 
+        @if (saveFeedback.Placement == FeedbackPlacement.Bottom)
+        {
+            <ContextualFeedback State="saveFeedback" CssClass="import-save-feedback import-save-feedback-bottom" />
+        }
+
         <div style="display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 40px;">
             <button type="button" class="btn-danger-custom" @onclick="DiscardDraft" disabled="@isSaving">
                 Förkasta utkast
             </button>
-            <button type="button" class="btn-primary-custom" @onclick="ApproveAndSaveRecipe" disabled="@isSaving">
+            <button type="button" class="btn-primary-custom" @onclick="() => ApproveAndSaveRecipe(FeedbackPlacement.Bottom)" disabled="@isSaving">
                 @(isSaving ? "Sparar..." : "✓ Godkänn & Spara recept")
             </button>
         </div>
@@ -417,15 +435,51 @@
 
     private bool isJsonLdSectionOpen = false;
     private string jsonLdInput = string.Empty;
+    private string JsonLdInput
+    {
+        get => jsonLdInput;
+        set
+        {
+            jsonLdInput = value;
+            if (!string.IsNullOrWhiteSpace(jsonLdErrorMessage))
+            {
+                jsonLdErrorMessage = null;
+            }
+        }
+    }
     private string? jsonLdErrorMessage;
 
     private Recipe? draft;
     private List<CategoryWithCountDto> availableCategories = new();
     private HashSet<int> selectedCategoryIds = new();
+    private bool showValidationErrors = false;
+
+    private readonly FeedbackState qualityWarningFeedback = new();
+    private readonly FeedbackState imageUploadFeedback = new();
+    private readonly FeedbackState saveFeedback = new();
+    private readonly FeedbackState discardFeedback = new();
 
     protected override async Task OnInitializedAsync()
     {
         availableCategories = await CategoryService.GetCategoriesAsync();
+    }
+
+    private void ResetPreviewFeedback()
+    {
+        showValidationErrors = false;
+        qualityWarningFeedback.Clear();
+        imageUploadFeedback.Clear();
+        saveFeedback.Clear();
+        discardFeedback.Clear();
+    }
+
+    private void HandleValidationStateChanged()
+    {
+        if (showValidationErrors && draft != null && RecipeFormValidator.Validate(draft).Count == 0)
+        {
+            showValidationErrors = false;
+            saveFeedback.Clear();
+        }
     }
 
     private async Task FetchRecipeFromUrl()
@@ -435,6 +489,7 @@
 
         errorMessage = null;
         urlFailureReason = RecipeImportFailureReason.None;
+        ResetPreviewFeedback();
         isImporting = true;
 
         try
@@ -464,16 +519,12 @@
                 if (string.IsNullOrWhiteSpace(draft.ImagePath) && (result.HasImageProperty || !string.IsNullOrWhiteSpace(result.RemoteImageUrl)))
                 {
                     imageFetchNotice = "Receptet innehöll en bildadress, men bilden kunde inte hämtas från webbplatsen. Du kan välja en bild från din dator nedan eller spara utan bild.";
-                    NotificationService.ShowWarning("Receptbilden kunde inte importeras", imageFetchNotice);
-                }
-                else
-                {
-                    NotificationService.Clear();
                 }
             }
         }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "Oväntat fel vid URL-import av recept.");
             errorMessage = $"Ett oväntat fel uppstod: {ex.Message}";
         }
         finally
@@ -509,7 +560,7 @@
     private async Task ParseRecipeText()
     {
         recipeTextErrorMessage = null;
-        NotificationService.Clear();
+        ResetPreviewFeedback();
 
         if (string.IsNullOrWhiteSpace(recipeTextInput))
         {
@@ -526,6 +577,7 @@
         }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "Oväntat fel vid textimport av recept.");
             recipeTextErrorMessage = $"Ett oväntat fel uppstod när recepttexten skulle tolkas: {ex.Message}";
             return;
         }
@@ -549,16 +601,12 @@
 
         if (!string.IsNullOrWhiteSpace(result.WarningMessage))
         {
-            NotificationService.ShowWarning("Tolkningen kan vara ofullständig", result.WarningMessage);
+            qualityWarningFeedback.ShowWarning(result.WarningMessage, "Tolkningen kan vara ofullständig");
         }
-        else if (!string.IsNullOrWhiteSpace(result.RemoteImageUrl))
+
+        if (!string.IsNullOrWhiteSpace(result.RemoteImageUrl))
         {
             imageFetchNotice = "Receptet innehöll en bildreferens. Av säkerhetsskäl hämtas den inte automatiskt vid textimport. Du kan ladda upp en bild från din dator nedan.";
-            NotificationService.ShowWarning("Receptbild", imageFetchNotice);
-        }
-        else
-        {
-            NotificationService.Clear();
         }
     }
 
@@ -638,6 +686,7 @@
     private async Task ParseJsonLd()
     {
         jsonLdErrorMessage = null;
+        ResetPreviewFeedback();
 
         if (string.IsNullOrWhiteSpace(jsonLdInput))
         {
@@ -653,8 +702,9 @@
         {
             result = RecipeImporter.ParseFromJsonLd(jsonLdInput, fallbackSourceUrl);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            Logger.LogError(ex, "Oväntat fel vid JSON-LD-import av recept.");
             jsonLdErrorMessage = "Ett oväntat fel uppstod när receptdatan skulle tolkas.";
             return;
         }
@@ -702,15 +752,6 @@
         {
             imageFetchNotice = "Receptets bildadress var ogiltig eller osäker och ignorerades. Du kan välja en bild från din dator nedan eller spara utan bild.";
         }
-
-        if (!string.IsNullOrWhiteSpace(imageFetchNotice))
-        {
-            NotificationService.ShowWarning("Receptbilden kunde inte importeras", imageFetchNotice);
-        }
-        else
-        {
-            NotificationService.Clear();
-        }
     }
 
     private async Task DeleteDraftImageIfAnyAsync()
@@ -724,6 +765,7 @@
     private async Task StartManualFromFailedUrl()
     {
         await DeleteDraftImageIfAnyAsync();
+        ResetPreviewFeedback();
         draft = new Recipe
         {
             Title = "Nytt recept",
@@ -749,15 +791,17 @@
         var file = e.File;
         if (file == null || draft == null) return;
 
+        imageUploadFeedback.Clear();
+
         if (!ImageStorageService.IsValidImageExtension(file.Name))
         {
-            ToastService.ShowError("Ogiltigt bildformat. Vänligen välj en JPG, PNG eller WebP bild.");
+            imageUploadFeedback.ShowError("Ogiltigt bildformat. Vänligen välj en JPG-, PNG- eller WebP-bild.");
             return;
         }
 
         if (file.Size > 10 * 1024 * 1024)
         {
-            ToastService.ShowError("Bildfilen är för stor. Max 10 MB tillåts.");
+            imageUploadFeedback.ShowError("Bildfilen är för stor. Max 10 MB tillåts.");
             return;
         }
 
@@ -770,12 +814,12 @@
             draft.ImagePath = savedPath;
             imageLoadFailed = false;
             imageFetchNotice = null;
-            NotificationService.Clear();
-            ToastService.ShowSuccess("Bilden har laddats upp och sparats!");
+            imageUploadFeedback.ShowSuccess("Bilden har laddats upp och sparats!");
         }
         catch (Exception ex)
         {
-            ToastService.ShowError($"Fel vid bilduppladdning: {ex.Message}");
+            Logger.LogError(ex, "Fel vid bilduppladdning under receptimport.");
+            imageUploadFeedback.ShowError("Bilden kunde inte laddas upp. Försök med en annan bildfil.");
         }
         finally
         {
@@ -792,7 +836,7 @@
         }
         imageLoadFailed = false;
         imageFetchNotice = null;
-        NotificationService.Clear();
+        imageUploadFeedback.Clear();
     }
 
     private async Task DiscardDraft()
@@ -804,18 +848,24 @@
         draft = null;
         imageLoadFailed = false;
         imageFetchNotice = null;
-        NotificationService.Clear();
-        ToastService.ShowInfo("Utkastet förkastades. Inget har sparats.");
+        ResetPreviewFeedback();
+        discardFeedback.ShowSuccess("Utkastet förkastades. Inget har sparats.");
     }
 
-    private async Task ApproveAndSaveRecipe()
+    private async Task ApproveAndSaveRecipe(FeedbackPlacement placement = FeedbackPlacement.Top)
     {
         if (draft == null) return;
-        if (string.IsNullOrWhiteSpace(draft.Title))
+
+        var validationErrors = RecipeFormValidator.Validate(draft);
+        if (validationErrors.Count > 0)
         {
-            ToastService.ShowWarning("Ange en titel innan du sparar receptet.");
+            showValidationErrors = true;
+            saveFeedback.ShowError(string.Join(" ", validationErrors), "Kontrollera uppgifterna", placement);
             return;
         }
+
+        showValidationErrors = false;
+        saveFeedback.Clear();
 
         draft.Ingredients = draft.Ingredients
             .Where(i => !string.IsNullOrWhiteSpace(i.Name) || !string.IsNullOrWhiteSpace(i.RawText))
@@ -847,12 +897,12 @@
             isSaving = true;
             var saved = await RecipeService.CreateRecipeAsync(draft, selectedCategoryIds.ToList());
             draft = null;
-            NotificationService.ShowSuccess("Receptet har sparats!", $"Receptet '{saved.Title}' har sparats i din receptbank och är redo att användas.");
             Navigation.NavigateTo($"/recept/{saved.Id}?saved=true");
         }
         catch (Exception ex)
         {
-            ToastService.ShowError($"Kunde inte spara receptet: {ex.Message}");
+            Logger.LogError(ex, "Kunde inte spara importerat recept.");
+            saveFeedback.ShowError("Kunde inte spara receptet. Kontrollera uppgifterna och försök igen.", placement: placement);
         }
         finally
         {
@@ -881,9 +931,5 @@
     {
         copyResetCts?.Cancel();
         copyResetCts?.Dispose();
-        if (NotificationService.IsWarning)
-        {
-            NotificationService.Clear();
-        }
     }
 }

@@ -2,7 +2,7 @@
 @inject ShoppingListService ShoppingListService
 @inject RecipeService RecipeService
 @inject ServingCalculator ServingCalculator
-@inject IToastService ToastService
+@inject ILogger<ShoppingPlaceholder> Logger
 
 <PageTitle>Inköpslista — Receptbanken</PageTitle>
 
@@ -49,13 +49,14 @@
                 <input type="text"
                        class="form-input-custom"
                        placeholder="t.ex. 1,5 l mjölk eller 2 förp bacon..."
-                       @bind="manualInput"
+                       @bind="ManualInput"
                        @bind:event="oninput"
                        @onkeydown="HandleManualKeyDown" />
                 <button type="button" class="btn-primary-custom" style="white-space: nowrap;" @onclick="AddManualItem">
                     + Lägg till
                 </button>
             </div>
+            <ContextualFeedback State="manualAddFeedback" CssClass="shopping-manual-feedback" />
         </div>
 
         <div class="detail-card">
@@ -89,6 +90,8 @@
                         🛒 Lägg till receptets ingredienser
                     </button>
                 }
+
+                <ContextualFeedback State="recipeAddFeedback" CssClass="shopping-recipe-feedback" />
             }
         </div>
     </div>
@@ -105,6 +108,8 @@
                     </span>
                 }
             </div>
+
+            <ContextualFeedback State="listFeedback" CssClass="shopping-list-feedback" />
 
             @if (isLoading)
             {
@@ -199,6 +204,18 @@
     private bool showClearAllConfirm = false;
 
     private string manualInput = string.Empty;
+    private string ManualInput
+    {
+        get => manualInput;
+        set
+        {
+            manualInput = value;
+            if (manualAddFeedback.HasMessage)
+            {
+                manualAddFeedback.Clear();
+            }
+        }
+    }
     private int selectedRecipeId = 0;
     private int selectedRecipeServings = 4;
 
@@ -206,6 +223,10 @@
     private decimal? editQuantity;
     private string? editUnit;
     private string editName = string.Empty;
+
+    private readonly FeedbackState manualAddFeedback = new();
+    private readonly FeedbackState recipeAddFeedback = new();
+    private readonly FeedbackState listFeedback = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -242,16 +263,21 @@
         if (string.IsNullOrWhiteSpace(manualInput))
             return;
 
+        manualAddFeedback.Clear();
         try
         {
             await ShoppingListService.AddManualItemAsync(manualInput);
             manualInput = string.Empty;
             items = await ShoppingListService.GetItemsAsync();
-            ToastService.ShowSuccess("Varan lades till i inköpslistan.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            manualAddFeedback.ShowError(ex.Message);
         }
         catch (Exception ex)
         {
-            ToastService.ShowError(ex.Message);
+            Logger.LogError(ex, "Fel vid manuellt tillägg i inköpslistan.");
+            manualAddFeedback.ShowError("Kunde inte lägga till varan i inköpslistan. Försök igen.");
         }
     }
 
@@ -260,27 +286,39 @@
         if (selectedRecipeId <= 0)
             return;
 
+        recipeAddFeedback.Clear();
         try
         {
             var count = await ShoppingListService.AddRecipeIngredientsAsync(selectedRecipeId, selectedRecipeServings);
             items = await ShoppingListService.GetItemsAsync();
-            ToastService.ShowSuccess($"{count} ingredienser lades till i inköpslistan.");
             selectedRecipeId = 0;
+            recipeAddFeedback.ShowSuccess($"{count} ingredienser lades till i inköpslistan.");
         }
         catch (Exception ex)
         {
-            ToastService.ShowError(ex.Message);
+            Logger.LogError(ex, "Fel vid tillägg av receptingredienser i inköpslistan.");
+            recipeAddFeedback.ShowError("Kunde inte lägga till ingredienserna i inköpslistan. Försök igen.");
         }
     }
 
     private async Task ToggleItem(int id)
     {
-        await ShoppingListService.ToggleCheckedAsync(id);
-        items = await ShoppingListService.GetItemsAsync();
+        listFeedback.Clear();
+        try
+        {
+            await ShoppingListService.ToggleCheckedAsync(id);
+            items = await ShoppingListService.GetItemsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fel vid markering av vara i inköpslistan.");
+            listFeedback.ShowError("Kunde inte uppdatera varan. Försök igen.");
+        }
     }
 
     private void StartEdit(ShoppingListItem item)
     {
+        listFeedback.Clear();
         editingItemId = item.Id;
         editQuantity = item.Quantity;
         editUnit = item.Unit;
@@ -290,41 +328,78 @@
     private void CancelEdit()
     {
         editingItemId = null;
+        listFeedback.Clear();
     }
 
     private async Task SaveEdit(int id)
     {
+        if (string.IsNullOrWhiteSpace(editName))
+        {
+            listFeedback.ShowError("Ange ett namn på varan.");
+            return;
+        }
+
+        listFeedback.Clear();
         try
         {
             await ShoppingListService.UpdateItemAsync(id, editQuantity, editUnit, editName);
             editingItemId = null;
             items = await ShoppingListService.GetItemsAsync();
-            ToastService.ShowSuccess("Varan uppdaterades.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            listFeedback.ShowError(ex.Message);
         }
         catch (Exception ex)
         {
-            ToastService.ShowError(ex.Message);
+            Logger.LogError(ex, "Fel vid uppdatering av vara i inköpslistan.");
+            listFeedback.ShowError("Kunde inte spara ändringen. Försök igen.");
         }
     }
 
     private async Task DeleteItem(int id)
     {
-        await ShoppingListService.DeleteItemAsync(id);
-        items = await ShoppingListService.GetItemsAsync();
+        listFeedback.Clear();
+        try
+        {
+            await ShoppingListService.DeleteItemAsync(id);
+            items = await ShoppingListService.GetItemsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fel vid borttagning av vara från inköpslistan.");
+            listFeedback.ShowError("Kunde inte ta bort varan. Försök igen.");
+        }
     }
 
     private async Task ClearCheckedItems()
     {
-        var count = await ShoppingListService.ClearCheckedItemsAsync();
-        items = await ShoppingListService.GetItemsAsync();
-        ToastService.ShowSuccess($"{count} köpta varor rensades.");
+        listFeedback.Clear();
+        try
+        {
+            await ShoppingListService.ClearCheckedItemsAsync();
+            items = await ShoppingListService.GetItemsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fel vid rensning av köpta varor i inköpslistan.");
+            listFeedback.ShowError("Kunde inte rensa köpta varor. Försök igen.");
+        }
     }
 
     private async Task ConfirmClearAll()
     {
         showClearAllConfirm = false;
-        await ShoppingListService.ClearAllItemsAsync();
-        items = await ShoppingListService.GetItemsAsync();
-        ToastService.ShowSuccess("Inköpslistan har tömts.");
+        listFeedback.Clear();
+        try
+        {
+            await ShoppingListService.ClearAllItemsAsync();
+            items = await ShoppingListService.GetItemsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fel vid tömning av inköpslistan.");
+            listFeedback.ShowError("Kunde inte tömma inköpslistan. Försök igen.");
+        }
     }
 }

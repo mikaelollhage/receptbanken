@@ -233,11 +233,12 @@ public class WebAppIntegrationTests : IDisposable
         // 2. Generate distribution archive via deploy.ps1 -DryRun -SkipTests and inspect contents with TarReader
         var archivePath = Path.Combine(_tempDataPath, "verify-dist.tar.gz");
         var deployScriptPath = Path.Combine(repoRoot, "scripts", "deploy.ps1");
+        var envExamplePath = Path.Combine(repoRoot, ".deploy.env.example");
 
         var psi = new ProcessStartInfo
         {
             FileName = "powershell",
-            Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{deployScriptPath}\" -ServerHost home-server -ServerUser mikaelollhage -DryRun -SkipTests -ArchiveOutputPath \"{archivePath}\"",
+            Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{deployScriptPath}\" -EnvFile \"{envExamplePath}\" -ServerHost home-server -ServerUser mikaelollhage -DryRun -SkipTests -ArchiveOutputPath \"{archivePath}\"",
             WorkingDirectory = repoRoot,
             RedirectStandardOutput = true,
             RedirectStandardError = true,

@@ -1,11 +1,10 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 @inject AppNotificationService NotificationService
+@inject NavigationManager Navigation
 
 <FluentDesignTheme Mode="DesignThemeModes.Dark" />
 <FluentDialogProvider />
-<FluentToastProvider MaxToastCount="5" Position="ToastPosition.TopEnd" />
-<FluentMessageBarProvider />
 
 <div class="app-container">
     <aside class="app-sidebar">
@@ -16,16 +15,17 @@
         @if (NotificationService.HasNotification)
         {
             var bannerClass = NotificationService.IsSuccess ? "app-top-banner-success" : (NotificationService.IsError ? "app-top-banner-error" : "app-top-banner-warning");
-            var icon = NotificationService.IsSuccess ? "✓" : (NotificationService.IsError ? "✕" : "⚠️");
-            <div class="app-top-banner @bannerClass" role="alert">
+            var icon = NotificationService.IsSuccess ? "✓" : (NotificationService.IsError ? "✕" : "⚠");
+            var bannerRole = NotificationService.IsError ? "alert" : "status";
+            <div class="app-top-banner @bannerClass" role="@bannerRole">
                 <div class="app-top-banner-content">
-                    <span class="app-top-banner-icon">@icon</span>
+                    <span class="app-top-banner-icon" aria-hidden="true">@icon</span>
                     <div class="app-top-banner-text">
                         <div class="app-top-banner-title">@NotificationService.Title</div>
                         <div class="app-top-banner-desc">@NotificationService.Message</div>
                     </div>
                 </div>
-                <button type="button" class="app-top-banner-close" @onclick="NotificationService.Clear" title="Stäng meddelande">
+                <button type="button" class="app-top-banner-close" @onclick="NotificationService.Clear" aria-label="Stäng meddelande" title="Stäng meddelande">
                     ✕ Stäng
                 </button>
             </div>
@@ -55,6 +55,7 @@
     protected override void OnInitialized()
     {
         NotificationService.OnChange += OnNotificationChanged;
+        Navigation.LocationChanged += OnLocationChanged;
     }
 
     private void OnNotificationChanged()
@@ -62,8 +63,17 @@
         InvokeAsync(StateHasChanged);
     }
 
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        if (NotificationService.HasNotification)
+        {
+            NotificationService.Clear();
+        }
+    }
+
     public void Dispose()
     {
         NotificationService.OnChange -= OnNotificationChanged;
+        Navigation.LocationChanged -= OnLocationChanged;
     }
 }

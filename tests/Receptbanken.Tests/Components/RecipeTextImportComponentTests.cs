@@ -199,7 +199,7 @@ public class RecipeTextImportComponentTests : TestContext
     }
 
     [Fact]
-    public void ParseRecipeText_WithBulkNoisyInput_ShouldRenderWarningOnlyAtTopNotification_AndNotDuplicateInPreview()
+    public void ParseRecipeText_WithBulkNoisyInput_ShouldRenderWarningInPreview_AndNotGlobalTopBanner()
     {
         var (cut, _) = RenderImportPage();
         var notifService = Services.GetRequiredService<AppNotificationService>();
@@ -210,13 +210,14 @@ public class RecipeTextImportComponentTests : TestContext
 
         cut.WaitForAssertion(() =>
         {
-            // Quality warning shown in top notification banner
-            notifService.HasNotification.Should().BeTrue();
-            notifService.IsWarning.Should().BeTrue();
-            notifService.Message.Should().Contain("ovanligt många ingredienser identifierades");
+            // Quality warning shown contextually in the preview section
+            var warning = cut.Find(".import-quality-warning.rb-feedback-warning");
+            warning.GetAttribute("role").Should().Be("status");
+            warning.TextContent.Should().Contain("Tolkningen kan vara ofullständig");
+            warning.TextContent.Should().Contain("ovanligt många ingredienser identifierades");
 
-            // Del E: NO extra duplicate warning banner above preview
-            cut.FindAll(".import-quality-warning").Should().BeEmpty();
+            // No duplicate global notification banner
+            notifService.HasNotification.Should().BeFalse();
         });
     }
 
@@ -224,11 +225,16 @@ public class RecipeTextImportComponentTests : TestContext
     public void ParseRecipeText_WhenSucceedingCleanly_ShouldClearPreviousWarning()
     {
         var (cut, _) = RenderImportPage();
-        var notifService = Services.GetRequiredService<AppNotificationService>();
 
-        // 1. First trigger a warning
-        notifService.ShowWarning("Tidigare varning", "En gammal varning som ska rensas.");
-        notifService.HasNotification.Should().BeTrue();
+        // 1. First trigger a quality warning via noisy bulk input
+        cut.Find("#recipe-text-toggle").Click();
+        cut.Find("#recipe-text-input").Input(NiiinisRecipeFixtures.NoisyBulkPageWithManyItems);
+        cut.Find("#parse-recipe-text-btn").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.FindAll(".import-quality-warning").Should().ContainSingle();
+        });
 
         // 2. Parse clean recipe (Niiinis)
         cut.Find("#recipe-text-toggle").Click();
@@ -238,7 +244,6 @@ public class RecipeTextImportComponentTests : TestContext
         cut.WaitForAssertion(() =>
         {
             // Stale warning should be cleared
-            notifService.HasNotification.Should().BeFalse();
             cut.FindAll(".import-quality-warning").Should().BeEmpty();
         });
     }

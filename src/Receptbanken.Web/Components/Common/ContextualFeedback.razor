@@ -1,0 +1,224 @@
+@implements IDisposable
+@inject IServiceProvider ServiceProvider
+
+@if (HasActiveContent)
+{
+    <div id="@Id"
+         class="rb-feedback @SeverityCssClass @LegacySeverityCssClass @CssClass"
+         role="@AriaRole">
+        <div class="rb-feedback-content">
+            <span class="rb-feedback-icon" aria-hidden="true">@IconText</span>
+            <div class="rb-feedback-text">
+                @if (!string.IsNullOrWhiteSpace(EffectiveTitle))
+                {
+                    <div class="rb-feedback-title">@EffectiveTitle</div>
+                }
+                @if (!string.IsNullOrWhiteSpace(EffectiveMessage))
+                {
+                    <div class="rb-feedback-message">@EffectiveMessage</div>
+                }
+            </div>
+        </div>
+        @if (Dismissible)
+        {
+            <button type="button"
+                    class="rb-feedback-close weekly-feedback-close"
+                    aria-label="Stäng meddelande"
+                    title="Stäng meddelande"
+                    @onclick="HandleDismissClicked">
+                ✕
+            </button>
+        }
+    </div>
+}
+
+@code {
+    public const int DefaultSuccessAutoDismissMs = 4000;
+
+    [Parameter] public FeedbackState? State { get; set; }
+    [Parameter] public string? Message { get; set; }
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public FeedbackSeverity Severity { get; set; } = FeedbackSeverity.Success;
+    [Parameter] public long Version { get; set; }
+    [Parameter] public bool Dismissible { get; set; } = true;
+    [Parameter] public bool? AutoDismiss { get; set; }
+    [Parameter] public int AutoDismissDurationMs { get; set; } = DefaultSuccessAutoDismissMs;
+    [Parameter] public string? CssClass { get; set; }
+    [Parameter] public string? Id { get; set; }
+    [Parameter] public EventCallback OnDismiss { get; set; }
+
+    private string? _trackedMessage;
+    private string? _trackedTitle;
+    private FeedbackSeverity _trackedSeverity;
+    private long _trackedVersion;
+    private long _activeTimerId;
+    private CancellationTokenSource? _autoDismissCts;
+    private bool _isDisposed;
+
+    private string? EffectiveMessage => State != null ? State.Message : Message;
+    private string? EffectiveTitle => State != null ? State.Title : Title;
+    private FeedbackSeverity EffectiveSeverity => State != null ? State.Severity : Severity;
+    private long EffectiveVersion => State != null ? State.Version : Version;
+
+    private bool HasActiveContent =>
+        !string.IsNullOrWhiteSpace(EffectiveMessage) || !string.IsNullOrWhiteSpace(EffectiveTitle);
+
+    private string SeverityCssClass => EffectiveSeverity switch
+    {
+        FeedbackSeverity.Success => "rb-feedback-success",
+        FeedbackSeverity.Warning => "rb-feedback-warning",
+        FeedbackSeverity.Error => "rb-feedback-error",
+        _ => "rb-feedback-success"
+    };
+
+    private string LegacySeverityCssClass => EffectiveSeverity switch
+    {
+        FeedbackSeverity.Success => "success",
+        FeedbackSeverity.Warning => "warning",
+        FeedbackSeverity.Error => "error",
+        _ => "success"
+    };
+
+    private string IconText => EffectiveSeverity switch
+    {
+        FeedbackSeverity.Success => "✓",
+        FeedbackSeverity.Warning => "⚠",
+        FeedbackSeverity.Error => "✕",
+        _ => "✓"
+    };
+
+    private string AriaRole => EffectiveSeverity == FeedbackSeverity.Error ? "alert" : "status";
+
+    protected override void OnParametersSet()
+    {
+        if (_isDisposed)
+            return;
+
+        if (!HasActiveContent)
+        {
+            CancelAutoDismissTimer();
+            _trackedMessage = null;
+            _trackedTitle = null;
+            _trackedVersion = EffectiveVersion;
+            return;
+        }
+
+        bool changed = _trackedMessage != EffectiveMessage
+                    || _trackedTitle != EffectiveTitle
+                    || _trackedSeverity != EffectiveSeverity
+                    || _trackedVersion != EffectiveVersion;
+
+        if (changed)
+        {
+            _trackedMessage = EffectiveMessage;
+            _trackedTitle = EffectiveTitle;
+            _trackedSeverity = EffectiveSeverity;
+            _trackedVersion = EffectiveVersion;
+
+            CancelAutoDismissTimer();
+
+            bool shouldAutoDismiss = AutoDismiss ?? (EffectiveSeverity == FeedbackSeverity.Success);
+            if (shouldAutoDismiss && EffectiveSeverity == FeedbackSeverity.Success && AutoDismissDurationMs > 0)
+            {
+                StartAutoDismissTimer();
+            }
+        }
+    }
+
+    private void StartAutoDismissTimer()
+    {
+        var timerId = ++_activeTimerId;
+        var cts = _autoDismissCts = new CancellationTokenSource();
+        var token = cts.Token;
+        var delay = TimeSpan.FromMilliseconds(AutoDismissDurationMs);
+        var timeProvider = ServiceProvider.GetService<TimeProvider>() ?? TimeProvider.System;
+
+        _ = RunAutoDismissAsync(timerId, delay, timeProvider, token);
+    }
+
+    private async Task RunAutoDismissAsync(
+        long timerId,
+        TimeSpan delay,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(delay, timeProvider, cancellationToken);
+            if (_isDisposed || cancellationToken.IsCancellationRequested || timerId != _activeTimerId)
+                return;
+
+            await InvokeAsync(async () =>
+            {
+                if (_isDisposed || cancellationToken.IsCancellationRequested || timerId != _activeTimerId)
+                    return;
+
+                await DismissInternalAsync();
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when replaced, manually dismissed, or disposed.
+        }
+        catch (ObjectDisposedException)
+        {
+            // Expected if component circuit is disposed during callback.
+        }
+    }
+
+    private Task HandleDismissClicked() => DismissInternalAsync();
+
+    private async Task DismissInternalAsync()
+    {
+        if (_isDisposed)
+            return;
+
+        CancelAutoDismissTimer();
+        _trackedMessage = null;
+        _trackedTitle = null;
+
+        if (State != null)
+        {
+            State.Clear();
+            _trackedVersion = State.Version;
+        }
+
+        if (OnDismiss.HasDelegate)
+        {
+            await OnDismiss.InvokeAsync();
+        }
+
+        StateHasChanged();
+    }
+
+    private void CancelAutoDismissTimer()
+    {
+        _activeTimerId++;
+        var cts = _autoDismissCts;
+        _autoDismissCts = null;
+        if (cts != null)
+        {
+            try
+            {
+                cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            finally
+            {
+                cts.Dispose();
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_isDisposed)
+            return;
+
+        _isDisposed = true;
+        CancelAutoDismissTimer();
+    }
+}
+

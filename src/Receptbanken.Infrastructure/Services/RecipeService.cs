@@ -77,6 +77,11 @@ public class RecipeService
 
     public async Task<Recipe> CreateRecipeAsync(Recipe recipe, List<int>? categoryIds = null, CancellationToken cancellationToken = default)
     {
+        if (recipe.Servings < 1)
+        {
+            throw new InvalidOperationException("Antal portioner måste vara minst 1.");
+        }
+
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         recipe.CreatedAt = DateTimeOffset.UtcNow;
@@ -110,6 +115,11 @@ public class RecipeService
 
     public async Task<Recipe> UpdateRecipeAsync(Recipe recipe, List<int>? categoryIds = null, CancellationToken cancellationToken = default)
     {
+        if (recipe.Servings < 1)
+        {
+            throw new InvalidOperationException("Antal portioner måste vara minst 1.");
+        }
+
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var existing = await context.Recipes

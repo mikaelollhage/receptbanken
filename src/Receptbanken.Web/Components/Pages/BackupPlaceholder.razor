@@ -1,7 +1,7 @@
 @page "/backup"
 @inject IBackupService BackupService
 @inject IJSRuntime JSRuntime
-@inject IToastService ToastService
+@inject ILogger<BackupPlaceholder> Logger
 
 <PageTitle>Säkerhetskopiering — Receptbanken</PageTitle>
 
@@ -37,11 +37,9 @@
                     <span>⬇️ Ladda ner säkerhetskopia (.zip)</span>
                 }
             </button>
-
-            <a href="/api/backup/export" target="_blank" class="btn-secondary-custom">
-                Direktlänk (.zip)
-            </a>
         </div>
+
+        <ContextualFeedback State="exportFeedback" CssClass="backup-export-feedback" />
     </div>
 
     <!-- Återställ från säkerhetskopia -->
@@ -73,12 +71,7 @@
             <InputFile OnChange="HandleBackupFileSelected" accept=".zip,application/zip" class="form-input-custom" />
         </div>
 
-        @if (!string.IsNullOrWhiteSpace(statusMessage))
-        {
-            <div style="padding: 14px; border-radius: var(--rb-radius-sm); margin-top: 16px; background: @(statusSuccess ? "rgba(74, 222, 128, 0.1)" : "rgba(239, 68, 68, 0.12)"); border: 1px solid @(statusSuccess ? "rgba(74, 222, 128, 0.35)" : "rgba(239, 68, 68, 0.35)"); color: @(statusSuccess ? "#4ade80" : "#f87171"); font-size: 14px;">
-                @statusMessage
-            </div>
-        }
+        <ContextualFeedback State="restoreFeedback" CssClass="backup-restore-feedback" />
 
         @if (selectedFile != null)
         {
@@ -118,13 +111,14 @@
     private bool isExporting = false;
     private bool isRestoring = false;
     private bool showRestoreConfirm = false;
-    private string? statusMessage;
-    private bool statusSuccess;
+
+    private readonly FeedbackState exportFeedback = new();
+    private readonly FeedbackState restoreFeedback = new();
 
     private async Task ExportBackupAsync()
     {
         isExporting = true;
-        statusMessage = null;
+        exportFeedback.Clear();
 
         try
         {
@@ -132,11 +126,12 @@
             var fileName = $"receptbanken-backup-{DateTime.Now:yyyyMMdd-HHmm}.zip";
             var base64 = Convert.ToBase64String(zipBytes);
             await JSRuntime.InvokeVoidAsync("receptbanken.downloadFileFromBytes", fileName, "application/zip", base64);
-            ToastService.ShowSuccess("Säkerhetskopian har skapats och laddats ner.");
+            exportFeedback.ShowSuccess("Säkerhetskopian har skapats och laddats ner.");
         }
         catch (Exception ex)
         {
-            ToastService.ShowError($"Export misslyckades: {ex.Message}");
+            Logger.LogError(ex, "Fel vid export av säkerhetskopia.");
+            exportFeedback.ShowError($"Exporten misslyckades: {ex.Message}");
         }
         finally
         {
@@ -147,7 +142,7 @@
     private void HandleBackupFileSelected(InputFileChangeEventArgs e)
     {
         selectedFile = e.File;
-        statusMessage = null;
+        restoreFeedback.Clear();
     }
 
     private async Task ExecuteRestoreAsync()
@@ -157,31 +152,27 @@
             return;
 
         isRestoring = true;
-        statusMessage = null;
+        restoreFeedback.Clear();
 
         try
         {
             await using var stream = selectedFile.OpenReadStream(MaxUploadSize);
             var result = await BackupService.RestoreFromArchiveAsync(stream, replaceExisting);
 
-            statusSuccess = result.Success;
             if (result.Success)
             {
-                statusMessage = $"Återställningen lyckades! {result.RestoredRecipes} recept, {result.RestoredCategories} kategorier och {result.RestoredImages} bilder återställdes.";
-                ToastService.ShowSuccess("Säkerhetskopian återställdes!");
+                restoreFeedback.ShowSuccess($"Återställningen lyckades! {result.RestoredRecipes} recept, {result.RestoredCategories} kategorier och {result.RestoredImages} bilder återställdes.");
                 selectedFile = null;
             }
             else
             {
-                statusMessage = result.ErrorMessage ?? "Återställningen misslyckades.";
-                ToastService.ShowError(statusMessage);
+                restoreFeedback.ShowError(result.ErrorMessage ?? "Återställningen misslyckades.");
             }
         }
         catch (Exception ex)
         {
-            statusSuccess = false;
-            statusMessage = $"Ett fel uppstod vid läsning av filen: {ex.Message}";
-            ToastService.ShowError(statusMessage);
+            Logger.LogError(ex, "Fel vid återställning av säkerhetskopia.");
+            restoreFeedback.ShowError($"Ett fel uppstod vid läsning av filen: {ex.Message}");
         }
         finally
         {
