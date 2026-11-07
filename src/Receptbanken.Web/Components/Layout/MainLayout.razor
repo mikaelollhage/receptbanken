@@ -31,17 +31,34 @@
             </div>
         }
 
-        <header class="app-header">
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <a href="/recept/ny" class="btn-primary-custom" style="padding: 6px 14px; font-size: 13px;">
-                    <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="Color.Fill" /> Nytt recept
-                </a>
-            </div>
-        </header>
+        @if (!IsShoppingListPage())
+        {
+            <header class="app-header">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <a href="/recept/ny" class="btn-primary-custom" style="padding: 6px 14px; font-size: 13px;">
+                        <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="Color.Fill" /> Nytt recept
+                    </a>
+                </div>
+            </header>
+        }
 
         <main class="app-content">
             @Body
         </main>
+    </div>
+</div>
+
+<div id="components-reconnect-modal" class="rb-reconnect-modal" role="status" aria-live="polite" data-nosnippet>
+    <div class="rb-reconnect-msg rb-reconnect-retrying">
+        <span>⚠ Anslutningen till servern bröts – återansluter...</span>
+    </div>
+    <div class="rb-reconnect-msg rb-reconnect-failed">
+        <span>✕ Kunde inte återansluta automatiskt.</span>
+        <button type="button" class="btn-secondary-custom rb-reconnect-btn" onclick="location.reload()">Ladda om sidan</button>
+    </div>
+    <div class="rb-reconnect-msg rb-reconnect-rejected">
+        <span>✕ Sessionen har upphört (servern kan ha startats om).</span>
+        <button type="button" class="btn-secondary-custom rb-reconnect-btn" onclick="location.reload()">Ladda om sidan</button>
     </div>
 </div>
 
@@ -63,12 +80,20 @@
         InvokeAsync(StateHasChanged);
     }
 
+    private bool IsShoppingListPage()
+    {
+        var relativePath = Navigation.ToBaseRelativePath(Navigation.Uri);
+        var pathOnly = relativePath.Split('?', '#')[0].Trim('/');
+        return string.Equals(pathOnly, "inkopslista", StringComparison.OrdinalIgnoreCase);
+    }
+
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
         if (NotificationService.HasNotification)
         {
             NotificationService.Clear();
         }
+        InvokeAsync(StateHasChanged);
     }
 
     public void Dispose()

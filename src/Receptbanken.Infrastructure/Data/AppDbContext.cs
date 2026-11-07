@@ -129,6 +129,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Unit).HasMaxLength(30);
             entity.Property(e => e.Department).HasMaxLength(100);
             entity.Property(e => e.Quantity).HasPrecision(10, 2);
+            entity.Property(e => e.SortOrder).HasDefaultValue(0);
 
             entity.HasOne(e => e.Recipe)
                 .WithMany()

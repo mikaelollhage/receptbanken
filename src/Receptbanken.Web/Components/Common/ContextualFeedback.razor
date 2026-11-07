@@ -19,6 +19,14 @@
                 }
             </div>
         </div>
+        @if (!string.IsNullOrWhiteSpace(ActionText) && OnAction.HasDelegate)
+        {
+            <button type="button"
+                    class="rb-feedback-action-btn"
+                    @onclick="HandleActionClicked">
+                @ActionText
+            </button>
+        }
         @if (Dismissible)
         {
             <button type="button"
@@ -45,6 +53,8 @@
     [Parameter] public int AutoDismissDurationMs { get; set; } = DefaultSuccessAutoDismissMs;
     [Parameter] public string? CssClass { get; set; }
     [Parameter] public string? Id { get; set; }
+    [Parameter] public string? ActionText { get; set; }
+    [Parameter] public EventCallback OnAction { get; set; }
     [Parameter] public EventCallback OnDismiss { get; set; }
 
     private string? _trackedMessage;
@@ -167,6 +177,29 @@
     }
 
     private Task HandleDismissClicked() => DismissInternalAsync();
+
+    private async Task HandleActionClicked()
+    {
+        if (_isDisposed)
+            return;
+
+        CancelAutoDismissTimer();
+        _trackedMessage = null;
+        _trackedTitle = null;
+
+        if (State != null)
+        {
+            State.Clear();
+            _trackedVersion = State.Version;
+        }
+
+        if (OnAction.HasDelegate)
+        {
+            await OnAction.InvokeAsync();
+        }
+
+        StateHasChanged();
+    }
 
     private async Task DismissInternalAsync()
     {

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Receptbanken.Core.Interfaces;
 using Receptbanken.Core.Models;
+using Receptbanken.Core.Services;
 using Receptbanken.Infrastructure.Data;
 using Receptbanken.Infrastructure.Storage;
 
@@ -30,6 +31,7 @@ public class ZipBackupService : IBackupService
     private readonly ImageStorageOptions _storageOptions;
     private readonly BackupLimitsOptions _limits;
     private readonly ILogger<ZipBackupService> _logger;
+    private readonly ShoppingListNotifier? _shoppingListNotifier;
 
     /// <summary>
     /// Optional hook for testing transactional + filesystem rollback when an error occurs right before commit.
@@ -40,12 +42,14 @@ public class ZipBackupService : IBackupService
         IDbContextFactory<AppDbContext> dbFactory,
         IOptions<ImageStorageOptions> storageOptions,
         ILogger<ZipBackupService> logger,
-        BackupLimitsOptions? limits = null)
+        BackupLimitsOptions? limits = null,
+        ShoppingListNotifier? shoppingListNotifier = null)
     {
         _dbFactory = dbFactory;
         _storageOptions = storageOptions.Value;
         _logger = logger;
         _limits = limits ?? new BackupLimitsOptions();
+        _shoppingListNotifier = shoppingListNotifier;
     }
 
     public async Task<byte[]> CreateBackupArchiveAsync(CancellationToken cancellationToken = default)
@@ -123,6 +127,7 @@ public class ZipBackupService : IBackupService
                 Unit = s.Unit,
                 Name = s.Name,
                 IsChecked = s.IsChecked,
+                SortOrder = s.SortOrder,
                 Department = s.Department,
                 CreatedAt = s.CreatedAt
             }).ToList()
@@ -412,8 +417,10 @@ public class ZipBackupService : IBackupService
                 }
 
                 // Restore Shopping List Items
+                int fallbackSortOrder = 0;
                 foreach (var shopDto in payload.ShoppingListItems)
                 {
+                    fallbackSortOrder++;
                     db.ShoppingListItems.Add(new ShoppingListItem
                     {
                         RawText = shopDto.RawText,
@@ -421,6 +428,7 @@ public class ZipBackupService : IBackupService
                         Unit = shopDto.Unit,
                         Name = shopDto.Name,
                         IsChecked = shopDto.IsChecked,
+                        SortOrder = shopDto.SortOrder > 0 ? shopDto.SortOrder : fallbackSortOrder,
                         Department = shopDto.Department,
                         CreatedAt = shopDto.CreatedAt
                     });
@@ -451,6 +459,7 @@ public class ZipBackupService : IBackupService
                 BeforeCommitTestHook?.Invoke();
 
                 await transaction.CommitAsync(cancellationToken);
+                _shoppingListNotifier?.NotifyChanged();
 
                 return new BackupRestoreResult
                 {
@@ -579,6 +588,7 @@ public class ZipBackupService : IBackupService
         public string? Unit { get; set; }
         public string Name { get; set; } = string.Empty;
         public bool IsChecked { get; set; }
+        public int SortOrder { get; set; }
         public string? Department { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
     }

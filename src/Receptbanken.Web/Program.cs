@@ -73,6 +73,7 @@ builder.Services.AddSingleton<IImageStorageService, LocalImageStorageService>();
 // Pragmatic Application Services
 builder.Services.AddSingleton<ServingCalculator>();
 builder.Services.AddSingleton<ShoppingListAggregator>();
+builder.Services.AddSingleton<ShoppingListNotifier>();
 builder.Services.AddSingleton<IRandomProvider, SystemRandomProvider>();
 builder.Services.AddSingleton<PantryIngredientMatcher>();
 builder.Services.AddSingleton<WeeklyMenuGenerationWeights>();

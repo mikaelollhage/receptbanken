@@ -10,6 +10,7 @@ public class ShoppingListItem
     public string? Unit { get; set; }
     public string Name { get; set; } = string.Empty;
     public bool IsChecked { get; set; }
+    public int SortOrder { get; set; }
     public string? Department { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

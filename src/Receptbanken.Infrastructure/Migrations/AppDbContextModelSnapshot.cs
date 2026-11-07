@@ -227,6 +227,11 @@ namespace Receptbanken.Infrastructure.Migrations
                     b.Property<int?>("RecipeId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("SortOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(0);
+
                     b.Property<string>("Unit")
                         .HasMaxLength(30)
                         .HasColumnType("TEXT");
