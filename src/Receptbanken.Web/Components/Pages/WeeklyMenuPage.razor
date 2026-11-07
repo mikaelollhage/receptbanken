@@ -1,4 +1,5 @@
 @page "/veckomeny"
+@implements IDisposable
 @inject WeeklyMenuService WeeklyMenuService
 @inject RecipeService RecipeService
 @inject CategoryService CategoryService
@@ -208,11 +209,18 @@ else
                                AllCategories="allCategories"
                                AllRecipes="allRecipes"
                                IsToday="@(day.Date == localToday)"
+                               IsReorderMenuOpen="@(activeReorderDayIndex == day.DayIndex)"
+                               OnToggleReorderMenu="HandleToggleReorderMenu"
+                               OnMoveUp="HandleMoveUp"
+                               OnMoveDown="HandleMoveDown"
+                               OnMoveUpKeyboard="HandleMoveUpKeyboard"
+                               OnMoveDownKeyboard="HandleMoveDownKeyboard"
                                OnRerollDay="HandleRerollDayAsync"
                                OnMoveRecipe="HandleMoveRecipe"
                                OnCategoriesChanged="HandleDayCategoriesChanged"
                                OnManualRecipeChanged="HandleManualRecipeChanged"
                                OnDragStartDay="HandleDragStartDay"
+                               OnDragEndDay="HandleDragEndDay"
                                OnDropOnDay="HandleDropOnDay" />
         }
     </div>
@@ -286,6 +294,12 @@ else
     private bool bypassInternalNavigationLock = false;
 
     private int? draggedSourceDayIndex;
+    private bool draggedDayHadReorderOpen;
+    private int? activeReorderDayIndex;
+    private int? _pendingFocusDayIndex;
+    private int? _pendingScrollDayIndex;
+    private bool _isDisposed;
+    private DotNetObjectReference<WeeklyMenuPage>? _dotNetRef;
 
     protected override async Task OnInitializedAsync()
     {
@@ -317,6 +331,16 @@ else
         {
             try
             {
+                _dotNetRef = DotNetObjectReference.Create(this);
+                await JSRuntime.InvokeVoidAsync("receptbanken.registerWeeklyMenuTouchDrag", _dotNetRef);
+            }
+            catch
+            {
+                // Ignore if JS interop is unavailable (e.g. unit test environment)
+            }
+
+            try
+            {
                 var clientDateStr = await JSRuntime.InvokeAsync<string?>("receptbanken.getClientLocalDate");
                 if (DateOnly.TryParseExact(clientDateStr, "yyyy-MM-dd", out var clientDate))
                 {
@@ -338,6 +362,34 @@ else
                         StateHasChanged();
                     }
                 }
+            }
+            catch
+            {
+                // Ignore if JS interop is unavailable (e.g. unit test environment)
+            }
+        }
+
+        if (_pendingFocusDayIndex.HasValue)
+        {
+            var focusTarget = _pendingFocusDayIndex.Value;
+            _pendingFocusDayIndex = null;
+            _pendingScrollDayIndex = null;
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("receptbanken.focusAndScrollWeeklyDayHandle", focusTarget);
+            }
+            catch
+            {
+                // Ignore if JS interop is unavailable (e.g. unit test environment)
+            }
+        }
+        else if (_pendingScrollDayIndex.HasValue)
+        {
+            var scrollTarget = _pendingScrollDayIndex.Value;
+            _pendingScrollDayIndex = null;
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("receptbanken.scrollWeeklyCardIntoViewIfNeeded", scrollTarget);
             }
             catch
             {
@@ -385,6 +437,8 @@ else
         }
         feedbackPlacement = FeedbackPlacement.Top;
         draggedSourceDayIndex = null;
+        draggedDayHadReorderOpen = false;
+        activeReorderDayIndex = null;
 
         currentWeek = CalendarWeek.FromDate(dateInWeek);
 
@@ -643,6 +697,7 @@ else
         if (currentMenu == null || isSaving)
             return;
 
+        activeReorderDayIndex = null;
         try
         {
             var result = await WeeklyMenuService.RerollDayProposalAsync(currentMenu, dayIndex);
@@ -668,22 +723,42 @@ else
         if (currentMenu == null || moveArgs.SourceDayIndex == moveArgs.TargetDayIndex)
             return;
 
+        bool hadReorderOpen = (activeReorderDayIndex == moveArgs.SourceDayIndex);
         WeeklyMenuService.MoveOrSwapDayRecipe(currentMenu, moveArgs.SourceDayIndex, moveArgs.TargetDayIndex);
+        activeReorderDayIndex = hadReorderOpen ? moveArgs.TargetDayIndex : null;
         MarkMenuEdited();
     }
 
     private void HandleDragStartDay(int dayIndex)
     {
         draggedSourceDayIndex = dayIndex;
+        draggedDayHadReorderOpen = (activeReorderDayIndex == dayIndex);
+    }
+
+    private void HandleDragEndDay(int dayIndex)
+    {
+        draggedSourceDayIndex = null;
+        draggedDayHadReorderOpen = false;
     }
 
     private void HandleDropOnDay(int targetDayIndex)
     {
-        if (draggedSourceDayIndex.HasValue && draggedSourceDayIndex.Value != targetDayIndex)
+        if (draggedSourceDayIndex.HasValue && draggedSourceDayIndex.Value != targetDayIndex && currentMenu != null)
         {
-            HandleMoveRecipe((draggedSourceDayIndex.Value, targetDayIndex));
+            var sourceIndex = draggedSourceDayIndex.Value;
+            var hadReorderOpen = draggedDayHadReorderOpen;
+            draggedSourceDayIndex = null;
+            draggedDayHadReorderOpen = false;
+
+            WeeklyMenuService.MoveOrSwapDayRecipe(currentMenu, sourceIndex, targetDayIndex);
+            activeReorderDayIndex = hadReorderOpen ? targetDayIndex : null;
+            MarkMenuEdited();
         }
-        draggedSourceDayIndex = null;
+        else
+        {
+            draggedSourceDayIndex = null;
+            draggedDayHadReorderOpen = false;
+        }
     }
 
     private void HandleDayCategoriesChanged((int DayIndex, List<int> CategoryIds) args)
@@ -696,6 +771,7 @@ else
         if (currentMenu == null)
             return;
 
+        activeReorderDayIndex = null;
         var day = currentMenu.Days.FirstOrDefault(d => d.DayIndex == args.DayIndex);
         if (day == null)
             return;
@@ -800,6 +876,144 @@ else
         else if (feedback.IsWarning && currentMenu != null && currentMenu.Days.All(d => d.RecipeId.HasValue))
         {
             feedback.Clear();
+        }
+    }
+
+    private void HandleToggleReorderMenu(int dayIndex)
+    {
+        if (activeReorderDayIndex == dayIndex)
+        {
+            activeReorderDayIndex = null;
+        }
+        else
+        {
+            activeReorderDayIndex = dayIndex;
+        }
+    }
+
+    private void HandleMoveUp(int dayIndex)
+    {
+        MoveDayRecipeByOffset(dayIndex, -1, fromKeyboard: false);
+    }
+
+    private void HandleMoveDown(int dayIndex)
+    {
+        MoveDayRecipeByOffset(dayIndex, 1, fromKeyboard: false);
+    }
+
+    private void HandleMoveUpKeyboard(int dayIndex)
+    {
+        MoveDayRecipeByOffset(dayIndex, -1, fromKeyboard: true);
+    }
+
+    private void HandleMoveDownKeyboard(int dayIndex)
+    {
+        MoveDayRecipeByOffset(dayIndex, 1, fromKeyboard: true);
+    }
+
+    private void MoveDayRecipeByOffset(int dayIndex, int offset, bool fromKeyboard)
+    {
+        if (currentMenu == null)
+            return;
+
+        if (fromKeyboard && activeReorderDayIndex != dayIndex)
+            return;
+
+        var targetIndex = dayIndex + offset;
+        if (targetIndex < 0 || targetIndex > 6)
+            return;
+
+        WeeklyMenuService.MoveOrSwapDayRecipe(currentMenu, dayIndex, targetIndex);
+        if (activeReorderDayIndex.HasValue)
+        {
+            activeReorderDayIndex = targetIndex;
+        }
+        MarkMenuEdited();
+
+        if (fromKeyboard)
+        {
+            _pendingFocusDayIndex = targetIndex;
+            _pendingScrollDayIndex = targetIndex;
+        }
+        else
+        {
+            _pendingFocusDayIndex = null;
+            _pendingScrollDayIndex = targetIndex;
+        }
+    }
+
+    [JSInvokable]
+    public Task OnTouchDragStartDayAsync(int dayIndex)
+    {
+        if (_isDisposed)
+            return Task.CompletedTask;
+
+        draggedSourceDayIndex = dayIndex;
+        draggedDayHadReorderOpen = (activeReorderDayIndex == dayIndex);
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public async Task OnTouchDropDayAsync(int sourceDayIndex, int targetDayIndex)
+    {
+        if (_isDisposed)
+            return;
+
+        await InvokeAsync(() =>
+        {
+            if (_isDisposed)
+                return;
+
+            var hadReorderOpen = draggedDayHadReorderOpen;
+            draggedSourceDayIndex = null;
+            draggedDayHadReorderOpen = false;
+
+            if (sourceDayIndex != targetDayIndex && currentMenu != null)
+            {
+                WeeklyMenuService.MoveOrSwapDayRecipe(currentMenu, sourceDayIndex, targetDayIndex);
+                activeReorderDayIndex = hadReorderOpen ? targetDayIndex : null;
+                MarkMenuEdited();
+            }
+            StateHasChanged();
+        });
+    }
+
+    [JSInvokable]
+    public async Task OnTouchDragCancelDayAsync()
+    {
+        if (_isDisposed)
+            return;
+
+        await InvokeAsync(() =>
+        {
+            if (_isDisposed)
+                return;
+
+            draggedSourceDayIndex = null;
+            draggedDayHadReorderOpen = false;
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        if (_isDisposed)
+            return;
+
+        _isDisposed = true;
+
+        if (_dotNetRef != null)
+        {
+            try
+            {
+                _ = JSRuntime.InvokeVoidAsync("receptbanken.unregisterWeeklyMenuTouchDrag");
+            }
+            catch
+            {
+            }
+
+            _dotNetRef.Dispose();
+            _dotNetRef = null;
         }
     }
 }

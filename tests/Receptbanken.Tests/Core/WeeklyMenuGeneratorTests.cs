@@ -409,5 +409,91 @@ public class WeeklyMenuGeneratorTests
         menu.Days[4].RecipeId.Should().BeNull("fredagen blev tom efter flytt till tom dag");
         menu.Days[4].SelectedCategories.Select(c => c.CategoryId).Should().Equal([2]);
     }
+
+    [Fact]
+    public void GenerateWeek_PantryFirst_WhenPantryIngredientSpecified_ShouldGuaranteeMatchingRecipeOnEligibleDay()
+    {
+        var generator = new WeeklyMenuGenerator(new SeededRandomProvider(42));
+
+        // 10 recipes in Category 1 (Bakning & Desserter), but only Recipe 5 has "blåbär"
+        var recipes = Enumerable.Range(1, 10)
+            .Select(i => CreateRecipe(i, i == 5 ? "Blåbärspannacotta" : $"Dessert {i}", categoryIds: [1], ingredientNames: i == 5 ? ["blåbär"] : ["socker", "vetemjöl"]))
+            .ToList();
+
+        var menu = CreateEmptyMenuForWeek(new DateOnly(2026, 11, 2));
+        // Day 0 has Category 1 (Bakning & Desserter)
+        menu.Days[0].SelectedCategories.Add(new WeeklyMenuDayCategory { CategoryId = 1 });
+        // Days 1..6 have Category 99 (no recipes)
+        for (int i = 1; i < 7; i++)
+        {
+            menu.Days[i].SelectedCategories.Add(new WeeklyMenuDayCategory { CategoryId = 99 });
+        }
+
+        // Specify "Blåbär" under Ingredienser hemma
+        menu.PantryIngredients = ["Blåbär"];
+
+        var result = generator.GenerateWeek(menu, recipes);
+
+        result.FilledDaysCount.Should().Be(1);
+        menu.Days[0].RecipeId.Should().Be(5, "Pantry-first ska garantera att Blåbärspannacotta väljs när blåbär är specificerat hemma");
+    }
+
+    [Fact]
+    public void RerollDay_PantryFirst_ShouldPickPantryMatchingRecipeFirst_AndFallbackWhenAlreadySelected()
+    {
+        var generator = new WeeklyMenuGenerator(new SeededRandomProvider(99));
+
+        var r1 = CreateRecipe(1, "Chokladmousse", categoryIds: [1], ingredientNames: ["choklad"]);
+        var r2 = CreateRecipe(2, "Blåbärspannacotta", categoryIds: [1], ingredientNames: ["blåbär"]);
+        var r3 = CreateRecipe(3, "Äppelpaj", categoryIds: [1], ingredientNames: ["äpple"]);
+
+        var menu = CreateEmptyMenuForWeek(new DateOnly(2026, 11, 2));
+        menu.Days[0].SelectedCategories.Add(new WeeklyMenuDayCategory { CategoryId = 1 });
+        menu.Days[0].RecipeId = r1.Id;
+        menu.Days[0].Recipe = r1;
+        menu.PantryIngredients = ["Blåbär"];
+
+        // 1. Reroll Day 0: Even though r3 (Äppelpaj) is also available, r2 (Blåbärspannacotta) matches the pantry ingredient and must be chosen!
+        var reroll1 = generator.RerollDay(menu, dayIndex: 0, [r1, r2, r3]);
+        reroll1.Changed.Should().BeTrue();
+        reroll1.NewRecipeId.Should().Be(2);
+        menu.Days[0].RecipeId.Should().Be(2);
+
+        // 2. Reroll Day 0 again when Blåbärspannacotta is currently displayed:
+        // No other blueberry recipe exists, so it smoothly falls back to other available candidates (r1 or r3) without getting stuck.
+        var reroll2 = generator.RerollDay(menu, dayIndex: 0, [r1, r2, r3]);
+        reroll2.Changed.Should().BeTrue();
+        reroll2.NewRecipeId.Should().BeOneOf(1, 3);
+    }
+
+    [Fact]
+    public void GenerateWeek_PantryFirst_WithMultiplePantryIngredients_ShouldSatisfyAcrossDifferentDays()
+    {
+        var generator = new WeeklyMenuGenerator(new SeededRandomProvider(1));
+
+        var dessert1 = CreateRecipe(1, "Kladdkaka", categoryIds: [1]);
+        var dessert2 = CreateRecipe(2, "Blåbärspannacotta", categoryIds: [1], ingredientNames: ["blåbär"]);
+        var fish1 = CreateRecipe(3, "Torskrygg", categoryIds: [2], ingredientNames: ["torsk"]);
+        var fish2 = CreateRecipe(4, "Laxfilé med dillsås", categoryIds: [2], ingredientNames: ["lax"]);
+        var meat1 = CreateRecipe(5, "Köttfärssås", categoryIds: [3], ingredientNames: ["nötfärs"]);
+
+        var menu = CreateEmptyMenuForWeek(new DateOnly(2026, 11, 2));
+        menu.Days[0].SelectedCategories.Add(new WeeklyMenuDayCategory { CategoryId = 1 }); // Bakning
+        menu.Days[1].SelectedCategories.Add(new WeeklyMenuDayCategory { CategoryId = 2 }); // Fisk
+        menu.Days[2].SelectedCategories.Add(new WeeklyMenuDayCategory { CategoryId = 3 }); // Kött
+        for (int i = 3; i < 7; i++)
+        {
+            menu.Days[i].SelectedCategories.Add(new WeeklyMenuDayCategory { CategoryId = 99 });
+        }
+
+        menu.PantryIngredients = ["Blåbär", "Lax"];
+
+        var result = generator.GenerateWeek(menu, [dessert1, dessert2, fish1, fish2, meat1]);
+
+        result.FilledDaysCount.Should().Be(3);
+        menu.Days[0].RecipeId.Should().Be(2, "Dag 0 ska välja Blåbärspannacotta för att tillgodose Blåbär");
+        menu.Days[1].RecipeId.Should().Be(4, "Dag 1 ska välja Laxfilé för att tillgodose Lax");
+        menu.Days[2].RecipeId.Should().Be(5);
+    }
 }
 

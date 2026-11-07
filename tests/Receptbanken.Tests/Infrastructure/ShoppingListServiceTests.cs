@@ -384,6 +384,169 @@ public class ShoppingListServiceTests : IDisposable
         checkedItems.Single().Name.Should().Be("Socker");
     }
 
+    [Fact]
+    public async Task RestoreDeletedItemAsync_ShouldPreserveAllItemFieldsCheckedStateAndSortOrder()
+    {
+        var recipe = await _recipeService.CreateRecipeAsync(
+            new Recipe
+            {
+                Title = "Våfflor",
+                Servings = 4,
+                Ingredients =
+                [
+                    new Ingredient { OrderIndex = 1, Quantity = 3m, Unit = "dl", Name = "vetemjöl", RawText = "3 dl vetemjöl" },
+                    new Ingredient { OrderIndex = 2, Quantity = 4m, Unit = "dl", Name = "mjölk", RawText = "4 dl mjölk" }
+                ]
+            },
+            []);
+        await _shoppingService.AddRecipeIngredientsAsync(recipe.Id, targetServings: 4);
+
+        var initialItems = await _shoppingService.GetItemsAsync();
+        var target = initialItems.Single(x => x.Name == "vetemjöl");
+
+        var createdTime = new DateTimeOffset(2026, 11, 5, 14, 30, 0, TimeSpan.Zero);
+        await using (var db = _dbFactory.CreateDbContext())
+        {
+            var tracked = db.ShoppingListItems.Single(x => x.Id == target.Id);
+            tracked.Department = "Skafferi";
+            tracked.CreatedAt = createdTime;
+            tracked.IsChecked = true;
+            await db.SaveChangesAsync();
+        }
+
+        var beforeDelete = (await _shoppingService.GetItemsAsync()).Single(x => x.Id == target.Id);
+        var snapshot = new ShoppingListItem
+        {
+            Id = beforeDelete.Id,
+            RecipeId = beforeDelete.RecipeId,
+            RawText = beforeDelete.RawText,
+            Quantity = beforeDelete.Quantity,
+            Unit = beforeDelete.Unit,
+            Name = beforeDelete.Name,
+            IsChecked = beforeDelete.IsChecked,
+            SortOrder = beforeDelete.SortOrder,
+            Department = beforeDelete.Department,
+            CreatedAt = beforeDelete.CreatedAt
+        };
+
+        var deleted = await _shoppingService.DeleteItemAsync(beforeDelete.Id);
+        deleted.Should().BeTrue();
+        (await _shoppingService.GetItemsAsync()).Should().NotContain(x => x.Id == beforeDelete.Id);
+
+        int notifications = 0;
+        _shoppingService.OnChanged += _ => notifications++;
+
+        var restored = await _shoppingService.RestoreDeletedItemAsync(snapshot);
+        restored.Should().BeTrue();
+        notifications.Should().Be(1);
+
+        var afterRestore = (await _shoppingService.GetItemsAsync()).Single(x => x.Id == snapshot.Id);
+        afterRestore.Id.Should().Be(snapshot.Id);
+        afterRestore.Name.Should().Be("vetemjöl");
+        afterRestore.RawText.Should().Be("3 dl vetemjöl");
+        afterRestore.Quantity.Should().Be(3m);
+        afterRestore.Unit.Should().Be("dl");
+        afterRestore.RecipeId.Should().Be(recipe.Id);
+        afterRestore.Department.Should().Be("Skafferi");
+        afterRestore.IsChecked.Should().BeTrue();
+        afterRestore.SortOrder.Should().Be(snapshot.SortOrder);
+        afterRestore.CreatedAt.Should().Be(createdTime);
+    }
+
+    [Fact]
+    public async Task RestoreDeletedItemAsync_RepeatedCallsOrExistingIdConflict_ShouldNotDuplicateOrOverwriteOtherItem()
+    {
+        var item = await _shoppingService.AddManualItemAsync("100 g färskost");
+        await _shoppingService.SetCheckedAsync(item.Id, true);
+        var checkedSnapshot = (await _shoppingService.GetItemsAsync()).Single(x => x.Id == item.Id);
+
+        await _shoppingService.DeleteItemAsync(item.Id);
+
+        int notifications = 0;
+        _shoppingService.OnChanged += _ => notifications++;
+
+        // 1. First restore succeeds
+        var firstRestore = await _shoppingService.RestoreDeletedItemAsync(checkedSnapshot);
+        firstRestore.Should().BeTrue();
+        notifications.Should().Be(1);
+
+        // 2. Second restore with same snapshot is safely rejected without duplicating or notifying
+        var secondRestore = await _shoppingService.RestoreDeletedItemAsync(checkedSnapshot);
+        secondRestore.Should().BeFalse();
+        notifications.Should().Be(1);
+
+        var itemsAfterDoubleRestore = await _shoppingService.GetItemsAsync();
+        itemsAfterDoubleRestore.Should().ContainSingle(x => x.Id == item.Id);
+
+        // 3. If another item already occupies the ID, its data must never be overwritten
+        await _shoppingService.DeleteItemAsync(item.Id);
+        await using (var db = _dbFactory.CreateDbContext())
+        {
+            db.ShoppingListItems.Add(new ShoppingListItem
+            {
+                Id = item.Id,
+                Name = "helt annan vara",
+                RawText = "5 st helt annan vara",
+                Quantity = 5m,
+                Unit = "st",
+                IsChecked = false,
+                SortOrder = 99
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var conflictRestore = await _shoppingService.RestoreDeletedItemAsync(checkedSnapshot);
+        conflictRestore.Should().BeFalse();
+
+        var preserved = (await _shoppingService.GetItemsAsync()).Single(x => x.Id == item.Id);
+        preserved.Name.Should().Be("helt annan vara");
+        preserved.RawText.Should().Be("5 st helt annan vara");
+        preserved.Quantity.Should().Be(5m);
+        preserved.IsChecked.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task RestoreDeletedItemAsync_WhenSameNameAddedConcurrentlyBeforeUndo_ShouldKeepBothItemsAndPreserveOrder()
+    {
+        var first = await _shoppingService.AddManualItemAsync("2 dl gräddfil");
+        var creamCheese = await _shoppingService.AddManualItemAsync("100 g färskost");
+        var dill = await _shoppingService.AddManualItemAsync("1 knippe dill");
+
+        await _shoppingService.SetCheckedAsync(first.Id, true);
+        await _shoppingService.SetCheckedAsync(creamCheese.Id, true);
+        await _shoppingService.SetCheckedAsync(dill.Id, true);
+
+        var snapshot = (await _shoppingService.GetItemsAsync()).Single(x => x.Id == creamCheese.Id);
+        await _shoppingService.DeleteItemAsync(creamCheese.Id);
+
+        // Before Undo is clicked on Phone A, Phone B adds a new item with the same name ("250 g färskost")
+        // and another item ("1 paket bacon") and reorders Att handla.
+        var newCreamCheese = await _shoppingService.AddManualItemAsync("250 g färskost");
+        var bacon = await _shoppingService.AddManualItemAsync("1 paket bacon");
+        await _shoppingService.MoveItemAsync(bacon.Id, 0);
+        var orderVersionAfterPhoneB = _shoppingService.CurrentOrderingVersion;
+
+        // Phone A now restores the deleted "100 g färskost"
+        var restored = await _shoppingService.RestoreDeletedItemAsync(snapshot);
+        restored.Should().BeTrue();
+
+        // OrderingVersion for Att handla is untouched
+        _shoppingService.CurrentOrderingVersion.Should().Be(orderVersionAfterPhoneB);
+
+        var allItems = await _shoppingService.GetItemsAsync();
+        var uncheckedItems = allItems.Where(x => !x.IsChecked).ToList();
+        var checkedItems = allItems.Where(x => x.IsChecked).ToList();
+
+        // Both "färskost" items exist separately without overwriting or merging
+        uncheckedItems.Select(x => x.Id).Should().Equal(bacon.Id, newCreamCheese.Id);
+        uncheckedItems.Single(x => x.Id == newCreamCheese.Id).Quantity.Should().Be(250m);
+
+        // Restored item is back in its original middle position in Klart between gräddfil and dill
+        checkedItems.Select(x => x.Id).Should().Equal(first.Id, creamCheese.Id, dill.Id);
+        checkedItems.Single(x => x.Id == creamCheese.Id).Quantity.Should().Be(100m);
+        checkedItems.Single(x => x.Id == creamCheese.Id).IsChecked.Should().BeTrue();
+    }
+
     public void Dispose()
     {
         _dbFactory.Dispose();

@@ -292,12 +292,6 @@
                                          aria-label="@($"Markera {item.RawText} som klar")"
                                          @onclick="@(() => SetItemChecked(item, true))"
                                          @onkeydown="@(e => HandleRowKeyDown(e, item, true))">
-                                        <input type="checkbox"
-                                               class="shopping-checkbox"
-                                               checked="@item.IsChecked"
-                                               tabindex="-1"
-                                               aria-hidden="true"
-                                               readonly />
                                         <div class="shopping-item-text">
                                             @if (item.Quantity.HasValue)
                                             {
@@ -317,16 +311,17 @@
                                                     class="btn-secondary-custom shopping-edit-btn"
                                                     title="@($"Redigera {item.Name}")"
                                                     aria-label="@($"Redigera {item.Name}")"
-                                                    @onclick="@(() => StartEdit(item))">
+                                                    @onclick="@(() => StartEdit(item))"
+                                                    @onclick:stopPropagation="true">
                                                 ✏️
                                             </button>
                                         }
                                         <button type="button"
-                                                class="shopping-drag-handle"
+                                                class="shopping-drag-handle @(reorderMenuOpenItemId == item.Id ? "is-reorder-active" : "")"
                                                 draggable="true"
                                                 title="@($"Dra för att flytta {item.Name}, eller tryck för flyttval")"
                                                 aria-label="@($"Ändra ordning för {item.Name}")"
-                                                aria-expanded="@(reorderMenuOpenItemId == item.Id)"
+                                                aria-expanded="@(reorderMenuOpenItemId == item.Id ? "true" : "false")"
                                                 @ondragstart="@(() => HandleDragStartItem(item.Id))"
                                                 @ondragend="HandleDragEndAsync"
                                                 @onclick="@(() => ToggleReorderMenu(item.Id))"
@@ -392,12 +387,6 @@
                                      aria-label="@($"Återställ {item.RawText} till att handla")"
                                      @onclick="@(() => SetItemChecked(item, false))"
                                      @onkeydown="@(e => HandleRowKeyDown(e, item, false))">
-                                    <input type="checkbox"
-                                           class="shopping-checkbox"
-                                           checked="@item.IsChecked"
-                                           tabindex="-1"
-                                           aria-hidden="true"
-                                           readonly />
                                     <span class="shopping-checked-text">@item.RawText</span>
                                 </div>
                                 @if (!isShoppingMode)
@@ -405,9 +394,10 @@
                                     <div class="shopping-row-actions">
                                         <button type="button"
                                                 class="btn-danger-custom shopping-delete-btn"
-                                                title="@($"Ta bort {item.Name}")"
-                                                aria-label="@($"Ta bort {item.Name}")"
-                                                @onclick="@(() => DeleteItem(item.Id))">
+                                                title="@($"Ta bort {item.RawText}")"
+                                                aria-label="@($"Ta bort {item.RawText}")"
+                                                @onclick="@(() => DeleteItem(item.Id))"
+                                                @onclick:stopPropagation="true">
                                             ✕
                                         </button>
                                     </div>
@@ -460,9 +450,13 @@
     private string editName = string.Empty;
 
     private int? undoCheckedItemId;
+    private ShoppingListItem? undoDeletedItemSnapshot;
     private int? draggedItemId;
     private int? dragOverItemId;
+    private bool _draggedItemHadReorderOpen;
     private int? reorderMenuOpenItemId;
+    private int? _pendingFocusItemId;
+    private int? _pendingScrollItemId;
 
     private readonly FeedbackState manualAddFeedback = new();
     private readonly FeedbackState recipeAddFeedback = new();
@@ -483,6 +477,34 @@
             {
                 _dotNetRef = DotNetObjectReference.Create(this);
                 await JSRuntime.InvokeVoidAsync("receptbanken.registerShoppingSyncListeners", _dotNetRef);
+            }
+            catch
+            {
+                // Ignored when running in test host or if circuit disconnects before JS interop completes.
+            }
+        }
+
+        if (_pendingFocusItemId.HasValue && !_isDisposed)
+        {
+            var focusTarget = _pendingFocusItemId.Value;
+            _pendingFocusItemId = null;
+            _pendingScrollItemId = null;
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("receptbanken.focusAndScrollShoppingItemHandle", focusTarget);
+            }
+            catch
+            {
+                // Ignored when running in test host or if circuit disconnects before JS interop completes.
+            }
+        }
+        else if (_pendingScrollItemId.HasValue && !_isDisposed)
+        {
+            var scrollTarget = _pendingScrollItemId.Value;
+            _pendingScrollItemId = null;
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("receptbanken.scrollShoppingItemIntoViewIfNeeded", scrollTarget);
             }
             catch
             {
@@ -523,6 +545,14 @@
             if (undoTarget == null || !undoTarget.IsChecked)
             {
                 undoCheckedItemId = null;
+                undoCheckFeedback.Clear();
+            }
+        }
+        else if (undoDeletedItemSnapshot != null)
+        {
+            if (items.Any(x => x.Id == undoDeletedItemSnapshot.Id))
+            {
+                undoDeletedItemSnapshot = null;
                 undoCheckFeedback.Clear();
             }
         }
@@ -619,7 +649,7 @@
         draggedItemId = itemId;
         dragOverItemId = null;
         _dragStartOrderingVersion = _lastLoadedOrderingVersion;
-        reorderMenuOpenItemId = null;
+        _draggedItemHadReorderOpen = (reorderMenuOpenItemId == itemId);
     }
 
     private void HandleDragOverItem(int itemId)
@@ -661,6 +691,7 @@
         draggedItemId = null;
         dragOverItemId = null;
         _dragStartOrderingVersion = null;
+        _draggedItemHadReorderOpen = false;
 
         if (_hasPendingRealtimeUpdate)
         {
@@ -679,7 +710,7 @@
         draggedItemId = itemId;
         dragOverItemId = null;
         _dragStartOrderingVersion = _lastLoadedOrderingVersion;
-        reorderMenuOpenItemId = null;
+        _draggedItemHadReorderOpen = (reorderMenuOpenItemId == itemId);
         return Task.CompletedTask;
     }
 
@@ -718,10 +749,12 @@
     private async Task DropItemOnTargetAsync(int sourceItemId, int targetItemId)
     {
         var expectedVersion = _dragStartOrderingVersion ?? _lastLoadedOrderingVersion;
+        var hadReorderOpen = _draggedItemHadReorderOpen;
         _isDragging = false;
         draggedItemId = null;
         dragOverItemId = null;
         _dragStartOrderingVersion = null;
+        _draggedItemHadReorderOpen = false;
         _hasPendingRealtimeUpdate = false;
 
         if (sourceItemId == targetItemId)
@@ -734,11 +767,12 @@
         var targetIndex = uncheckedList.FindIndex(x => x.Id == targetItemId);
         if (targetIndex < 0)
         {
+            reorderMenuOpenItemId = null;
             await ReloadItemsAsync();
             return;
         }
 
-        await ExecuteMoveItemAsync(sourceItemId, targetIndex, expectedVersion);
+        await ExecuteMoveItemAsync(sourceItemId, targetIndex, expectedVersion, hadReorderOpen);
     }
 
     private void ToggleReorderMenu(int itemId)
@@ -750,11 +784,17 @@
     {
         if (e.Key == "ArrowUp")
         {
-            await MoveItemByOffsetAsync(itemId, -1);
+            if (reorderMenuOpenItemId == itemId)
+            {
+                await MoveItemByOffsetAsync(itemId, -1, fromKeyboard: true);
+            }
         }
         else if (e.Key == "ArrowDown")
         {
-            await MoveItemByOffsetAsync(itemId, 1);
+            if (reorderMenuOpenItemId == itemId)
+            {
+                await MoveItemByOffsetAsync(itemId, 1, fromKeyboard: true);
+            }
         }
         else if (e.Key == "Escape" && reorderMenuOpenItemId == itemId)
         {
@@ -762,7 +802,7 @@
         }
     }
 
-    private async Task MoveItemByOffsetAsync(int itemId, int offset)
+    private async Task MoveItemByOffsetAsync(int itemId, int offset, bool fromKeyboard = false)
     {
         var uncheckedList = items.Where(x => !x.IsChecked).ToList();
         var currentIndex = uncheckedList.FindIndex(x => x.Id == itemId);
@@ -773,32 +813,60 @@
         if (targetIndex < 0 || targetIndex >= uncheckedList.Count)
             return;
 
-        reorderMenuOpenItemId = itemId;
-        await ExecuteMoveItemAsync(itemId, targetIndex, _lastLoadedOrderingVersion);
+        bool preserveReorderOpen = editingItemId != itemId;
+        bool moved = await ExecuteMoveItemAsync(itemId, targetIndex, _lastLoadedOrderingVersion, preserveReorderOpen);
+        if (moved && preserveReorderOpen && reorderMenuOpenItemId == itemId)
+        {
+            if (fromKeyboard)
+            {
+                _pendingFocusItemId = itemId;
+                _pendingScrollItemId = itemId;
+            }
+            else
+            {
+                _pendingFocusItemId = null;
+                _pendingScrollItemId = itemId;
+            }
+        }
     }
 
-    private async Task ExecuteMoveItemAsync(int itemId, int targetIndex, long expectedOrderingVersion)
+    private async Task<bool> ExecuteMoveItemAsync(
+        int itemId,
+        int targetIndex,
+        long expectedOrderingVersion,
+        bool preserveReorderOpen)
     {
         listFeedback.Clear();
         try
         {
             var result = await ShoppingListService.MoveItemAsync(itemId, targetIndex, expectedOrderingVersion);
+            reorderMenuOpenItemId = preserveReorderOpen &&
+                (result.Status == ShoppingListReorderStatus.Success || result.Status == ShoppingListReorderStatus.NoChange)
+                ? itemId
+                : null;
+
             await ReloadItemsAsync();
 
             if (result.IsConflict)
             {
                 listFeedback.ShowWarning(result.ErrorMessage ?? "Ordningen ändrades på en annan enhet. Listan har uppdaterats.");
+                return false;
             }
             else if (result.Status == ShoppingListReorderStatus.InvalidOperation)
             {
                 listFeedback.ShowWarning(result.ErrorMessage ?? "Kunde inte ändra varans plats eftersom listan har ändrats.");
+                return false;
             }
+
+            return result.Status == ShoppingListReorderStatus.Success;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Fel vid omsortering av vara {ItemId} i inköpslistan.", itemId);
+            reorderMenuOpenItemId = null;
             await ReloadItemsAsync();
             listFeedback.ShowError("Kunde inte spara den nya sorteringsordningen. Försök igen.");
+            return false;
         }
     }
 
@@ -938,14 +1006,18 @@
 
             if (!existed)
             {
-                undoCheckedItemId = null;
-                undoCheckFeedback.Clear();
+                if (undoCheckedItemId == itemId)
+                {
+                    undoCheckedItemId = null;
+                    undoCheckFeedback.Clear();
+                }
                 listFeedback.ShowWarning("Varan fanns inte längre kvar i inköpslistan.");
                 return;
             }
 
             if (isChecked)
             {
+                undoDeletedItemSnapshot = null;
                 undoCheckedItemId = itemId;
                 undoCheckFeedback.ShowSuccess($"\"{itemName}\" markerad som klar.");
             }
@@ -964,6 +1036,33 @@
 
     private async Task UndoLastCheckedItemAsync()
     {
+        if (undoDeletedItemSnapshot != null)
+        {
+            var snapshotToRestore = undoDeletedItemSnapshot;
+            undoDeletedItemSnapshot = null;
+            undoCheckedItemId = null;
+            undoCheckFeedback.Clear();
+            listFeedback.Clear();
+
+            try
+            {
+                var restored = await ShoppingListService.RestoreDeletedItemAsync(snapshotToRestore);
+                await ReloadItemsAsync();
+
+                if (!restored)
+                {
+                    listFeedback.ShowWarning("Varan kunde inte återställas.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Fel vid ångra borttagning av vara i inköpslistan.");
+                listFeedback.ShowError("Kunde inte återställa varan. Försök igen.");
+            }
+
+            return;
+        }
+
         if (!undoCheckedItemId.HasValue)
             return;
 
@@ -1041,6 +1140,23 @@
         listFeedback.Clear();
         try
         {
+            var existingItem = items.FirstOrDefault(x => x.Id == id);
+            var snapshot = existingItem == null
+                ? null
+                : new ShoppingListItem
+                {
+                    Id = existingItem.Id,
+                    RecipeId = existingItem.RecipeId,
+                    RawText = existingItem.RawText,
+                    Quantity = existingItem.Quantity,
+                    Unit = existingItem.Unit,
+                    Name = existingItem.Name,
+                    IsChecked = existingItem.IsChecked,
+                    SortOrder = existingItem.SortOrder,
+                    Department = existingItem.Department,
+                    CreatedAt = existingItem.CreatedAt
+                };
+
             if (editingItemId == id)
             {
                 editingItemId = null;
@@ -1055,8 +1171,15 @@
                 undoCheckFeedback.Clear();
             }
 
-            await ShoppingListService.DeleteItemAsync(id);
+            var deleted = await ShoppingListService.DeleteItemAsync(id);
             await ReloadItemsAsync();
+
+            if (deleted && snapshot != null)
+            {
+                undoCheckedItemId = null;
+                undoDeletedItemSnapshot = snapshot;
+                undoCheckFeedback.ShowSuccess($"\"{snapshot.Name}\" borttagen.");
+            }
         }
         catch (Exception ex)
         {
@@ -1069,6 +1192,7 @@
     {
         listFeedback.Clear();
         undoCheckedItemId = null;
+        undoDeletedItemSnapshot = null;
         undoCheckFeedback.Clear();
         try
         {
@@ -1088,6 +1212,7 @@
         editingItemId = null;
         reorderMenuOpenItemId = null;
         undoCheckedItemId = null;
+        undoDeletedItemSnapshot = null;
         undoCheckFeedback.Clear();
         listFeedback.Clear();
         try

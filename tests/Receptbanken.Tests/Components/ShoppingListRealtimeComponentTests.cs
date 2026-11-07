@@ -1,5 +1,6 @@
 using Bunit;
 using FluentAssertions;
+using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.FluentUI.AspNetCore.Components;
@@ -226,6 +227,7 @@ public class ShoppingListRealtimeComponentTests
         // 6. Phone B checks off "3 förp kalkonbacon" and clicks "Rensa klara (1)"
         phoneB.FindAll(".shopping-unchecked-list .shopping-row-check-target").Last().Click();
         phoneA.WaitForAssertion(() => phoneA.FindAll(".shopping-checked-list .shopping-item-row").Should().ContainSingle());
+        phoneB.WaitForAssertion(() => phoneB.FindAll(".shopping-clear-checked-btn").Should().ContainSingle());
 
         phoneB.Find(".shopping-clear-checked-btn").Click();
 
@@ -270,6 +272,7 @@ public class ShoppingListRealtimeComponentTests
 
         // Phone A opens edit mode on "1 l fil" and changes name input (without saving yet)
         phoneA.FindAll(".shopping-unchecked-list .shopping-edit-btn").First().Click();
+        phoneA.WaitForAssertion(() => phoneA.FindAll(".shopping-edit-name").Should().ContainSingle());
         phoneA.Find(".shopping-edit-name").Change("naturell yoghurt");
 
         // Meanwhile, Phone B checks off "500 g smör"
@@ -374,7 +377,7 @@ public class ShoppingListRealtimeComponentTests
     }
 
     [Fact]
-    public void ShoppingMode_And_NewRecipeButtonVisibility_ShouldWorkAccordingToEtapp3A2B()
+    public async Task ShoppingMode_And_NewRecipeButtonVisibility_ShouldWorkAccordingToEtapp3A2B()
     {
         using var dbFactory = new TestDbContextFactory();
         var sharedNotifier = new ShoppingListNotifier();
@@ -401,16 +404,16 @@ public class ShoppingListRealtimeComponentTests
         var view = ctx.RenderComponent<ShoppingPlaceholder>();
         view.WaitForAssertion(() => view.Markup.Should().Contain("Inköpslistan är tom"));
 
-        view.Find("#shopping-manual-input").Input("1 l mjölk");
-        view.Find("#shopping-add-manual-btn").Click();
+        await view.InvokeAsync(() => view.Find("#shopping-manual-input").Input("1 l mjölk"));
+        await view.InvokeAsync(() => view.Find("#shopping-add-manual-btn").ClickAsync(new MouseEventArgs()));
         view.WaitForAssertion(() => view.FindAll(".shopping-unchecked-list .shopping-item-row").Should().ContainSingle());
 
-        view.Find("#shopping-manual-input").Input("2 st avokado");
-        view.Find("#shopping-add-manual-btn").Click();
+        await view.InvokeAsync(() => view.Find("#shopping-manual-input").Input("2 st avokado"));
+        await view.InvokeAsync(() => view.Find("#shopping-add-manual-btn").ClickAsync(new MouseEventArgs()));
         view.WaitForAssertion(() => view.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(2));
 
         // Check off one item so both Att handla and Klart are visible
-        view.FindAll(".shopping-unchecked-list .shopping-row-check-target").ToList().Last().Click();
+        await view.InvokeAsync(() => view.FindAll(".shopping-unchecked-list .shopping-row-check-target").ToList()[1].ClickAsync(new MouseEventArgs()));
         view.WaitForAssertion(() =>
         {
             view.FindAll(".shopping-unchecked-list .shopping-item-row").Should().ContainSingle();
@@ -426,7 +429,7 @@ public class ShoppingListRealtimeComponentTests
         view.FindAll(".shopping-drag-handle").Should().ContainSingle();
 
         // 4. Activate "Handla" (Shopping Mode)
-        view.Find("#shopping-enter-mode-btn").Click();
+        await view.InvokeAsync(() => view.Find("#shopping-enter-mode-btn").ClickAsync(new MouseEventArgs()));
 
         view.WaitForAssertion(() =>
         {
@@ -474,16 +477,18 @@ public class ShoppingListRealtimeComponentTests
         phoneA.WaitForAssertion(() => phoneA.Markup.Should().Contain("Inköpslistan är tom"));
         phoneB.WaitForAssertion(() => phoneB.Markup.Should().Contain("Inköpslistan är tom"));
 
+        var count = 0;
         foreach (var itemText in new[] { "Mjölk", "Bröd", "Ägg", "Smör" })
         {
+            count++;
             phoneA.Find("#shopping-manual-input").Input(itemText);
             phoneA.Find("#shopping-add-manual-btn").Click();
+            phoneA.WaitForAssertion(() =>
+            {
+                phoneA.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(count);
+            });
         }
 
-        phoneA.WaitForAssertion(() =>
-        {
-            phoneA.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(4);
-        });
         phoneB.WaitForAssertion(() =>
         {
             phoneB.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(4);
@@ -593,7 +598,8 @@ public class ShoppingListRealtimeComponentTests
         var kakaoId = int.Parse(rows[2].GetAttribute("data-item-id")!);
 
         // 1. Normal short tap / click on drag handle toggles the accessible "Flytta upp / Flytta ned" bar
-        view.FindAll(".shopping-drag-handle").First().Click();
+        view.WaitForAssertion(() => view.FindAll(".shopping-unchecked-list .shopping-drag-handle").Should().HaveCount(3));
+        view.Find(".shopping-unchecked-list .shopping-drag-handle").Click();
         view.WaitForAssertion(() =>
         {
             view.FindAll(".shopping-item-reorder-bar").Should().ContainSingle();
@@ -602,7 +608,7 @@ public class ShoppingListRealtimeComponentTests
         });
 
         // Tapping the handle again closes the reorder bar
-        view.FindAll(".shopping-drag-handle").First().Click();
+        view.Find(".shopping-unchecked-list .shopping-drag-handle").Click();
         view.WaitForAssertion(() =>
         {
             view.FindAll(".shopping-item-reorder-bar").Should().BeEmpty();
@@ -631,7 +637,7 @@ public class ShoppingListRealtimeComponentTests
         });
 
         // 4. Checking off an item by tapping the check target works completely independently of the drag handle
-        view.FindAll(".shopping-unchecked-list .shopping-row-check-target").First().Click();
+        await view.InvokeAsync(() => view.FindAll(".shopping-unchecked-list .shopping-row-check-target").First().Click());
         view.WaitForAssertion(() =>
         {
             view.FindAll(".shopping-checked-list .shopping-item-row").Should().ContainSingle();
@@ -747,6 +753,436 @@ public class ShoppingListRealtimeComponentTests
         view.WaitForAssertion(() =>
         {
             view.FindAll(".shopping-item-reorder-bar").Should().ContainSingle("första klicket efter avbruten dragning ska öppna menyn direkt");
+        });
+    }
+
+    [Fact]
+    public async Task UnifiedReorderMode_ActiveHighlightKeyboardGatingAndDragState_ShouldFollowContract()
+    {
+        using var dbFactory = new TestDbContextFactory();
+        var sharedNotifier = new ShoppingListNotifier();
+
+        using var ctxA = CreateSessionContext(dbFactory, sharedNotifier);
+        using var ctxB = CreateSessionContext(dbFactory, sharedNotifier);
+
+        var phoneA = ctxA.RenderComponent<ShoppingPlaceholder>();
+        var phoneB = ctxB.RenderComponent<ShoppingPlaceholder>();
+
+        phoneA.WaitForAssertion(() => phoneA.Markup.Should().Contain("Inköpslistan är tom"));
+        phoneB.WaitForAssertion(() => phoneB.Markup.Should().Contain("Inköpslistan är tom"));
+
+        var count = 0;
+        foreach (var itemText in new[] { "Vara A", "Vara B", "Vara C", "Vara D" })
+        {
+            count++;
+            await phoneA.InvokeAsync(() => phoneA.Find("#shopping-manual-input").Input(itemText));
+            await phoneA.InvokeAsync(() => phoneA.Find("#shopping-add-manual-btn").ClickAsync(new MouseEventArgs()));
+            phoneA.WaitForAssertion(() =>
+            {
+                phoneA.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(count);
+            });
+        }
+
+        // 1. Initially all handles are inactive (no .is-reorder-active, aria-expanded="false")
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-drag-handle.is-reorder-active").Should().BeEmpty();
+            phoneA.FindAll(".shopping-drag-handle")
+                .Select(h => h.GetAttribute("aria-expanded"))
+                .Should().AllBe("false");
+        });
+
+        // 2. ArrowUp / ArrowDown with closed menu must NOT move anything or open the menu
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[0].KeyDownAsync(new KeyboardEventArgs { Key = "ArrowDown" }));
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[1].KeyDownAsync(new KeyboardEventArgs { Key = "ArrowUp" }));
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-name")
+                .Select(x => x.TextContent.Trim())
+                .Should().Equal("Vara A", "Vara B", "Vara C", "Vara D");
+            phoneA.FindAll(".shopping-item-reorder-bar").Should().BeEmpty();
+            phoneA.FindAll(".shopping-drag-handle.is-reorder-active").Should().BeEmpty();
+        });
+
+        // 3. Click handle on Vara A (index 0) -> activates .is-reorder-active and aria-expanded="true"
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[0].Click());
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-drag-handle").ToList()[0].ClassList.Should().Contain("is-reorder-active");
+            phoneA.FindAll(".shopping-drag-handle").ToList()[0].GetAttribute("aria-expanded").Should().Be("true");
+            phoneA.FindAll(".shopping-item-reorder-bar").Should().ContainSingle();
+        });
+
+        // 4. Click handle on Vara B (index 1) -> activates Vara B and deactivates Vara A
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[1].Click());
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-drag-handle").ToList()[0].ClassList.Should().NotContain("is-reorder-active");
+            phoneA.FindAll(".shopping-drag-handle").ToList()[0].GetAttribute("aria-expanded").Should().Be("false");
+            phoneA.FindAll(".shopping-drag-handle").ToList()[1].ClassList.Should().Contain("is-reorder-active");
+            phoneA.FindAll(".shopping-drag-handle").ToList()[1].GetAttribute("aria-expanded").Should().Be("true");
+            phoneA.FindAll(".shopping-item-reorder-bar").Should().ContainSingle();
+        });
+
+        // 5. Click handle on Vara B again -> closes menu and removes .is-reorder-active
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[1].Click());
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-drag-handle.is-reorder-active").Should().BeEmpty();
+            phoneA.FindAll(".shopping-drag-handle").ToList()[1].GetAttribute("aria-expanded").Should().Be("false");
+            phoneA.FindAll(".shopping-item-reorder-bar").Should().BeEmpty();
+        });
+
+        // 6. Open menu on Vara A (index 0) and perform 3 consecutive ArrowDown moves (0 -> 1 -> 2 -> 3)
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[0].Click());
+        phoneA.WaitForAssertion(() => phoneA.FindAll(".shopping-drag-handle").ToList()[0].ClassList.Should().Contain("is-reorder-active"));
+
+        // Boundary check at top before moving down: ArrowUp at index 0 does nothing and keeps active state
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[0].KeyDownAsync(new KeyboardEventArgs { Key = "ArrowUp" }));
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-name")
+                .Select(x => x.TextContent.Trim())
+                .Should().Equal("Vara A", "Vara B", "Vara C", "Vara D");
+            phoneA.FindAll(".shopping-drag-handle").ToList()[0].ClassList.Should().Contain("is-reorder-active");
+        });
+
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[0].KeyDownAsync(new KeyboardEventArgs { Key = "ArrowDown" }));
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-name")
+                .Select(x => x.TextContent.Trim())
+                .Should().Equal("Vara B", "Vara A", "Vara C", "Vara D");
+            phoneA.FindAll(".shopping-drag-handle").ToList()[1].ClassList.Should().Contain("is-reorder-active");
+        });
+
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[1].KeyDownAsync(new KeyboardEventArgs { Key = "ArrowDown" }));
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-name")
+                .Select(x => x.TextContent.Trim())
+                .Should().Equal("Vara B", "Vara C", "Vara A", "Vara D");
+            phoneA.FindAll(".shopping-drag-handle").ToList()[2].ClassList.Should().Contain("is-reorder-active");
+        });
+
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[2].KeyDownAsync(new KeyboardEventArgs { Key = "ArrowDown" }));
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-name")
+                .Select(x => x.TextContent.Trim())
+                .Should().Equal("Vara B", "Vara C", "Vara D", "Vara A");
+            phoneA.FindAll(".shopping-drag-handle").ToList()[3].ClassList.Should().Contain("is-reorder-active");
+        });
+
+        // Boundary check at bottom: ArrowDown at index 3 does nothing and keeps active state
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[3].KeyDownAsync(new KeyboardEventArgs { Key = "ArrowDown" }));
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-name")
+                .Select(x => x.TextContent.Trim())
+                .Should().Equal("Vara B", "Vara C", "Vara D", "Vara A");
+            phoneA.FindAll(".shopping-drag-handle").ToList()[3].ClassList.Should().Contain("is-reorder-active");
+        });
+
+        // 7. Three consecutive ArrowUp moves bring Vara A back to index 0
+        for (int idx = 3; idx >= 1; idx--)
+        {
+            var currentIdx = idx;
+            await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[currentIdx].KeyDownAsync(new KeyboardEventArgs { Key = "ArrowUp" }));
+            var nextIdx = idx - 1;
+            phoneA.WaitForAssertion(() =>
+            {
+                phoneA.FindAll(".shopping-drag-handle").ToList()[nextIdx].ClassList.Should().Contain("is-reorder-active");
+            });
+        }
+
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-name")
+                .Select(x => x.TextContent.Trim())
+                .Should().Equal("Vara A", "Vara B", "Vara C", "Vara D");
+        });
+
+        // 8. Escape closes the menu; subsequent ArrowDown does NOT move Vara A
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[0].KeyDownAsync(new KeyboardEventArgs { Key = "Escape" }));
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-item-reorder-bar").Should().BeEmpty();
+            phoneA.FindAll(".shopping-drag-handle.is-reorder-active").Should().BeEmpty();
+        });
+
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[0].KeyDownAsync(new KeyboardEventArgs { Key = "ArrowDown" }));
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-name")
+                .Select(x => x.TextContent.Trim())
+                .Should().Equal("Vara A", "Vara B", "Vara C", "Vara D");
+        });
+
+        // 9. Mouse drag with ACTIVE menu preserves active state on the moved item
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[0].Click());
+        phoneA.WaitForAssertion(() => phoneA.FindAll(".shopping-drag-handle").ToList()[0].ClassList.Should().Contain("is-reorder-active"));
+
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[0].DragStart());
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-unchecked-list .shopping-item-row").ToList()[2].DropAsync(new DragEventArgs()));
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[2].DragEndAsync(new DragEventArgs()));
+
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-name")
+                .Select(x => x.TextContent.Trim())
+                .Should().Equal("Vara B", "Vara C", "Vara A", "Vara D");
+            phoneA.FindAll(".shopping-drag-handle").ToList()[2].ClassList.Should().Contain("is-reorder-active");
+            phoneA.FindAll(".shopping-item-reorder-bar").Should().ContainSingle();
+        });
+
+        // 10. Cancelled drag and same-item drop preserve order and active state on Vara A (index 2)
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[2].DragStart());
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-drag-handle").ToList()[2].DragEndAsync(new DragEventArgs()));
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-drag-handle").ToList()[2].ClassList.Should().Contain("is-reorder-active");
+            phoneA.FindAll(".shopping-item-reorder-bar").Should().ContainSingle();
+        });
+
+        var rows = phoneA.FindAll(".shopping-unchecked-list .shopping-item-row").ToList();
+        var varaAId = int.Parse(rows[2].GetAttribute("data-item-id")!);
+        var varaDId = int.Parse(rows[3].GetAttribute("data-item-id")!);
+        var varaBId = int.Parse(rows[0].GetAttribute("data-item-id")!);
+
+        await phoneA.Instance.OnTouchDragStartAsync(varaAId);
+        await phoneA.Instance.OnTouchDragCancelAsync();
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-drag-handle").ToList()[2].ClassList.Should().Contain("is-reorder-active");
+        });
+
+        // Touch drag with ACTIVE menu preserves active state on Vara A when moved to index 3
+        await phoneA.Instance.OnTouchDragStartAsync(varaAId);
+        await phoneA.Instance.OnTouchDropAsync(varaAId, varaDId);
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-name")
+                .Select(x => x.TextContent.Trim())
+                .Should().Equal("Vara B", "Vara C", "Vara D", "Vara A");
+            phoneA.FindAll(".shopping-drag-handle").ToList()[3].ClassList.Should().Contain("is-reorder-active");
+            phoneA.FindAll(".shopping-item-reorder-bar").Should().ContainSingle();
+        });
+
+        // 11. Version conflict during drag with active menu: clears stale active state and reloads server order
+        await phoneA.Instance.OnTouchDragStartAsync(varaAId);
+
+        // Phone B reorders Vara B down while Phone A is mid-drag
+        phoneB.WaitForAssertion(() => phoneB.FindAll(".shopping-drag-handle").Should().HaveCount(4));
+        await phoneB.InvokeAsync(() => phoneB.FindAll(".shopping-drag-handle").ToList()[0].Click());
+        phoneB.WaitForAssertion(() => phoneB.FindAll(".shopping-item-reorder-bar .shopping-move-down-btn").Should().ContainSingle());
+        await phoneB.InvokeAsync(() => phoneB.Find(".shopping-item-reorder-bar .shopping-move-down-btn").ClickAsync(new MouseEventArgs()));
+        phoneB.WaitForAssertion(() =>
+        {
+            phoneB.FindAll(".shopping-unchecked-list .shopping-item-name")
+                .Select(x => x.TextContent.Trim())
+                .Should().Equal("Vara C", "Vara B", "Vara D", "Vara A");
+        });
+
+        await phoneA.Instance.OnTouchDropAsync(varaAId, varaBId);
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-name")
+                .Select(x => x.TextContent.Trim())
+                .Should().Equal("Vara C", "Vara B", "Vara D", "Vara A");
+            phoneA.Find(".shopping-list-feedback").TextContent.Should().Contain("Ordningen ändrades");
+            phoneA.FindAll(".shopping-drag-handle.is-reorder-active").Should().BeEmpty();
+            phoneA.FindAll(".shopping-item-reorder-bar").Should().BeEmpty();
+        });
+    }
+
+    [Fact]
+    public async Task SimplifiedShoppingList_NoCheckboxes_RowToggleAndRedCrossDelete_ShouldWorkAndSync()
+    {
+        using var dbFactory = new TestDbContextFactory();
+        var sharedNotifier = new ShoppingListNotifier();
+
+        using var ctxA = CreateSessionContext(dbFactory, sharedNotifier);
+        using var ctxB = CreateSessionContext(dbFactory, sharedNotifier);
+
+        var phoneA = ctxA.RenderComponent<ShoppingPlaceholder>();
+        var phoneB = ctxB.RenderComponent<ShoppingPlaceholder>();
+
+        phoneA.WaitForAssertion(() => phoneA.Markup.Should().Contain("Inköpslistan är tom"));
+        phoneB.WaitForAssertion(() => phoneB.Markup.Should().Contain("Inköpslistan är tom"));
+
+        var count = 0;
+        foreach (var itemText in new[] { "100 g färskost", "2 dl gräddfil", "1 knippe dill" })
+        {
+            count++;
+            await phoneA.InvokeAsync(() => phoneA.Find("#shopping-manual-input").Input(itemText));
+            await phoneA.InvokeAsync(() => phoneA.Find("#shopping-add-manual-btn").ClickAsync(new MouseEventArgs()));
+            phoneA.WaitForAssertion(() =>
+            {
+                phoneA.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(count);
+            });
+        }
+
+        // 1. No visible checkbox is rendered in Att handla
+        phoneA.FindAll(".shopping-unchecked-list input[type='checkbox']").Should().BeEmpty();
+        phoneA.FindAll(".shopping-unchecked-list .shopping-checkbox").Should().BeEmpty();
+
+        // 2. Drag handle and edit button do NOT toggle item status
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-unchecked-list .shopping-drag-handle").ToList()[0].Click());
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(3);
+            phoneA.FindAll(".shopping-checked-list").Should().BeEmpty();
+        });
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-unchecked-list .shopping-drag-handle").ToList()[0].Click());
+
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-unchecked-list .shopping-edit-btn").ToList()[0].Click());
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-edit-panel").Should().ContainSingle();
+            phoneA.FindAll(".shopping-checked-list").Should().BeEmpty();
+        });
+        await phoneA.InvokeAsync(() => phoneA.Find(".shopping-cancel-edit-btn").Click());
+
+        // 3. Clicking row toggles item to Klart, and no visible checkbox is rendered in Klart
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-unchecked-list .shopping-row-check-target").ToList()[0].ClickAsync(new MouseEventArgs()));
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(2);
+            phoneA.FindAll(".shopping-checked-list .shopping-item-row").Should().ContainSingle();
+            phoneA.FindAll(".shopping-checked-list input[type='checkbox']").Should().BeEmpty();
+            phoneA.FindAll(".shopping-checked-list .shopping-checkbox").Should().BeEmpty();
+            phoneA.Find(".shopping-checked-list .shopping-delete-btn").GetAttribute("aria-label").Should().Be("Ta bort 100 g färskost");
+        });
+
+        // 4. Clicking the red cross (✕) deletes only that item completely without restoring it to Att handla,
+        // shows the Undo banner, and syncs deletion to Phone B
+        await phoneA.InvokeAsync(() => phoneA.Find(".shopping-checked-list .shopping-delete-btn").ClickAsync(new MouseEventArgs()));
+
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-checked-list").Should().BeEmpty();
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(2);
+            phoneA.Find(".shopping-unchecked-list").TextContent.Should().NotContain("färskost");
+            phoneA.Find(".shopping-undo-feedback").TextContent.Should().Contain("\"färskost\" borttagen.");
+            phoneA.Find(".shopping-undo-feedback .rb-feedback-action-btn").TextContent.Trim().Should().Be("Ångra");
+        });
+
+        phoneB.WaitForAssertion(() =>
+        {
+            phoneB.FindAll(".shopping-checked-list").Should().BeEmpty();
+            phoneB.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(2);
+            phoneB.Find(".shopping-unchecked-list").TextContent.Should().NotContain("färskost");
+        });
+
+        // 5. Clicking Ångra restores the deleted item back under Klart (IsChecked = true) with full RawText, and syncs to Phone B
+        await phoneA.InvokeAsync(() => phoneA.Find(".shopping-undo-feedback .rb-feedback-action-btn").ClickAsync(new MouseEventArgs()));
+
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-undo-feedback").Should().BeEmpty();
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(2);
+            phoneA.FindAll(".shopping-checked-list .shopping-item-row").Should().ContainSingle();
+            phoneA.Find(".shopping-checked-list .shopping-checked-text").TextContent.Should().Be("100 g färskost");
+        });
+
+        phoneB.WaitForAssertion(() =>
+        {
+            phoneB.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(2);
+            phoneB.FindAll(".shopping-checked-list .shopping-item-row").Should().ContainSingle();
+            phoneB.Find(".shopping-checked-list .shopping-checked-text").TextContent.Should().Be("100 g färskost");
+        });
+    }
+
+    [Fact]
+    public async Task DeleteFromChecked_UndoTargetReplacementSameNameAndConflict_ShouldFollowContract()
+    {
+        using var dbFactory = new TestDbContextFactory();
+        var sharedNotifier = new ShoppingListNotifier();
+
+        using var ctxA = CreateSessionContext(dbFactory, sharedNotifier);
+        using var ctxB = CreateSessionContext(dbFactory, sharedNotifier);
+
+        var phoneA = ctxA.RenderComponent<ShoppingPlaceholder>();
+        var phoneB = ctxB.RenderComponent<ShoppingPlaceholder>();
+
+        var count = 0;
+        foreach (var itemText in new[] { "100 g färskost", "2 dl gräddfil", "1 knippe dill" })
+        {
+            count++;
+            await phoneA.InvokeAsync(() => phoneA.Find("#shopping-manual-input").Input(itemText));
+            await phoneA.InvokeAsync(() => phoneA.Find("#shopping-add-manual-btn").ClickAsync(new MouseEventArgs()));
+            phoneA.WaitForAssertion(() =>
+            {
+                phoneA.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(count);
+            });
+        }
+
+        // 1. Check off "100 g färskost" and "2 dl gräddfil"
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-unchecked-list .shopping-row-check-target").ToList()[0].ClickAsync(new MouseEventArgs()));
+        phoneA.WaitForAssertion(() => phoneA.FindAll(".shopping-checked-list .shopping-item-row").Should().ContainSingle());
+
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-unchecked-list .shopping-row-check-target").ToList()[0].ClickAsync(new MouseEventArgs()));
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-checked-list .shopping-item-row").Should().HaveCount(2);
+            phoneA.Find(".shopping-undo-feedback").TextContent.Should().Contain("\"gräddfil\" markerad som klar.");
+        });
+
+        // 2. Within 4 seconds, delete "100 g färskost" with red cross (✕) -> replaces the check-off Undo target!
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-checked-list .shopping-delete-btn").ToList()[0].ClickAsync(new MouseEventArgs()));
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-checked-list .shopping-item-row").Should().ContainSingle();
+            phoneA.Find(".shopping-undo-feedback").TextContent.Should().Contain("\"färskost\" borttagen.");
+        });
+
+        // Before clicking Ångra on Phone A, Phone B adds a new "250 g färskost" to Att handla
+        await phoneB.InvokeAsync(() => phoneB.Find("#shopping-manual-input").Input("250 g färskost"));
+        await phoneB.InvokeAsync(() => phoneB.Find("#shopping-add-manual-btn").ClickAsync(new MouseEventArgs()));
+
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(2);
+        });
+
+        // 3. Clicking Ångra on Phone A restores "100 g färskost" under Klart (NOT unchecking gräddfil!)
+        // and preserves Phone B's "250 g färskost" in Att handla
+        await phoneA.InvokeAsync(() => phoneA.Find(".shopping-undo-feedback .rb-feedback-action-btn").ClickAsync(new MouseEventArgs()));
+
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(2);
+            phoneA.FindAll(".shopping-checked-list .shopping-checked-text")
+                .Select(x => x.TextContent.Trim())
+                .Should().Equal("100 g färskost", "2 dl gräddfil");
+        });
+
+        phoneB.WaitForAssertion(() =>
+        {
+            phoneB.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(2);
+            phoneB.FindAll(".shopping-checked-list .shopping-checked-text")
+                .Select(x => x.TextContent.Trim())
+                .Should().Equal("100 g färskost", "2 dl gräddfil");
+        });
+
+        // 4. Conversely: delete "100 g färskost" under Klart, then immediately check off "1 knippe dill" under Att handla ->
+        // clicking Ångra undoes the check-off of "dill" (latest action), leaving "100 g färskost" deleted!
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-checked-list .shopping-delete-btn").ToList()[0].ClickAsync(new MouseEventArgs()));
+        phoneA.WaitForAssertion(() => phoneA.Find(".shopping-undo-feedback").TextContent.Should().Contain("\"färskost\" borttagen."));
+
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-unchecked-list .shopping-row-check-target").ToList()[0].ClickAsync(new MouseEventArgs()));
+        phoneA.WaitForAssertion(() => phoneA.Find(".shopping-undo-feedback").TextContent.Should().Contain("\"dill\" markerad som klar."));
+
+        await phoneA.InvokeAsync(() => phoneA.Find(".shopping-undo-feedback .rb-feedback-action-btn").ClickAsync(new MouseEventArgs()));
+        phoneA.WaitForAssertion(() =>
+        {
+            phoneA.FindAll(".shopping-unchecked-list .shopping-item-name")
+                .Select(x => x.TextContent.Trim())
+                .Should().Equal("dill", "färskost");
+            phoneA.FindAll(".shopping-checked-list .shopping-checked-text")
+                .Select(x => x.TextContent.Trim())
+                .Should().Equal("2 dl gräddfil");
         });
     }
 }

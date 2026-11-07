@@ -225,6 +225,79 @@ public class ShoppingListService
         }
     }
 
+    /// <summary>
+    /// Restores a previously deleted shopping list item from an in-memory snapshot (Undo delete),
+    /// preserving its original identity, metadata, checked state, and sort order without merging
+    /// or overwriting concurrent items.
+    /// </summary>
+    public async Task<bool> RestoreDeletedItemAsync(ShoppingListItem snapshot, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        if (string.IsNullOrWhiteSpace(snapshot.Name))
+        {
+            return false;
+        }
+
+        await WriteLock.WaitAsync(cancellationToken);
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+
+            if (snapshot.Id > 0 &&
+                await db.ShoppingListItems.AnyAsync(x => x.Id == snapshot.Id, cancellationToken))
+            {
+                return false;
+            }
+
+            int? validRecipeId = null;
+            if (snapshot.RecipeId.HasValue &&
+                await db.Recipes.AnyAsync(r => r.Id == snapshot.RecipeId.Value, cancellationToken))
+            {
+                validRecipeId = snapshot.RecipeId.Value;
+            }
+
+            int sortOrder = snapshot.SortOrder;
+            if (sortOrder <= 0)
+            {
+                var maxSortOrder = await db.ShoppingListItems
+                    .Select(x => (int?)x.SortOrder)
+                    .MaxAsync(cancellationToken) ?? 0;
+                sortOrder = maxSortOrder + 1;
+            }
+
+            var trimmedName = snapshot.Name.Trim();
+            var trimmedUnit = string.IsNullOrWhiteSpace(snapshot.Unit) ? null : snapshot.Unit.Trim();
+            var rawText = !string.IsNullOrWhiteSpace(snapshot.RawText)
+                ? snapshot.RawText.Trim()
+                : _aggregator.FormatRawText(snapshot.Quantity, trimmedUnit, trimmedName);
+
+            var restored = new ShoppingListItem
+            {
+                Id = snapshot.Id > 0 ? snapshot.Id : 0,
+                Name = trimmedName,
+                RawText = rawText,
+                Quantity = snapshot.Quantity,
+                Unit = trimmedUnit,
+                RecipeId = validRecipeId,
+                Department = string.IsNullOrWhiteSpace(snapshot.Department) ? null : snapshot.Department.Trim(),
+                IsChecked = snapshot.IsChecked,
+                SortOrder = sortOrder,
+                CreatedAt = snapshot.CreatedAt != default ? snapshot.CreatedAt : DateTimeOffset.UtcNow
+            };
+
+            db.ShoppingListItems.Add(restored);
+            await db.SaveChangesAsync(cancellationToken);
+            _deletedItemIds.Remove(restored.Id);
+            _notifier.NotifyChanged();
+            return true;
+        }
+        finally
+        {
+            WriteLock.Release();
+        }
+    }
+
     public async Task<int> ClearCheckedItemsAsync(CancellationToken cancellationToken = default)
     {
         await WriteLock.WaitAsync(cancellationToken);

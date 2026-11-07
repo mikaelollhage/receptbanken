@@ -323,9 +323,42 @@ public class WeeklyMenuGenerator
             }
         }
 
-        // Order potentially fillable days by fewest candidates first (most constrained first)
+        // Active non-trivial pantry tags specified by the user
+        var activePantryTags = pantry
+            .Where(p => !string.IsNullOrWhiteSpace(p) && !_pantryMatcher.IsTrivial(p))
+            .Select(p => p.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var unsatisfiedPantryTags = new HashSet<string>(activePantryTags, StringComparer.OrdinalIgnoreCase);
+
+        int GetPantryConstraintScore(WeeklyMenuDay day)
+        {
+            if (activePantryTags.Count == 0)
+                return int.MaxValue;
+
+            int minOptions = int.MaxValue;
+            foreach (var tag in activePantryTags)
+            {
+                bool dayMatches = candidatesByDayIndex[day.DayIndex]
+                    .Any(r => _pantryMatcher.EvaluateRecipe(r, [tag]).MatchedPantryCount > 0);
+                if (dayMatches)
+                {
+                    int totalDaysMatchingTag = potentiallyFillableDays.Count(d =>
+                        candidatesByDayIndex[d.DayIndex].Any(r => _pantryMatcher.EvaluateRecipe(r, [tag]).MatchedPantryCount > 0));
+                    if (totalDaysMatchingTag < minOptions)
+                    {
+                        minOptions = totalDaysMatchingTag;
+                    }
+                }
+            }
+            return minOptions;
+        }
+
+        // Order potentially fillable days by constrained pantry matching first, then fewest candidates (most constrained first)
         var evaluationOrder = potentiallyFillableDays
-            .OrderBy(d => candidatesByDayIndex[d.DayIndex].Count)
+            .OrderBy(d => GetPantryConstraintScore(d))
+            .ThenBy(d => candidatesByDayIndex[d.DayIndex].Count)
             .ThenBy(d => d.DayIndex)
             .ToList();
 
@@ -378,11 +411,68 @@ public class WeeklyMenuGenerator
                 safeCandidates = unusedCandidates;
             }
 
-            var chosen = SelectWeightedRandom(safeCandidates, weightsByRecipeId);
+            // Option 2 (Pantry first): If this day can satisfy an unsatisfied pantry ingredient, prioritize those candidates
+            var candidatePool = safeCandidates;
+            if (unsatisfiedPantryTags.Count > 0)
+            {
+                var pantrySafeCandidates = safeCandidates
+                    .Where(r => _pantryMatcher.EvaluateRecipe(r, unsatisfiedPantryTags).MatchedPantryCount > 0)
+                    .ToList();
+
+                if (pantrySafeCandidates.Count > 0)
+                {
+                    // Find the rarest unsatisfied pantry tag among those matched on this day
+                    int minRemainingDays = int.MaxValue;
+                    foreach (var tag in unsatisfiedPantryTags)
+                    {
+                        bool matchedByAny = pantrySafeCandidates.Any(r => _pantryMatcher.EvaluateRecipe(r, [tag]).MatchedPantryCount > 0);
+                        if (!matchedByAny)
+                            continue;
+
+                        int remainingDaysForTag = remainingDaysAfterCurrent.Count(d =>
+                            candidatesByDayIndex[d.DayIndex].Any(r => !usedRecipeIds.Contains(r.Id) && _pantryMatcher.EvaluateRecipe(r, [tag]).MatchedPantryCount > 0));
+
+                        if (remainingDaysForTag < minRemainingDays)
+                        {
+                            minRemainingDays = remainingDaysForTag;
+                        }
+                    }
+
+                    var rarestPantryCandidates = pantrySafeCandidates
+                        .Where(r =>
+                        {
+                            foreach (var tag in unsatisfiedPantryTags)
+                            {
+                                if (_pantryMatcher.EvaluateRecipe(r, [tag]).MatchedPantryCount > 0)
+                                {
+                                    int rem = remainingDaysAfterCurrent.Count(d =>
+                                        candidatesByDayIndex[d.DayIndex].Any(other => !usedRecipeIds.Contains(other.Id) && _pantryMatcher.EvaluateRecipe(other, [tag]).MatchedPantryCount > 0));
+                                    if (rem <= minRemainingDays)
+                                        return true;
+                                }
+                            }
+                            return false;
+                        })
+                        .ToList();
+
+                    candidatePool = rarestPantryCandidates.Count > 0 ? rarestPantryCandidates : pantrySafeCandidates;
+                }
+            }
+
+            var chosen = SelectWeightedRandom(candidatePool, weightsByRecipeId);
             currentDay.RecipeId = chosen.Id;
             currentDay.Recipe = chosen;
             currentDay.Servings = chosen.Servings;
             currentDay.StatusMessage = null;
+
+            if (unsatisfiedPantryTags.Count > 0)
+            {
+                var matchedTags = _pantryMatcher.EvaluateRecipe(chosen, unsatisfiedPantryTags).MatchedPantryTags;
+                foreach (var tag in matchedTags)
+                {
+                    unsatisfiedPantryTags.Remove(tag);
+                }
+            }
 
             usedRecipeIds.Add(chosen.Id);
             remainingTargetMatches--;
@@ -460,7 +550,45 @@ public class WeeklyMenuGenerator
             weightsByRecipeId[candidate.Id] = CalculateRecipeWeight(candidate, stats, pantry);
         }
 
-        var chosen = SelectWeightedRandom(preferredCandidates, weightsByRecipeId);
+        // Option 2 (Pantry first): Prioritize candidates matching specified pantry ingredients
+        var candidatesToPickFrom = preferredCandidates;
+        var activePantryTags = pantry
+            .Where(p => !string.IsNullOrWhiteSpace(p) && !_pantryMatcher.IsTrivial(p))
+            .Select(p => p.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (activePantryTags.Count > 0)
+        {
+            var otherDaysRecipes = menu.Days
+                .Where(d => d.DayIndex != dayIndex && d.Recipe != null)
+                .Select(d => d.Recipe!)
+                .ToList();
+
+            var unsatisfiedPantryTags = activePantryTags
+                .Where(tag => !otherDaysRecipes.Any(r => _pantryMatcher.EvaluateRecipe(r, [tag]).MatchedPantryCount > 0))
+                .ToList();
+
+            // First priority: candidates that satisfy a pantry tag not already present on other days
+            var pantryCandidates = preferredCandidates
+                .Where(r => _pantryMatcher.EvaluateRecipe(r, unsatisfiedPantryTags).MatchedPantryCount > 0)
+                .ToList();
+
+            // Second priority: if all pantry tags are already satisfied on other days, but this day could also match
+            if (pantryCandidates.Count == 0 && unsatisfiedPantryTags.Count < activePantryTags.Count)
+            {
+                pantryCandidates = preferredCandidates
+                    .Where(r => _pantryMatcher.EvaluateRecipe(r, activePantryTags).MatchedPantryCount > 0)
+                    .ToList();
+            }
+
+            if (pantryCandidates.Count > 0)
+            {
+                candidatesToPickFrom = pantryCandidates;
+            }
+        }
+
+        var chosen = SelectWeightedRandom(candidatesToPickFrom, weightsByRecipeId);
         day.RecipeId = chosen.Id;
         day.Recipe = chosen;
         day.Servings = chosen.Servings;
