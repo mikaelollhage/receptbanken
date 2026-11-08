@@ -1,0 +1,382 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@* Gemensam receptväljare. Föräldern äger receptlistan, valet och IsVisible.
+   Modalbeteendet (fokusfälla, Escape, overlay, dialogroll) kommer från FluentDialog. *@
+<FluentDialog Class="recipe-picker-dialog"
+              Modal="true"
+              TrapFocus="true"
+              PreventScroll="true"
+              Hidden="@(!IsVisible)"
+              HiddenChanged="HandleHiddenChanged"
+              AriaLabelledby="@titleId">
+    @if (IsVisible)
+    {
+        <div class="recipe-picker" @onkeydown="HandleKeyDown">
+            <div class="recipe-picker-header">
+                <h2 id="@titleId" class="recipe-picker-title">@Title</h2>
+                <button type="button" class="recipe-picker-close" aria-label="Stäng receptväljaren" @onclick="CancelAsync">
+                    <FluentIcon Value="@(new Icons.Regular.Size24.Dismiss())" Color="Color.Neutral" />
+                </button>
+            </div>
+
+            <div class="recipe-picker-toolbar">
+                <input type="search"
+                       class="form-input-custom recipe-picker-search"
+                       @ref="searchInput"
+                       aria-label="Sök recept"
+                       placeholder="Sök på namn, ingrediens eller kategori…"
+                       autocomplete="off"
+                       enterkeyhint="search"
+                       @bind="SearchText"
+                       @bind:event="oninput"
+                       @bind:after="HandleFilterChanged" />
+                <button type="button"
+                        class="category-badge recipe-picker-favorites @(favoritesOnly ? "active" : "")"
+                        aria-pressed="@(favoritesOnly ? "true" : "false")"
+                        @onclick="ToggleFavoritesOnly">
+                    <FluentIcon Value="@(new Icons.Filled.Size16.Star())" Color="Color.Custom" CustomColor="@(favoritesOnly ? "#fff" : "var(--rb-accent-gold)")" />
+                    Favoriter
+                </button>
+            </div>
+
+            <div class="recipe-picker-scroll">
+                @if (availableCategories.Count > 0)
+                {
+                    <div class="recipe-picker-categories" role="group" aria-label="Filtrera på kategori">
+                        <button type="button"
+                                class="category-badge @(selectedCategoryId == null ? "active" : "")"
+                                aria-pressed="@(selectedCategoryId == null ? "true" : "false")"
+                                @onclick="() => SelectCategory(null)">
+                            Alla kategorier
+                        </button>
+                        @foreach (var category in availableCategories)
+                        {
+                            var isActive = selectedCategoryId == category.Id;
+                            <button type="button"
+                                    class="category-badge @(isActive ? "active" : "")"
+                                    aria-pressed="@(isActive ? "true" : "false")"
+                                    @onclick="() => SelectCategory(category.Id)">
+                                @if (!string.IsNullOrWhiteSpace(category.ColorHex))
+                                {
+                                    <span class="category-dot" style="background-color: @category.ColorHex;"></span>
+                                }
+                                @category.Name
+                            </button>
+                        }
+                    </div>
+                }
+
+                @if (filteredRecipes.Count == 0)
+                {
+                    <div class="recipe-picker-empty" role="status">
+                        <div class="recipe-picker-empty-icon" aria-hidden="true">🔍</div>
+                        @if (Recipes.Count == 0)
+                        {
+                            <p class="recipe-picker-empty-title">Det finns inga sparade recept ännu.</p>
+                        }
+                        else
+                        {
+                            <p class="recipe-picker-empty-title">Inga recept matchar din sökning.</p>
+                            <p class="recipe-picker-empty-text">Prova ett annat sökord eller ta bort filtren.</p>
+                            <button type="button" class="btn-secondary-custom recipe-picker-reset" @onclick="ResetFilters">
+                                Rensa sökning och filter
+                            </button>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <p class="recipe-picker-count" role="status" aria-live="polite">
+                        @if (visibleRecipes.Count < filteredRecipes.Count)
+                        {
+                            <text>Visar @visibleRecipes.Count av @filteredRecipes.Count recept</text>
+                        }
+                        else
+                        {
+                            <text>@filteredRecipes.Count recept</text>
+                        }
+                    </p>
+
+                    <ul class="recipe-picker-grid" aria-label="Recept">
+                        @foreach (var recipe in visibleRecipes)
+                        {
+                            <li @key="recipe.Id">
+                                <RecipePickerCard Recipe="recipe"
+                                                  IsSelected="@(SelectedRecipeId == recipe.Id)"
+                                                  OnSelect="SelectRecipeAsync" />
+                            </li>
+                        }
+                    </ul>
+
+                    @if (visibleRecipes.Count < filteredRecipes.Count)
+                    {
+                        <div class="recipe-picker-more">
+                            <button type="button" class="btn-secondary-custom" @onclick="ShowMore">
+                                Visa fler (@(filteredRecipes.Count - visibleRecipes.Count) kvar)
+                            </button>
+                        </div>
+                    }
+                }
+            </div>
+
+            <div class="recipe-picker-footer">
+                @if (AllowClear && SelectedRecipeId.HasValue)
+                {
+                    <button type="button" class="btn-secondary-custom recipe-picker-clear" @onclick="ClearAsync">
+                        @ClearText
+                    </button>
+                }
+                <button type="button" class="btn-secondary-custom recipe-picker-cancel" @onclick="CancelAsync">
+                    Avbryt
+                </button>
+            </div>
+        </div>
+    }
+</FluentDialog>
+
+@code {
+    /// <summary>Antal recept som visas initialt och per "Visa fler".</summary>
+    public const int PageSize = 60;
+
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public IReadOnlyList<Recipe> Recipes { get; set; } = Array.Empty<Recipe>();
+    [Parameter] public IReadOnlyList<Category> Categories { get; set; } = Array.Empty<Category>();
+    [Parameter] public int? SelectedRecipeId { get; set; }
+    [Parameter] public bool AllowClear { get; set; }
+    [Parameter] public string Title { get; set; } = "Välj recept";
+
+    /// <summary>Text på knappen som tömmer valet (visas när AllowClear är aktivt och ett recept är valt).</summary>
+    [Parameter] public string ClearText { get; set; } = "Rensa val";
+
+    [Parameter] public EventCallback<Recipe> OnSelected { get; set; }
+    [Parameter] public EventCallback OnCleared { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private static readonly StringComparer TitleComparer =
+        StringComparer.Create(new System.Globalization.CultureInfo("sv-SE"), ignoreCase: true);
+
+    private readonly string titleId = $"recipe-picker-title-{Guid.NewGuid():N}";
+
+    private ElementReference searchInput;
+    private IJSObjectReference? module;
+
+    private string searchText = string.Empty;
+    private int? selectedCategoryId;
+    private bool favoritesOnly;
+    private int visibleCount = PageSize;
+
+    private bool wasVisible;
+    private bool focusSearchAfterRender;
+    private bool restoreOpenerAfterRender;
+
+    private List<Category> availableCategories = new();
+    private List<Recipe> filteredRecipes = new();
+    private List<Recipe> visibleRecipes = new();
+
+    private string SearchText
+    {
+        get => searchText;
+        set => searchText = value ?? string.Empty;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var opening = IsVisible && !wasVisible;
+        var closing = !IsVisible && wasVisible;
+        wasVisible = IsVisible;
+
+        if (opening)
+        {
+            searchText = string.Empty;
+            selectedCategoryId = null;
+            favoritesOnly = false;
+            visibleCount = PageSize;
+            focusSearchAfterRender = true;
+
+            // Måste ske innan dialogen renderas, så att öppnande kontroll fortfarande har fokus.
+            await InvokeModuleAsync("captureOpener");
+        }
+        else if (closing)
+        {
+            restoreOpenerAfterRender = true;
+        }
+
+        if (IsVisible)
+        {
+            RefreshCategories();
+            RefreshResults();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusSearchAfterRender && IsVisible)
+        {
+            focusSearchAfterRender = false;
+            try
+            {
+                await searchInput.FocusAsync();
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException)
+            {
+                // Fokus är en förbättring, inte ett krav för att välja recept.
+            }
+        }
+
+        if (restoreOpenerAfterRender && !IsVisible)
+        {
+            restoreOpenerAfterRender = false;
+            await InvokeModuleAsync("restoreOpener");
+        }
+    }
+
+    private async Task InvokeModuleAsync(string function)
+    {
+        try
+        {
+            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/recipe-picker.js");
+            await module.InvokeVoidAsync(function);
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException)
+        {
+            // Under prerendering eller när kretsen är nedkopplad finns ingen JS att anropa.
+        }
+    }
+
+    // Visa bara kategorier som minst ett recept i listan har, så att filtret aldrig ger tomt resultat.
+    private void RefreshCategories()
+    {
+        var usedIds = Recipes
+            .SelectMany(r => r.RecipeCategories)
+            .Select(rc => rc.CategoryId)
+            .ToHashSet();
+
+        availableCategories = Categories
+            .Where(c => usedIds.Contains(c.Id))
+            .OrderBy(c => c.Name, TitleComparer)
+            .ToList();
+
+        if (selectedCategoryId.HasValue && !usedIds.Contains(selectedCategoryId.Value))
+        {
+            selectedCategoryId = null;
+        }
+    }
+
+    private void RefreshResults()
+    {
+        IEnumerable<Recipe> query = Recipes;
+
+        if (favoritesOnly)
+        {
+            query = query.Where(r => r.IsFavorite);
+        }
+
+        if (selectedCategoryId.HasValue)
+        {
+            var categoryId = selectedCategoryId.Value;
+            query = query.Where(r => r.RecipeCategories.Any(rc => rc.CategoryId == categoryId));
+        }
+
+        var terms = searchText.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (terms.Length > 0)
+        {
+            query = query.Where(r => terms.All(term => Matches(r, term)));
+        }
+
+        filteredRecipes = query.OrderBy(r => r.Title, TitleComparer).ToList();
+        visibleRecipes = filteredRecipes.Take(visibleCount).ToList();
+    }
+
+    private static bool Matches(Recipe recipe, string term)
+    {
+        return Contains(recipe.Title, term)
+            || Contains(recipe.Description, term)
+            || recipe.Ingredients.Any(i => Contains(i.Name, term) || Contains(i.RawText, term))
+            || recipe.RecipeCategories.Any(rc => rc.Category != null && Contains(rc.Category.Name, term));
+    }
+
+    private static bool Contains(string? value, string term) =>
+        value != null && value.Contains(term, StringComparison.OrdinalIgnoreCase);
+
+    private void HandleFilterChanged()
+    {
+        visibleCount = PageSize;
+        RefreshResults();
+    }
+
+    private void SelectCategory(int? categoryId)
+    {
+        selectedCategoryId = categoryId;
+        HandleFilterChanged();
+    }
+
+    private void ToggleFavoritesOnly()
+    {
+        favoritesOnly = !favoritesOnly;
+        HandleFilterChanged();
+    }
+
+    private void ResetFilters()
+    {
+        searchText = string.Empty;
+        selectedCategoryId = null;
+        favoritesOnly = false;
+        HandleFilterChanged();
+    }
+
+    private void ShowMore()
+    {
+        visibleCount += PageSize;
+        RefreshResults();
+    }
+
+    private async Task SelectRecipeAsync(Recipe recipe)
+    {
+        if (OnSelected.HasDelegate)
+        {
+            await OnSelected.InvokeAsync(recipe);
+        }
+    }
+
+    private async Task ClearAsync()
+    {
+        if (OnCleared.HasDelegate)
+        {
+            await OnCleared.InvokeAsync();
+        }
+    }
+
+    private async Task CancelAsync()
+    {
+        // Escape kan komma både från FluentDialog och från onkeydown; avbryt bara en gång.
+        if (!IsVisible)
+        {
+            return;
+        }
+
+        if (OnCancel.HasDelegate)
+        {
+            await OnCancel.InvokeAsync();
+        }
+    }
+
+    // FluentDialog döljer sig själv vid Escape eller klick på overlay och rapporterar Hidden = true.
+    private Task HandleHiddenChanged(bool hidden) => hidden ? CancelAsync() : Task.CompletedTask;
+
+    private Task HandleKeyDown(KeyboardEventArgs e) => e.Key == "Escape" ? CancelAsync() : Task.CompletedTask;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (module != null)
+        {
+            try
+            {
+                await module.DisposeAsync();
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or InvalidOperationException)
+            {
+            }
+        }
+    }
+}

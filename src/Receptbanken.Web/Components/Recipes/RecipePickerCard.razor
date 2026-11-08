@@ -1,0 +1,126 @@
+<button type="button"
+        class="recipe-picker-card @(IsSelected ? "is-selected" : "")"
+        aria-label="@AccessibleLabel"
+        aria-current="@(IsSelected ? "true" : null)"
+        @onclick="HandleClick">
+    <span class="recipe-picker-card-image-wrap">
+        @if (!string.IsNullOrWhiteSpace(Recipe.ImagePath) && !imageLoadFailed)
+        {
+            <img src="@($"/{Recipe.ImagePath}")" alt="" class="recipe-picker-card-image" loading="lazy" @onerror="HandleImageError" />
+        }
+        else
+        {
+            <span class="recipe-picker-card-placeholder" aria-hidden="true">🥘</span>
+        }
+
+        @if (Recipe.IsFavorite)
+        {
+            <span class="recipe-picker-card-fav" aria-hidden="true">
+                <FluentIcon Value="@(new Icons.Filled.Size16.Star())" Color="Color.Custom" CustomColor="var(--rb-accent-gold)" />
+            </span>
+        }
+
+        @if (IsSelected)
+        {
+            <span class="recipe-picker-card-selected" aria-hidden="true">✓ Valt</span>
+        }
+    </span>
+
+    <span class="recipe-picker-card-body">
+        <span class="recipe-picker-card-title">@Recipe.Title</span>
+
+        <span class="recipe-picker-card-meta">
+            @if (Recipe.TotalTimeMinutes.HasValue)
+            {
+                <span class="recipe-picker-card-meta-item">
+                    <FluentIcon Value="@(new Icons.Regular.Size16.Timer())" Color="Color.Neutral" />
+                    @Recipe.TotalTimeMinutes min
+                </span>
+            }
+            <span class="recipe-picker-card-meta-item">
+                <FluentIcon Value="@(new Icons.Regular.Size16.People())" Color="Color.Neutral" />
+                @Recipe.Servings @Recipe.ServingsUnit
+            </span>
+        </span>
+
+        @if (categoryNames.Count > 0)
+        {
+            <span class="recipe-picker-card-cats">
+                @foreach (var category in categoryNames)
+                {
+                    <span class="recipe-picker-card-cat">
+                        @if (!string.IsNullOrWhiteSpace(category.ColorHex))
+                        {
+                            <span class="category-dot" style="background-color: @category.ColorHex;"></span>
+                        }
+                        @category.Name
+                    </span>
+                }
+            </span>
+        }
+    </span>
+</button>
+
+@code {
+    /// <summary>Recept som kortet visar.</summary>
+    [Parameter, EditorRequired] public Recipe Recipe { get; set; } = null!;
+
+    /// <summary>Markerar kortet som det nuvarande valet.</summary>
+    [Parameter] public bool IsSelected { get; set; }
+
+    /// <summary>Anropas när användaren väljer kortet.</summary>
+    [Parameter] public EventCallback<Recipe> OnSelect { get; set; }
+
+    private const int MaxCategories = 2;
+
+    private bool imageLoadFailed;
+    private string? lastImagePath;
+    private List<(string Name, string? ColorHex)> categoryNames = new();
+
+    private string AccessibleLabel
+    {
+        get
+        {
+            var parts = new List<string> { Recipe.Title };
+            if (Recipe.TotalTimeMinutes.HasValue)
+            {
+                parts.Add($"{Recipe.TotalTimeMinutes} minuter");
+            }
+            parts.Add($"{Recipe.Servings} {Recipe.ServingsUnit}");
+            if (Recipe.IsFavorite)
+            {
+                parts.Add("favorit");
+            }
+            if (IsSelected)
+            {
+                parts.Add("nuvarande val");
+            }
+            return string.Join(", ", parts);
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (lastImagePath != Recipe.ImagePath)
+        {
+            lastImagePath = Recipe.ImagePath;
+            imageLoadFailed = false;
+        }
+
+        categoryNames = Recipe.RecipeCategories
+            .Where(rc => rc.Category != null)
+            .Select(rc => (rc.Category.Name, rc.Category.ColorHex))
+            .Take(MaxCategories)
+            .ToList();
+    }
+
+    private void HandleImageError() => imageLoadFailed = true;
+
+    private async Task HandleClick()
+    {
+        if (OnSelect.HasDelegate)
+        {
+            await OnSelect.InvokeAsync(Recipe);
+        }
+    }
+}
