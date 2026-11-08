@@ -1,0 +1,666 @@
+@inject IServiceProvider ServiceProvider
+@inject ILogger<WeeklyMenuShoppingPreview> Logger
+
+@if (IsVisible)
+{
+    <div class="modal-backdrop-custom weekly-shopping-preview-backdrop"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="weekly-shopping-preview-title">
+        <div class="modal-dialog-custom weekly-shopping-preview-dialog">
+            <div class="weekly-shopping-preview-header">
+                <div class="weekly-shopping-preview-title-block">
+                    <div class="weekly-shopping-preview-title-row">
+                        <h2 id="weekly-shopping-preview-title" class="modal-title-custom">
+                            🛒 Inköpsförslag — Vecka @currentWeek.IsoWeek, @currentWeek.IsoYear
+                        </h2>
+
+                        @if (preview is { HasSavedMenu: true })
+                        {
+                            @if (preview.Status == WeeklyMenuStatus.Confirmed)
+                            {
+                                <span class="weekly-status-badge status-confirmed">📌 Spikad</span>
+                            }
+                            else
+                            {
+                                <span class="weekly-status-badge status-draft">📝 Utkast</span>
+                            }
+                        }
+                    </div>
+                    <p class="weekly-shopping-preview-subtitle">@currentWeek.FormatDateRangeSwedish()</p>
+                </div>
+
+                <button type="button"
+                        class="rb-feedback-close weekly-preview-close-btn"
+                        aria-label="Stäng förhandsgranskning"
+                        title="Stäng"
+                        disabled="@isSubmitting"
+                        @onclick="HandleCancelClicked">
+                    ✕
+                </button>
+            </div>
+
+            @if (AllowWeekNavigation)
+            {
+                <div class="weekly-preview-week-nav" role="navigation" aria-label="Välj vecka för inköpsförslag">
+                    <button type="button"
+                            class="btn-secondary-custom weekly-preview-prev-week-btn"
+                            disabled="@(isLoadingPreview || isSubmitting)"
+                            @onclick="NavigatePreviousWeekAsync">
+                        ← Föregående vecka
+                    </button>
+                    @if (currentWeek.WeekStartDate != CalendarWeek.FromDate(ReferenceToday).WeekStartDate)
+                    {
+                        <button type="button"
+                                class="btn-secondary-custom weekly-preview-this-week-btn"
+                                disabled="@(isLoadingPreview || isSubmitting)"
+                                @onclick="NavigateCurrentWeekAsync">
+                            Denna vecka
+                        </button>
+                    }
+                    <button type="button"
+                            class="btn-secondary-custom weekly-preview-next-week-btn"
+                            disabled="@(isLoadingPreview || isSubmitting)"
+                            @onclick="NavigateNextWeekAsync">
+                        Nästa vecka →
+                    </button>
+                </div>
+            }
+
+            <ContextualFeedback State="previewFeedback" CssClass="weekly-preview-feedback" />
+
+            <div class="weekly-shopping-preview-body">
+                @if (isLoadingPreview)
+                {
+                    <div class="weekly-preview-loading">
+                        <FluentProgressRing />
+                    </div>
+                }
+                else if (preview == null || !preview.HasSavedMenu)
+                {
+                    <div class="weekly-preview-empty" role="status">
+                        <p class="weekly-preview-empty-title">Ingen sparad veckomeny för vecka @currentWeek.IsoWeek, @currentWeek.IsoYear.</p>
+                        <p class="weekly-preview-empty-desc">Planera och spara en veckomeny under Veckomeny för att kunna lägga till dess ingredienser härifrån.</p>
+                    </div>
+                }
+                else if (preview.PlannedMeals.Count == 0)
+                {
+                    <div class="weekly-preview-empty" role="status">
+                        <p class="weekly-preview-empty-title">Inga planerade recept under vecka @currentWeek.IsoWeek.</p>
+                        <p class="weekly-preview-empty-desc">Alla sju dagar i veckomenyn är tomma.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="weekly-preview-meals-section">
+                        <button type="button"
+                                class="weekly-preview-collapse-toggle weekly-preview-meals-toggle"
+                                aria-expanded="@isMealsExpanded.ToString().ToLowerInvariant()"
+                                aria-controls="weekly-preview-meals-panel"
+                                @onclick="ToggleMealsExpanded">
+                            <span class="weekly-preview-chevron" aria-hidden="true">@(isMealsExpanded ? "▾" : "▸")</span>
+                            <span>@preview.PlannedMeals.Count @(preview.PlannedMeals.Count == 1 ? "planerad middag" : "planerade middagar")</span>
+                        </button>
+
+                        @if (isMealsExpanded)
+                        {
+                            <div id="weekly-preview-meals-panel" class="weekly-preview-meals-list">
+                                @foreach (var meal in preview.PlannedMeals)
+                                {
+                                    <span class="weekly-preview-meal-chip @(meal.IsFullyAdded ? "meal-added" : meal.IsPartiallyAdded ? "meal-partial" : "")"
+                                          data-meal-day="@meal.DayIndex">
+                                        <strong>@meal.DayName:</strong>
+                                        <span>@meal.RecipeTitle (@meal.PlannedServings @meal.ServingsUnit)</span>
+                                        @if (meal.IsFullyAdded)
+                                        {
+                                            <span class="weekly-preview-meal-status" title="Redan tillagd">✓</span>
+                                        }
+                                    </span>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    @if (preview.HasReplacedOrClearedMealsWithPriorAdditions)
+                    {
+                        <div class="weekly-preview-prior-meals-notice" role="status">
+                            ℹ️ Tidigare tillagda varor från utbytta eller tömda dagar finns kvar i inköpslistan och har inte dragits bort automatiskt.
+                        </div>
+                    }
+
+                    @if (preview.Items.Count == 0)
+                    {
+                        <div class="weekly-preview-empty" role="status">
+                            <p class="weekly-preview-empty-title">De valda recepten innehåller inga ingredienser.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        var pendingItems = PendingItems;
+                        var alreadyAddedItems = AlreadyAddedItems;
+
+                        <div class="weekly-preview-summary-bar" aria-live="polite">
+                            <span class="weekly-preview-summary-counts">
+                                <strong>@SelectedCount varor att lägga till</strong> · <span>@preview.AlreadyAddedCount redan tillagda</span>
+                            </span>
+                            <div class="weekly-preview-selection-actions">
+                                @if (preview.NewItemsCount > 0)
+                                {
+                                    <button type="button"
+                                            class="weekly-preview-link-btn weekly-preview-select-new-btn"
+                                            @onclick="SelectOnlyNewItems">
+                                        Välj nya (@preview.NewItemsCount)
+                                    </button>
+                                }
+                                @if (SelectedCount > 0)
+                                {
+                                    <button type="button"
+                                            class="weekly-preview-link-btn weekly-preview-deselect-all-btn"
+                                            @onclick="DeselectAllItems">
+                                        Avmarkera alla
+                                    </button>
+                                }
+                            </div>
+                        </div>
+
+                        @if (pendingItems.Count == 0)
+                        {
+                            <div class="weekly-preview-all-handled" role="status">
+                                ✓ Alla varor från veckomenyn är redan hanterade.
+                            </div>
+                        }
+                        else
+                        {
+                            <ul class="weekly-preview-items-list weekly-preview-pending-list" aria-label="Varor att lägga till">
+                                @foreach (var row in pendingItems)
+                                {
+                                    @RenderPreviewItemRow(row)
+                                }
+                            </ul>
+                        }
+
+                        @if (alreadyAddedItems.Count > 0)
+                        {
+                            <div class="weekly-preview-already-added-section">
+                                <button type="button"
+                                        class="weekly-preview-collapse-toggle weekly-preview-already-added-toggle"
+                                        aria-expanded="@isAlreadyAddedExpanded.ToString().ToLowerInvariant()"
+                                        aria-controls="weekly-preview-already-added-panel"
+                                        @onclick="ToggleAlreadyAddedExpanded">
+                                    <span class="weekly-preview-chevron" aria-hidden="true">@(isAlreadyAddedExpanded ? "▾" : "▸")</span>
+                                    <span>@(isAlreadyAddedExpanded ? "Dölj redan tillagda varor" : "Visa redan tillagda varor") (@alreadyAddedItems.Count)</span>
+                                </button>
+
+                                @if (isAlreadyAddedExpanded)
+                                {
+                                    <ul id="weekly-preview-already-added-panel"
+                                        class="weekly-preview-items-list weekly-preview-already-added-list"
+                                        aria-label="Redan tillagda varor">
+                                        @foreach (var row in alreadyAddedItems)
+                                        {
+                                            @RenderPreviewItemRow(row)
+                                        }
+                                    </ul>
+                                }
+                            </div>
+                        }
+                    }
+                }
+            </div>
+
+            <div class="modal-actions-custom weekly-shopping-preview-footer">
+                <button type="button"
+                        class="btn-secondary-custom weekly-preview-cancel-btn"
+                        disabled="@isSubmitting"
+                        @onclick="HandleCancelClicked">
+                    Avbryt
+                </button>
+                <button type="button"
+                        class="btn-primary-custom weekly-preview-confirm-btn"
+                        disabled="@(isSubmitting || isLoadingPreview || preview == null || !preview.HasSavedMenu || SelectedCount == 0)"
+                        @onclick="HandleConfirmClickedAsync">
+                    @if (isSubmitting)
+                    {
+                        <span>Lägger till…</span>
+                    }
+                    else
+                    {
+                        <span>🛒 Lägg till i inköpslistan (@SelectedCount)</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public DateOnly InitialWeekDate { get; set; }
+    [Parameter] public DateOnly ReferenceToday { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+    [Parameter] public bool AllowWeekNavigation { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public EventCallback<WeeklyMenuShoppingConfirmResult> OnConfirmed { get; set; }
+
+    private CalendarWeek currentWeek;
+    private Receptbanken.Infrastructure.Services.WeeklyMenuShoppingPreview? preview;
+    private readonly HashSet<string> selectedKeys = new(StringComparer.Ordinal);
+    private readonly HashSet<string> expandedDetailKeys = new(StringComparer.Ordinal);
+    private readonly FeedbackState previewFeedback = new();
+    private bool isLoadingPreview;
+    private bool isSubmitting;
+    private bool wasVisible;
+    private bool isMealsExpanded;
+    private bool isAlreadyAddedExpanded;
+    private DateOnly lastLoadedInitialDate;
+
+    private IReadOnlyList<WeeklyMenuPreviewItemDto> PendingItems =>
+        preview == null ? [] : preview.Items.Where(i => !i.IsAlreadyAdded).ToList();
+
+    private IReadOnlyList<WeeklyMenuPreviewItemDto> AlreadyAddedItems =>
+        preview == null ? [] : preview.Items.Where(i => i.IsAlreadyAdded).ToList();
+
+    private int SelectedCount => preview == null
+        ? 0
+        : preview.Items.Count(i => selectedKeys.Contains(i.PreviewItemKey));
+
+    private RenderFragment RenderPreviewItemRow(WeeklyMenuPreviewItemDto row) => __builder =>
+    {
+        bool isChecked = selectedKeys.Contains(row.PreviewItemKey);
+        bool isDetailsOpen = expandedDetailKeys.Contains(row.PreviewItemKey);
+        string? shortStatus = GetShortItemStatus(row);
+        bool hasConflictWarning = !string.IsNullOrWhiteSpace(row.ConflictWarning);
+        bool hasCheckedOverlap = !string.IsNullOrWhiteSpace(row.ExistingInCheckedText);
+        bool hasDetails = HasItemDetails(row);
+        string detailsId = $"weekly-preview-details-{row.PreviewItemKey.GetHashCode():X}";
+
+        <li @key="row.PreviewItemKey"
+            class="weekly-preview-item-row @(isChecked ? "is-selected" : "is-unselected") @(row.IsAlreadyAdded ? "is-already-added" : "")"
+            data-preview-key="@row.PreviewItemKey"
+            data-ingredient-name="@row.Item.Name">
+            <div class="weekly-preview-item-top">
+                <label class="weekly-preview-item-label">
+                    <input type="checkbox"
+                           class="weekly-preview-checkbox"
+                           checked="@isChecked"
+                           disabled="@isSubmitting"
+                           @onchange="@(e => ToggleSelection(row.PreviewItemKey, e.Value))" />
+                    <div class="weekly-preview-item-content">
+                        <div class="weekly-preview-item-main">
+                            <div class="weekly-preview-item-text">
+                                @if (row.Item.Quantity.HasValue)
+                                {
+                                    <span class="weekly-preview-item-qty">@($"{FormatRange(row.Item.Quantity, row.Item.QuantityMax)} ")</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(row.Item.Unit))
+                                {
+                                    <span class="weekly-preview-item-unit">@($"{row.Item.Unit.Trim()} ")</span>
+                                }
+                                <span class="weekly-preview-item-name">@row.Item.Name</span>
+                            </div>
+
+                            @if (hasConflictWarning)
+                            {
+                                <span class="weekly-preview-inline-warning"
+                                      title="@row.ConflictWarning"
+                                      aria-label="@($"Varning: {row.ConflictWarning}")">
+                                    ⚠️ Enhetsvarning
+                                </span>
+                            }
+                            else if (hasCheckedOverlap)
+                            {
+                                <span class="weekly-preview-inline-checked"
+                                      title="@($"Finns under Klart: {row.ExistingInCheckedText}")">
+                                    Finns i Klart
+                                </span>
+                            }
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(row.Item.Comment))
+                        {
+                            <div class="weekly-preview-item-comment">@row.Item.Comment</div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(shortStatus))
+                        {
+                            <div class="weekly-preview-item-short-status @(row.WasRemovedFromShoppingList ? "status-removed" : "")">
+                                @shortStatus
+                            </div>
+                        }
+                    </div>
+                </label>
+
+                @if (hasDetails)
+                {
+                    <button type="button"
+                            class="weekly-preview-info-btn @(isDetailsOpen ? "is-open" : "") @(hasConflictWarning ? "has-warning" : "")"
+                            aria-expanded="@isDetailsOpen.ToString().ToLowerInvariant()"
+                            aria-controls="@detailsId"
+                            aria-label="@($"Visa detaljer för {row.Item.Name}")"
+                            title="Visa detaljer"
+                            @onclick="@(() => ToggleItemDetails(row.PreviewItemKey))">
+                        ⓘ
+                    </button>
+                }
+            </div>
+
+            @if (isDetailsOpen && hasDetails)
+            {
+                <div id="@detailsId" class="weekly-preview-item-details" role="region" aria-label="@($"Detaljer för {row.Item.Name}")">
+                    @if (!string.IsNullOrWhiteSpace(row.SourceDaysSummary))
+                    {
+                        <div class="weekly-preview-detail-line">
+                            <strong>Veckodagar:</strong> @row.SourceDaysSummary
+                        </div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(row.AlreadyAddedSummary))
+                    {
+                        <div class="weekly-preview-detail-line">
+                            @row.AlreadyAddedSummary
+                        </div>
+                    }
+                    @if (row.IsAlreadyAdded)
+                    {
+                        <div class="weekly-preview-detail-line">
+                            @if (row.WasRemovedFromShoppingList)
+                            {
+                                <span>Redan tillagd tidigare · Borttagen ur inköpslistan (kryssa i för att lägga till på nytt)</span>
+                            }
+                            else
+                            {
+                                <span>✓ Redan tillagd från veckomenyn</span>
+                            }
+                        </div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(row.ExistingInUncheckedText))
+                    {
+                        <div class="weekly-preview-detail-line">
+                            Finns i Att handla: @row.ExistingInUncheckedText
+                        </div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(row.ExistingInCheckedText))
+                    {
+                        <div class="weekly-preview-detail-line">
+                            Finns under Klart: @row.ExistingInCheckedText (ändras ej)
+                        </div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(row.ConflictWarning))
+                    {
+                        <div class="weekly-preview-detail-line detail-warning">
+                            ⚠️ @row.ConflictWarning
+                        </div>
+                    }
+                </div>
+            }
+        </li>
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsVisible && (!wasVisible || InitialWeekDate != lastLoadedInitialDate))
+        {
+            wasVisible = true;
+            lastLoadedInitialDate = InitialWeekDate;
+            isMealsExpanded = false;
+            isAlreadyAddedExpanded = false;
+            expandedDetailKeys.Clear();
+            var targetDate = InitialWeekDate == default ? ReferenceToday : InitialWeekDate;
+            currentWeek = CalendarWeek.FromDate(targetDate);
+            previewFeedback.Clear();
+            await LoadPreviewForWeekAsync(currentWeek.WeekStartDate);
+        }
+        else if (!IsVisible && wasVisible)
+        {
+            wasVisible = false;
+            isSubmitting = false;
+            isMealsExpanded = false;
+            isAlreadyAddedExpanded = false;
+            expandedDetailKeys.Clear();
+            previewFeedback.Clear();
+        }
+    }
+
+    private async Task LoadPreviewForWeekAsync(DateOnly dateInWeek)
+    {
+        isLoadingPreview = true;
+        currentWeek = CalendarWeek.FromDate(dateInWeek);
+        expandedDetailKeys.Clear();
+        try
+        {
+            var shoppingService = ResolveShoppingListService();
+            preview = await shoppingService.BuildWeeklyMenuPreviewAsync(currentWeek.WeekStartDate);
+            ApplyDefaultSelection(preview);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Kunde inte skapa förhandsgranskning av inköpslista för vecka {WeekStartDate}.", currentWeek.WeekStartDate);
+            previewFeedback.ShowError("Kunde inte läsa in veckomenyns inköpsförslag. Försök igen.");
+        }
+        finally
+        {
+            isLoadingPreview = false;
+        }
+    }
+
+    private void ApplyDefaultSelection(Receptbanken.Infrastructure.Services.WeeklyMenuShoppingPreview? loadedPreview)
+    {
+        selectedKeys.Clear();
+        if (loadedPreview == null)
+            return;
+
+        foreach (var item in loadedPreview.Items)
+        {
+            if (item.IsSelectedByDefault)
+            {
+                selectedKeys.Add(item.PreviewItemKey);
+            }
+        }
+    }
+
+    private void ToggleMealsExpanded()
+    {
+        isMealsExpanded = !isMealsExpanded;
+    }
+
+    private void ToggleAlreadyAddedExpanded()
+    {
+        isAlreadyAddedExpanded = !isAlreadyAddedExpanded;
+    }
+
+    private void ToggleItemDetails(string previewKey)
+    {
+        if (!expandedDetailKeys.Add(previewKey))
+        {
+            expandedDetailKeys.Remove(previewKey);
+        }
+    }
+
+    private static bool HasItemDetails(WeeklyMenuPreviewItemDto row)
+    {
+        return !string.IsNullOrWhiteSpace(row.SourceDaysSummary)
+            || !string.IsNullOrWhiteSpace(row.AlreadyAddedSummary)
+            || !string.IsNullOrWhiteSpace(row.ExistingInUncheckedText)
+            || !string.IsNullOrWhiteSpace(row.ExistingInCheckedText)
+            || !string.IsNullOrWhiteSpace(row.ConflictWarning)
+            || row.IsAlreadyAdded;
+    }
+
+    private static string? GetShortItemStatus(WeeklyMenuPreviewItemDto row)
+    {
+        if (row.IsAlreadyAdded)
+        {
+            return row.WasRemovedFromShoppingList
+                ? "Borttagen ur inköpslistan · Kryssa i för att lägga till på nytt"
+                : null;
+        }
+
+        var deltaDays = row.SourceContributions
+            .Where(c => c.IsPortionIncreaseDelta)
+            .Select(c => GetSwedishDayNameLower(c.DayIndex))
+            .Distinct()
+            .ToList();
+
+        if (deltaDays.Count > 0)
+        {
+            return $"Komplettering för {string.Join(", ", deltaDays)}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(row.AlreadyAddedSummary))
+        {
+            var allDays = row.SourceContributions
+                .Select(c => GetSwedishDayNameLower(c.DayIndex))
+                .Distinct()
+                .ToList();
+            return allDays.Count > 0
+                ? $"Komplettering för {string.Join(", ", allDays)}"
+                : "Komplettering";
+        }
+
+        return null;
+    }
+
+    private static string GetSwedishDayNameLower(int dayIndex) => dayIndex switch
+    {
+        0 => "måndag",
+        1 => "tisdag",
+        2 => "onsdag",
+        3 => "torsdag",
+        4 => "fredag",
+        5 => "lördag",
+        6 => "söndag",
+        _ => $"dag {dayIndex + 1}"
+    };
+
+    private void ToggleSelection(string previewKey, object? rawChecked)
+    {
+        bool isChecked = rawChecked switch
+        {
+            bool b => b,
+            string s => string.Equals(s, "true", StringComparison.OrdinalIgnoreCase) || string.Equals(s, "on", StringComparison.OrdinalIgnoreCase),
+            _ => !selectedKeys.Contains(previewKey)
+        };
+
+        if (isChecked)
+        {
+            selectedKeys.Add(previewKey);
+        }
+        else
+        {
+            selectedKeys.Remove(previewKey);
+        }
+    }
+
+    private void SelectOnlyNewItems()
+    {
+        ApplyDefaultSelection(preview);
+    }
+
+    private void DeselectAllItems()
+    {
+        selectedKeys.Clear();
+    }
+
+    private Task NavigatePreviousWeekAsync()
+    {
+        previewFeedback.Clear();
+        return LoadPreviewForWeekAsync(currentWeek.PreviousWeek().WeekStartDate);
+    }
+
+    private Task NavigateNextWeekAsync()
+    {
+        previewFeedback.Clear();
+        return LoadPreviewForWeekAsync(currentWeek.NextWeek().WeekStartDate);
+    }
+
+    private Task NavigateCurrentWeekAsync()
+    {
+        previewFeedback.Clear();
+        return LoadPreviewForWeekAsync(CalendarWeek.FromDate(ReferenceToday).WeekStartDate);
+    }
+
+    private async Task HandleConfirmClickedAsync()
+    {
+        if (isSubmitting || isLoadingPreview || preview == null || !preview.HasSavedMenu || SelectedCount == 0)
+            return;
+
+        isSubmitting = true;
+        previewFeedback.Clear();
+
+        try
+        {
+            var shoppingService = ResolveShoppingListService();
+            var keysToConfirm = preview.Items
+                .Where(i => selectedKeys.Contains(i.PreviewItemKey))
+                .Select(i => i.PreviewItemKey)
+                .ToList();
+
+            var result = await shoppingService.ConfirmWeeklyMenuAdditionsAsync(
+                currentWeek.WeekStartDate,
+                preview.PreviewStamp,
+                keysToConfirm);
+
+            if (result.IsConflict)
+            {
+                preview = result.UpdatedPreview;
+                ApplyDefaultSelection(preview);
+                previewFeedback.ShowWarning(result.Message ?? "Förhandsgranskningen har uppdaterats eftersom underlaget ändrades på en annan enhet.");
+                return;
+            }
+
+            if (result.Status == WeeklyMenuConfirmStatus.MenuNotFound)
+            {
+                preview = result.UpdatedPreview;
+                ApplyDefaultSelection(preview);
+                previewFeedback.ShowError(result.Message ?? "Veckomenyn hittades inte längre i databasen.");
+                return;
+            }
+
+            preview = result.UpdatedPreview;
+            ApplyDefaultSelection(preview);
+
+            if (OnConfirmed.HasDelegate)
+            {
+                await OnConfirmed.InvokeAsync(result);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fel vid tillägg av veckomenyns inköpsvaror för vecka {WeekStartDate}.", currentWeek.WeekStartDate);
+            previewFeedback.ShowError("Det gick inte att lägga till varorna i inköpslistan. Inga ändringar har sparats – försök igen.");
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private async Task HandleCancelClicked()
+    {
+        if (isSubmitting)
+            return;
+
+        if (OnCancel.HasDelegate)
+        {
+            await OnCancel.InvokeAsync();
+        }
+    }
+
+    private string FormatRange(decimal? min, decimal? max)
+    {
+        var calc = ServiceProvider.GetService<ServingCalculator>() ?? new ServingCalculator();
+        return calc.FormatQuantityRange(min, max);
+    }
+
+    private ShoppingListService ResolveShoppingListService()
+    {
+        var existing = ServiceProvider.GetService<ShoppingListService>();
+        if (existing != null)
+            return existing;
+
+        var dbFactory = ServiceProvider.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<Receptbanken.Infrastructure.Data.AppDbContext>>();
+        var calc = ServiceProvider.GetService<ServingCalculator>() ?? new ServingCalculator();
+        var agg = ServiceProvider.GetService<ShoppingListAggregator>() ?? new ShoppingListAggregator(calc);
+        var parser = ServiceProvider.GetService<SwedishIngredientParser>() ?? new SwedishIngredientParser();
+        var notifier = ServiceProvider.GetService<ShoppingListNotifier>() ?? new ShoppingListNotifier();
+        return new ShoppingListService(dbFactory, agg, parser, notifier);
+    }
+}

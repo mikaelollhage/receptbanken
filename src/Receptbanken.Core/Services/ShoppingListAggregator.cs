@@ -179,6 +179,79 @@ public class ShoppingListAggregator
     }
 
     /// <summary>
+    /// Returns a deterministic key for a normalized shopping list item representing its canonical ingredient,
+    /// unit family, and package size qualifier.
+    /// </summary>
+    public string GetContributionKey(ShoppingListItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        var normalized = CloneAndNormalize(item);
+        var identity = AnalyzeIdentity(normalized.Name, normalized.Comment);
+        var canonical = identity.CanonicalKey.ToLowerInvariant();
+        var normUnit = NormalizeUnit(normalized.Unit);
+
+        string unitFamily;
+        if (!normalized.Quantity.HasValue)
+        {
+            unitFamily = "UNQ";
+        }
+        else if (WeightFactorsToGrams.ContainsKey(normUnit))
+        {
+            unitFamily = "W";
+        }
+        else if (VolumeFactorsToMilliliters.ContainsKey(normUnit))
+        {
+            unitFamily = "V";
+        }
+        else
+        {
+            unitFamily = $"U:{normUnit}";
+        }
+
+        var pkgKey = ExtractPackageSizeKey(normalized.Comment) ?? string.Empty;
+        return $"{canonical}|{unitFamily}|{pkgKey}";
+    }
+
+    /// <summary>
+    /// Checks whether two shopping list items can be safely merged into a single shopping list item
+    /// (same canonical ingredient, no conflicting package size, and compatible units).
+    /// </summary>
+    public bool CanMergeItems(ShoppingListItem existing, ShoppingListItem incoming)
+    {
+        if (existing == null || incoming == null ||
+            string.IsNullOrWhiteSpace(existing.Name) || string.IsNullOrWhiteSpace(incoming.Name))
+        {
+            return false;
+        }
+
+        var normExisting = CloneAndNormalize(existing);
+        var normIncoming = CloneAndNormalize(incoming);
+
+        var existingId = AnalyzeIdentity(normExisting.Name, normExisting.Comment);
+        var incomingId = AnalyzeIdentity(normIncoming.Name, normIncoming.Comment);
+
+        if (string.IsNullOrWhiteSpace(existingId.CanonicalKey) ||
+            !string.Equals(existingId.CanonicalKey, incomingId.CanonicalKey, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (HasConflictingPackageSize(normExisting.Comment, normIncoming.Comment))
+        {
+            return false;
+        }
+
+        if (normExisting.Quantity.HasValue && normIncoming.Quantity.HasValue)
+        {
+            return CanSumUnits(normExisting.Unit, normIncoming.Unit);
+        }
+
+        var unquantified = normExisting.Quantity.HasValue ? normIncoming : normExisting;
+        return string.IsNullOrWhiteSpace(unquantified.Unit);
+    }
+
+    /// <summary>
     /// Aggregates incoming shopping list items into an existing list of unchecked items when
     /// ingredient names and units are conservatively compatible. Incompatible units or conflicting
     /// package sizes remain separate entries, and unquantified occurrences are preserved as comments.

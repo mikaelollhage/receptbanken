@@ -174,6 +174,13 @@
         @if (currentMenu != null)
         {
             <button type="button"
+                    class="btn-secondary-custom create-shopping-list-btn"
+                    disabled="@(isLoading || isSaving)"
+                    @onclick="HandleCreateShoppingListClickedAsync">
+                🛒 Skapa inköpslista
+            </button>
+
+            <button type="button"
                     class="btn-primary-custom confirm-week-btn"
                     style="background-color: var(--rb-success);"
                     disabled="@(isLoading || isSaving)"
@@ -219,6 +226,7 @@ else
                                OnMoveRecipe="HandleMoveRecipe"
                                OnCategoriesChanged="HandleDayCategoriesChanged"
                                OnManualRecipeChanged="HandleManualRecipeChanged"
+                               OnServingsChanged="HandleDayServingsChanged"
                                OnDragStartDay="HandleDragStartDay"
                                OnDragEndDay="HandleDragEndDay"
                                OnDropOnDay="HandleDropOnDay" />
@@ -231,6 +239,13 @@ else
     }
 
     <div class="weekly-bottom-bar">
+        <button type="button"
+                class="btn-secondary-custom create-shopping-list-bottom-btn"
+                disabled="@(isLoading || isSaving)"
+                @onclick="HandleCreateShoppingListClickedAsync">
+            🛒 Skapa inköpslista
+        </button>
+
         @if (currentMenu.Status == WeeklyMenuStatus.Draft)
         {
             <button type="button"
@@ -268,6 +283,22 @@ else
                OnConfirm="ConfirmDiscardAndNavigateAsync"
                OnCancel="CancelPendingNavigation" />
 
+<!-- Confirmation Dialog to save unsaved changes before generating shopping list preview (DEL C1) -->
+<ConfirmDialog IsVisible="showSaveBeforeShoppingConfirm"
+               Title="Spara ändringar i veckomenyn?"
+               Message="Du har osparade ändringar i veckomenyn. Vill du spara dina ändringar och fortsätta till inköpslistans förhandsgranskning?"
+               ConfirmText="Spara och fortsätt"
+               CancelText="Avbryt"
+               OnConfirm="ConfirmSaveAndOpenShoppingPreviewAsync"
+               OnCancel="@(() => showSaveBeforeShoppingConfirm = false)" />
+
+<WeeklyMenuShoppingPreview IsVisible="showShoppingPreview"
+                           InitialWeekDate="currentWeek.WeekStartDate"
+                           ReferenceToday="localToday"
+                           AllowWeekNavigation="false"
+                           OnCancel="@(() => showShoppingPreview = false)"
+                           OnConfirmed="HandleShoppingPreviewConfirmed" />
+
 @code {
     [SupplyParameterFromQuery(Name = "datum")] public string? DateQuery { get; set; }
 
@@ -289,6 +320,8 @@ else
 
     private bool showRegenerateConfirm = false;
     private bool showUnsavedNavigationConfirm = false;
+    private bool showSaveBeforeShoppingConfirm = false;
+    private bool showShoppingPreview = false;
     private DateOnly? pendingWeekDate;
     private string? pendingInternalNavigationUrl;
     private bool bypassInternalNavigationLock = false;
@@ -793,6 +826,97 @@ else
         }
 
         MarkMenuEdited();
+    }
+
+    private void HandleDayServingsChanged((int DayIndex, int Servings) args)
+    {
+        if (currentMenu == null)
+            return;
+
+        var day = currentMenu.Days.FirstOrDefault(d => d.DayIndex == args.DayIndex);
+        if (day == null || !day.RecipeId.HasValue)
+            return;
+
+        day.Servings = Math.Clamp(args.Servings, 1, 50);
+        MarkMenuEdited();
+    }
+
+    private async Task HandleCreateShoppingListClickedAsync()
+    {
+        if (currentMenu == null || isSaving || isLoading)
+            return;
+
+        if (hasUnsavedChanges)
+        {
+            showSaveBeforeShoppingConfirm = true;
+            return;
+        }
+
+        if (!hasSavedVersionInDb && currentMenu.Days.Any(d => d.RecipeId.HasValue))
+        {
+            await SaveCurrentMenuStateAsync();
+            if (feedback.IsError)
+                return;
+        }
+
+        showShoppingPreview = true;
+    }
+
+    private async Task ConfirmSaveAndOpenShoppingPreviewAsync()
+    {
+        showSaveBeforeShoppingConfirm = false;
+        await SaveCurrentMenuStateAsync();
+        if (!feedback.IsError)
+        {
+            showShoppingPreview = true;
+        }
+    }
+
+    private async Task SaveCurrentMenuStateAsync()
+    {
+        if (currentMenu == null || isSaving)
+            return;
+
+        feedbackPlacement = FeedbackPlacement.Top;
+        try
+        {
+            isSaving = true;
+            if (currentMenu.Status == WeeklyMenuStatus.Confirmed)
+            {
+                currentMenu = await WeeklyMenuService.ConfirmMenuAsync(currentMenu);
+            }
+            else
+            {
+                currentMenu = await WeeklyMenuService.SaveDraftAsync(currentMenu);
+            }
+
+            hasSavedVersionInDb = true;
+            hasUnsavedChanges = false;
+            hasUserModifiedDraft = false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Kunde inte spara veckomenyn inför skapande av inköpslista.");
+            feedback.ShowError("Kunde inte spara ändringarna i veckomenyn. Försök igen.");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void HandleShoppingPreviewConfirmed(WeeklyMenuShoppingConfirmResult result)
+    {
+        showShoppingPreview = false;
+        feedbackPlacement = FeedbackPlacement.Top;
+        if (!string.IsNullOrWhiteSpace(result.Message))
+        {
+            feedback.ShowSuccess(result.Message);
+        }
+        else
+        {
+            feedback.ShowSuccess($"{result.AddedItemsCount} varor lades till i inköpslistan.");
+        }
     }
 
     private async Task SaveDraftAsync(FeedbackPlacement placement = FeedbackPlacement.Top)

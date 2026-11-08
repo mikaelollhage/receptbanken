@@ -3,6 +3,7 @@
 @inject ShoppingListService ShoppingListService
 @inject RecipeService RecipeService
 @inject ServingCalculator ServingCalculator
+@inject IServiceProvider ServiceProvider
 @inject IJSRuntime JSRuntime
 @inject ILogger<ShoppingPlaceholder> Logger
 
@@ -77,6 +78,13 @@
                    OnConfirm="ConfirmClearAll"
                    OnCancel="@(() => showClearAllConfirm = false)" />
 
+    <WeeklyMenuShoppingPreview IsVisible="showWeeklyMenuPreview"
+                               InitialWeekDate="weeklyMenuPreviewDate"
+                               ReferenceToday="GetReferenceToday()"
+                               AllowWeekNavigation="true"
+                               OnCancel="@(() => showWeeklyMenuPreview = false)"
+                               OnConfirmed="HandleWeeklyMenuAdditionsConfirmedAsync" />
+
     <!-- Snabbinmatning och infällbart receptval -->
     <div class="detail-card shopping-quick-add-card">
         <div class="shopping-quick-add-row">
@@ -103,14 +111,23 @@
         @if (!isShoppingMode)
         {
             <div class="shopping-recipe-expander">
-                <button type="button"
-                        id="shopping-recipe-toggle-btn"
-                        class="shopping-recipe-toggle"
-                        aria-expanded="@showRecipePicker"
-                        @onclick="ToggleRecipePicker">
-                    <span>📖 Lägg till från recept</span>
-                    <span class="shopping-recipe-toggle-chevron" aria-hidden="true">@(showRecipePicker ? "▴" : "▾")</span>
-                </button>
+                <div class="shopping-source-toggles-row">
+                    <button type="button"
+                            id="shopping-recipe-toggle-btn"
+                            class="shopping-recipe-toggle"
+                            aria-expanded="@showRecipePicker"
+                            @onclick="ToggleRecipePicker">
+                        <span>📖 Lägg till från recept</span>
+                        <span class="shopping-recipe-toggle-chevron" aria-hidden="true">@(showRecipePicker ? "▴" : "▾")</span>
+                    </button>
+
+                    <button type="button"
+                            id="shopping-weekly-menu-btn"
+                            class="shopping-recipe-toggle shopping-weekly-menu-toggle"
+                            @onclick="OpenWeeklyMenuPreview">
+                        <span>📅 Lägg till från veckomeny</span>
+                    </button>
+                </div>
 
                 @if (showRecipePicker)
                 {
@@ -436,6 +453,8 @@
     private bool isShoppingMode = false;
     private bool showClearAllConfirm = false;
     private bool showRecipePicker = false;
+    private bool showWeeklyMenuPreview = false;
+    private DateOnly weeklyMenuPreviewDate;
     private bool _isDisposed;
     private bool _isDragging;
     private bool _hasPendingRealtimeUpdate;
@@ -611,6 +630,7 @@
         isShoppingMode = true;
         editingItemId = null;
         showRecipePicker = false;
+        showWeeklyMenuPreview = false;
         showClearAllConfirm = false;
 
         try
@@ -919,6 +939,34 @@
     private void ToggleRecipePicker()
     {
         showRecipePicker = !showRecipePicker;
+    }
+
+    private DateOnly GetReferenceToday()
+    {
+        var dateProvider = ServiceProvider.GetService(typeof(ILocalDateProvider)) as ILocalDateProvider;
+        return dateProvider?.GetLocalToday() ?? DateOnly.FromDateTime(DateTime.Today);
+    }
+
+    private void OpenWeeklyMenuPreview()
+    {
+        recipeAddFeedback.Clear();
+        listFeedback.Clear();
+        weeklyMenuPreviewDate = GetReferenceToday();
+        showWeeklyMenuPreview = true;
+    }
+
+    private async Task HandleWeeklyMenuAdditionsConfirmedAsync(WeeklyMenuShoppingConfirmResult result)
+    {
+        showWeeklyMenuPreview = false;
+        await ReloadItemsAsync();
+        if (!string.IsNullOrWhiteSpace(result.Message))
+        {
+            recipeAddFeedback.ShowSuccess(result.Message);
+        }
+        else
+        {
+            recipeAddFeedback.ShowSuccess($"{result.AddedItemsCount} varor lades till från veckomenyn.");
+        }
     }
 
     private void OnSelectedRecipeChanged()

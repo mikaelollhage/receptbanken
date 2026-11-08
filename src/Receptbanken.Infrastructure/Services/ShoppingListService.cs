@@ -33,6 +33,11 @@ public class ShoppingListService
 
     public long CurrentOrderingVersion => _notifier.OrderingVersion;
 
+    /// <summary>
+    /// Optional hook for testing transactional rollback when an error occurs right before committing weekly menu shopping additions.
+    /// </summary>
+    public Action? BeforeWeeklyMenuCommitTestHook { get; set; }
+
     public event Action<long>? OnChanged
     {
         add => _notifier.OnChanged += value;
@@ -723,5 +728,750 @@ public class ShoppingListService
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return merged;
+    }
+
+    public async Task<WeeklyMenuShoppingPreview> BuildWeeklyMenuPreviewAsync(
+        DateOnly dateInWeek,
+        CancellationToken cancellationToken = default)
+    {
+        var week = CalendarWeek.FromDate(dateInWeek);
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        return await BuildWeeklyMenuPreviewInternalAsync(db, week, inMemoryMenuOverride: null, cancellationToken);
+    }
+
+    public async Task<WeeklyMenuShoppingPreview> BuildWeeklyMenuPreviewAsync(
+        WeeklyMenu menu,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(menu);
+        var week = CalendarWeek.FromDate(menu.WeekStartDate);
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        return await BuildWeeklyMenuPreviewInternalAsync(db, week, inMemoryMenuOverride: menu, cancellationToken);
+    }
+
+    public async Task<WeeklyMenuShoppingConfirmResult> ConfirmWeeklyMenuAdditionsAsync(
+        DateOnly dateInWeek,
+        string expectedPreviewStamp,
+        IReadOnlyCollection<string> selectedPreviewItemKeys,
+        CancellationToken cancellationToken = default)
+    {
+        var week = CalendarWeek.FromDate(dateInWeek);
+
+        await WriteLock.WaitAsync(cancellationToken);
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+            var currentPreview = await BuildWeeklyMenuPreviewInternalAsync(db, week, inMemoryMenuOverride: null, cancellationToken);
+            if (!currentPreview.HasSavedMenu || !currentPreview.WeeklyMenuId.HasValue)
+            {
+                return new WeeklyMenuShoppingConfirmResult(
+                    WeeklyMenuConfirmStatus.MenuNotFound,
+                    AddedItemsCount: 0,
+                    AlreadyAddedCount: 0,
+                    ConflictCount: 0,
+                    UpdatedPreview: currentPreview,
+                    Message: $"Ingen sparad veckomeny hittades för vecka {week.IsoWeek}, {week.IsoYear}.");
+            }
+
+            if (!string.Equals(expectedPreviewStamp, currentPreview.PreviewStamp, StringComparison.Ordinal))
+            {
+                return new WeeklyMenuShoppingConfirmResult(
+                    WeeklyMenuConfirmStatus.Conflict,
+                    AddedItemsCount: 0,
+                    AlreadyAddedCount: currentPreview.AlreadyAddedCount,
+                    ConflictCount: 0,
+                    UpdatedPreview: currentPreview,
+                    Message: "Veckomenyn eller dess inköpstillägg har ändrats sedan förhandsgranskningen öppnades. Förhandsgranskningen har uppdaterats.");
+            }
+
+            var selectedSet = (selectedPreviewItemKeys ?? Array.Empty<string>())
+                .Where(k => !string.IsNullOrWhiteSpace(k))
+                .ToHashSet(StringComparer.Ordinal);
+
+            var selectedItems = currentPreview.Items
+                .Where(x => selectedSet.Contains(x.PreviewItemKey))
+                .ToList();
+
+            if (selectedItems.Count == 0)
+            {
+                return new WeeklyMenuShoppingConfirmResult(
+                    WeeklyMenuConfirmStatus.NoSelection,
+                    AddedItemsCount: 0,
+                    AlreadyAddedCount: currentPreview.AlreadyAddedCount,
+                    ConflictCount: 0,
+                    UpdatedPreview: currentPreview,
+                    Message: "Inga varor var valda för tillägg.");
+            }
+
+            var incomingShoppingItems = selectedItems
+                .Select(x => x.Item)
+                .ToList();
+
+            await MergeIntoTrackedShoppingListAsync(db, incomingShoppingItems, cancellationToken);
+
+            var menuId = currentPreview.WeeklyMenuId.Value;
+            var trackedContributions = await db.WeeklyMenuShoppingContributions
+                .Where(c => c.WeeklyMenuId == menuId)
+                .ToListAsync(cancellationToken);
+
+            long maxExistingTicks = trackedContributions.Count > 0
+                ? trackedContributions.Max(c => c.UpdatedAt.UtcTicks)
+                : 0L;
+            long nextTicks = Math.Max(DateTimeOffset.UtcNow.UtcTicks, maxExistingTicks + 1);
+            var timestamp = new DateTimeOffset(nextTicks, TimeSpan.Zero);
+
+            foreach (var selectedRow in selectedItems)
+            {
+                foreach (var contrib in selectedRow.SourceContributions)
+                {
+                    var targetOnSameDay = trackedContributions.FirstOrDefault(c =>
+                        c.DayIndex == contrib.DayIndex &&
+                        c.RecipeId == contrib.RecipeId &&
+                        string.Equals(c.ContributionKey, contrib.ContributionKey, StringComparison.OrdinalIgnoreCase));
+
+                    WeeklyMenuShoppingContribution? matchedById = contrib.ExistingContributionId.HasValue
+                        ? trackedContributions.FirstOrDefault(c => c.Id == contrib.ExistingContributionId.Value)
+                        : null;
+
+                    if (targetOnSameDay != null)
+                    {
+                        if (matchedById != null && matchedById.Id != targetOnSameDay.Id)
+                        {
+                            db.WeeklyMenuShoppingContributions.Remove(matchedById);
+                            trackedContributions.Remove(matchedById);
+                        }
+
+                        targetOnSameDay.WeekStartDate = week.WeekStartDate;
+                        targetOnSameDay.TargetServings = Math.Max(targetOnSameDay.TargetServings, contrib.PlannedServings);
+                        targetOnSameDay.AddedQuantity = contrib.FullQuantity;
+                        targetOnSameDay.AddedQuantityMax = contrib.FullQuantityMax;
+                        targetOnSameDay.Unit = contrib.Unit;
+                        targetOnSameDay.UpdatedAt = timestamp;
+                    }
+                    else if (matchedById != null)
+                    {
+                        matchedById.WeekStartDate = week.WeekStartDate;
+                        matchedById.DayIndex = contrib.DayIndex;
+                        matchedById.RecipeId = contrib.RecipeId;
+                        matchedById.ContributionKey = contrib.ContributionKey;
+                        matchedById.TargetServings = Math.Max(matchedById.TargetServings, contrib.PlannedServings);
+                        matchedById.AddedQuantity = contrib.FullQuantity;
+                        matchedById.AddedQuantityMax = contrib.FullQuantityMax;
+                        matchedById.Unit = contrib.Unit;
+                        matchedById.UpdatedAt = timestamp;
+                    }
+                    else
+                    {
+                        var created = new WeeklyMenuShoppingContribution
+                        {
+                            WeeklyMenuId = menuId,
+                            WeekStartDate = week.WeekStartDate,
+                            DayIndex = contrib.DayIndex,
+                            RecipeId = contrib.RecipeId,
+                            ContributionKey = contrib.ContributionKey,
+                            TargetServings = contrib.PlannedServings,
+                            AddedQuantity = contrib.FullQuantity,
+                            AddedQuantityMax = contrib.FullQuantityMax,
+                            Unit = contrib.Unit,
+                            UpdatedAt = timestamp
+                        };
+                        db.WeeklyMenuShoppingContributions.Add(created);
+                        trackedContributions.Add(created);
+                    }
+                }
+            }
+
+            BeforeWeeklyMenuCommitTestHook?.Invoke();
+
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            _notifier.NotifyChanged();
+
+            var updatedPreview = await BuildWeeklyMenuPreviewInternalAsync(db, week, inMemoryMenuOverride: null, cancellationToken);
+            int conflictCount = selectedItems.Count(x => !string.IsNullOrWhiteSpace(x.ConflictWarning));
+
+            var messageParts = new List<string>
+            {
+                $"{selectedItems.Count} {(selectedItems.Count == 1 ? "vara lades" : "varor lades")} till i inköpslistan från vecka {week.IsoWeek}."
+            };
+            if (conflictCount > 0)
+            {
+                messageParts.Add($"{conflictCount} {(conflictCount == 1 ? "vara hölls" : "varor hölls")} som separat rad p.g.a. olika enhet eller förpackning.");
+            }
+
+            return new WeeklyMenuShoppingConfirmResult(
+                WeeklyMenuConfirmStatus.Success,
+                AddedItemsCount: selectedItems.Count,
+                AlreadyAddedCount: updatedPreview.AlreadyAddedCount,
+                ConflictCount: conflictCount,
+                UpdatedPreview: updatedPreview,
+                Message: string.Join(" ", messageParts));
+        }
+        finally
+        {
+            WriteLock.Release();
+        }
+    }
+
+    private async Task MergeIntoTrackedShoppingListAsync(
+        AppDbContext db,
+        List<ShoppingListItem> incoming,
+        CancellationToken cancellationToken)
+    {
+        var trackedExisting = await db.ShoppingListItems
+            .OrderBy(x => x.IsChecked)
+            .ThenBy(x => x.SortOrder)
+            .ThenBy(x => x.CreatedAt)
+            .ThenBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+        int maxSortOrder = trackedExisting.Count == 0 ? 0 : trackedExisting.Max(x => x.SortOrder);
+        if (trackedExisting.Any(x => x.SortOrder <= 0))
+        {
+            int seq = 0;
+            foreach (var existing in trackedExisting
+                .OrderBy(x => x.SortOrder <= 0 ? int.MaxValue : x.SortOrder)
+                .ThenBy(x => x.CreatedAt)
+                .ThenBy(x => x.Id))
+            {
+                seq++;
+                if (existing.SortOrder <= 0)
+                {
+                    existing.SortOrder = Math.Max(seq, maxSortOrder + 1);
+                }
+                if (existing.SortOrder > maxSortOrder)
+                {
+                    maxSortOrder = existing.SortOrder;
+                }
+            }
+        }
+
+        var merged = _aggregator.MergeItems(trackedExisting, incoming);
+
+        foreach (var item in merged)
+        {
+            if (item.Id == 0 && !trackedExisting.Contains(item))
+            {
+                item.SortOrder = ++maxSortOrder;
+                db.ShoppingListItems.Add(item);
+            }
+        }
+    }
+
+    private async Task<WeeklyMenuShoppingPreview> BuildWeeklyMenuPreviewInternalAsync(
+        AppDbContext db,
+        CalendarWeek week,
+        WeeklyMenu? inMemoryMenuOverride,
+        CancellationToken cancellationToken)
+    {
+        var dbMenu = await db.WeeklyMenus
+            .AsNoTracking()
+            .Where(m => m.WeekStartDate == week.WeekStartDate || (m.IsoYear == week.IsoYear && m.IsoWeek == week.IsoWeek))
+            .Include(m => m.Days.OrderBy(d => d.DayIndex))
+                .ThenInclude(d => d.Recipe)
+                    .ThenInclude(r => r!.Ingredients.OrderBy(i => i.OrderIndex))
+            .Include(m => m.ShoppingContributions)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        WeeklyMenu? effectiveMenu = inMemoryMenuOverride ?? dbMenu;
+        if (effectiveMenu == null)
+        {
+            return new WeeklyMenuShoppingPreview
+            {
+                CalendarWeek = week,
+                WeeklyMenuId = null,
+                HasSavedMenu = false,
+                Status = WeeklyMenuStatus.Draft,
+                PreviewStamp = $"EMPTY:{week.WeekStartDate:yyyy-MM-dd}",
+                PlannedMeals = [],
+                Items = [],
+                HasReplacedOrClearedMealsWithPriorAdditions = false
+            };
+        }
+
+        var savedContributions = dbMenu?.ShoppingContributions
+            .OrderBy(c => c.DayIndex)
+            .ThenBy(c => c.Id)
+            .ToList() ?? [];
+
+        // Ensure all referenced recipes have their ingredients loaded
+        var recipeIdsNeeded = effectiveMenu.Days
+            .Where(d => d.RecipeId.HasValue && (d.Recipe == null || d.Recipe.Ingredients.Count == 0))
+            .Select(d => d.RecipeId!.Value)
+            .Distinct()
+            .ToList();
+
+        var recipesById = new Dictionary<int, Recipe>();
+        if (recipeIdsNeeded.Count > 0)
+        {
+            var loadedRecipes = await db.Recipes
+                .AsNoTracking()
+                .Include(r => r.Ingredients.OrderBy(i => i.OrderIndex))
+                .Where(r => recipeIdsNeeded.Contains(r.Id))
+                .ToListAsync(cancellationToken);
+
+            foreach (var r in loadedRecipes)
+            {
+                recipesById[r.Id] = r;
+            }
+        }
+
+        var orderedDays = effectiveMenu.Days
+            .OrderBy(d => d.DayIndex)
+            .ToList();
+
+        // Build per-day merged items
+        var dayEntries = new List<(WeeklyMenuDay Day, Recipe Recipe, int BaseServings, int PlannedServings, List<(ShoppingListItem FullItem, string ContributionKey)> DayItems)>();
+        var activeDayRecipePairs = new HashSet<(int DayIndex, int RecipeId)>();
+
+        foreach (var day in orderedDays)
+        {
+            if (!day.RecipeId.HasValue)
+                continue;
+
+            var recipe = day.Recipe;
+            if ((recipe == null || recipe.Ingredients.Count == 0) && recipesById.TryGetValue(day.RecipeId.Value, out var loaded))
+            {
+                recipe = loaded;
+            }
+            if (recipe == null)
+                continue;
+
+            int baseServings = recipe.Servings > 0 ? recipe.Servings : 4;
+            int plannedServings = day.Servings is > 0 ? day.Servings.Value : baseServings;
+
+            var rawDayShoppingItems = recipe.Ingredients
+                .Where(i => !string.IsNullOrWhiteSpace(i.Name))
+                .OrderBy(i => i.OrderIndex)
+                .Select(i => _aggregator.CreateFromRecipeIngredient(i, baseServings, plannedServings, recipe.Id))
+                .ToList();
+
+            var mergedWithinDay = _aggregator.MergeItems([], rawDayShoppingItems);
+            var keyedDayItems = mergedWithinDay
+                .Select(item => (FullItem: item, ContributionKey: _aggregator.GetContributionKey(item)))
+                .ToList();
+
+            dayEntries.Add((day, recipe, baseServings, plannedServings, keyedDayItems));
+            activeDayRecipePairs.Add((day.DayIndex, recipe.Id));
+        }
+
+        // Two-pass matching of saved contributions to active day items:
+        // Pass 1: Exact (DayIndex, RecipeId, ContributionKey) match.
+        // Pass 2: Unclaimed saved contribution with same (RecipeId, ContributionKey) from a DayIndex where RecipeId is no longer planned (recipe moved/swapped).
+        var claimedContributionIds = new HashSet<int>();
+        var matchedByDayAndKey = new Dictionary<(int DayIndex, int RecipeId, string Key), WeeklyMenuShoppingContribution>();
+
+        foreach (var entry in dayEntries)
+        {
+            foreach (var (_, key) in entry.DayItems)
+            {
+                var exactMatch = savedContributions.FirstOrDefault(c =>
+                    !claimedContributionIds.Contains(c.Id) &&
+                    c.DayIndex == entry.Day.DayIndex &&
+                    c.RecipeId == entry.Recipe.Id &&
+                    string.Equals(c.ContributionKey, key, StringComparison.OrdinalIgnoreCase));
+
+                if (exactMatch != null)
+                {
+                    claimedContributionIds.Add(exactMatch.Id);
+                    matchedByDayAndKey[(entry.Day.DayIndex, entry.Recipe.Id, key)] = exactMatch;
+                }
+            }
+        }
+
+        foreach (var entry in dayEntries)
+        {
+            foreach (var (_, key) in entry.DayItems)
+            {
+                var lookupKey = (entry.Day.DayIndex, entry.Recipe.Id, key);
+                if (matchedByDayAndKey.ContainsKey(lookupKey))
+                    continue;
+
+                var movedMatch = savedContributions.FirstOrDefault(c =>
+                    !claimedContributionIds.Contains(c.Id) &&
+                    !activeDayRecipePairs.Contains((c.DayIndex, c.RecipeId)) &&
+                    c.RecipeId == entry.Recipe.Id &&
+                    string.Equals(c.ContributionKey, key, StringComparison.OrdinalIgnoreCase));
+
+                if (movedMatch != null)
+                {
+                    claimedContributionIds.Add(movedMatch.Id);
+                    matchedByDayAndKey[lookupKey] = movedMatch;
+                }
+            }
+        }
+
+        bool hasReplacedOrClearedMealsWithPriorAdditions = savedContributions.Any(c => !claimedContributionIds.Contains(c.Id));
+
+        // Evaluate each day's item into pending vs already-added contributions
+        var plannedMeals = new List<WeeklyMenuPlannedMealDto>(dayEntries.Count);
+        var pendingDayItems = new List<(ShoppingListItem PendingItem, ShoppingListItem FullItem, WeeklyMenuDayContributionDto Contrib, string DayLabel)>();
+        var alreadyAddedDayItems = new List<(ShoppingListItem FullItem, WeeklyMenuDayContributionDto Contrib, string DayLabel)>();
+
+        foreach (var entry in dayEntries)
+        {
+            var dayName = CalendarWeek.GetSwedishDayName(entry.Day.DayIndex);
+            int dayTotalItems = entry.DayItems.Count;
+            int dayFullyAddedCount = 0;
+            int dayPartiallyAddedCount = 0;
+
+            foreach (var (fullItem, key) in entry.DayItems)
+            {
+                matchedByDayAndKey.TryGetValue((entry.Day.DayIndex, entry.Recipe.Id, key), out var matchedContrib);
+                int alreadyAddedServings = matchedContrib?.TargetServings ?? 0;
+
+                if (alreadyAddedServings <= 0)
+                {
+                    var contribDto = new WeeklyMenuDayContributionDto(
+                        ExistingContributionId: null,
+                        DayIndex: entry.Day.DayIndex,
+                        RecipeId: entry.Recipe.Id,
+                        RecipeTitle: entry.Recipe.Title,
+                        ContributionKey: key,
+                        PlannedServings: entry.PlannedServings,
+                        AlreadyAddedServings: 0,
+                        FullQuantity: fullItem.Quantity,
+                        FullQuantityMax: fullItem.QuantityMax,
+                        Unit: fullItem.Unit,
+                        IsPortionIncreaseDelta: false);
+
+                    pendingDayItems.Add((
+                        PendingItem: CloneShoppingItem(fullItem),
+                        FullItem: CloneShoppingItem(fullItem),
+                        Contrib: contribDto,
+                        DayLabel: $"{dayName} ({entry.PlannedServings} port)"));
+                }
+                else if (alreadyAddedServings < entry.PlannedServings && fullItem.Quantity.HasValue)
+                {
+                    // Portions were increased after prior addition -> calculate positive delta
+                    decimal prevMin;
+                    decimal? prevMax;
+
+                    if (matchedContrib!.AddedQuantity.HasValue &&
+                        string.Equals(matchedContrib.Unit, fullItem.Unit, StringComparison.OrdinalIgnoreCase))
+                    {
+                        prevMin = matchedContrib.AddedQuantity.Value;
+                        prevMax = matchedContrib.AddedQuantityMax;
+                    }
+                    else
+                    {
+                        var prevRawItems = entry.Recipe.Ingredients
+                            .Where(i => !string.IsNullOrWhiteSpace(i.Name))
+                            .OrderBy(i => i.OrderIndex)
+                            .Select(i => _aggregator.CreateFromRecipeIngredient(i, entry.BaseServings, alreadyAddedServings, entry.Recipe.Id))
+                            .ToList();
+                        var prevMerged = _aggregator.MergeItems([], prevRawItems);
+                        var prevMatch = prevMerged.FirstOrDefault(x =>
+                            string.Equals(_aggregator.GetContributionKey(x), key, StringComparison.OrdinalIgnoreCase));
+                        prevMin = prevMatch?.Quantity ?? 0m;
+                        prevMax = prevMatch?.QuantityMax;
+                    }
+
+                    decimal deltaMin = Math.Max(0m, Math.Round(fullItem.Quantity.Value - prevMin, 2, MidpointRounding.AwayFromZero));
+                    decimal? deltaMax = null;
+                    if (fullItem.QuantityMax.HasValue)
+                    {
+                        var effPrevMax = prevMax ?? prevMin;
+                        var candidateMax = Math.Round(fullItem.QuantityMax.Value - effPrevMax, 2, MidpointRounding.AwayFromZero);
+                        if (candidateMax > deltaMin)
+                        {
+                            deltaMax = candidateMax;
+                        }
+                    }
+
+                    var contribDto = new WeeklyMenuDayContributionDto(
+                        ExistingContributionId: matchedContrib.Id,
+                        DayIndex: entry.Day.DayIndex,
+                        RecipeId: entry.Recipe.Id,
+                        RecipeTitle: entry.Recipe.Title,
+                        ContributionKey: key,
+                        PlannedServings: entry.PlannedServings,
+                        AlreadyAddedServings: alreadyAddedServings,
+                        FullQuantity: fullItem.Quantity,
+                        FullQuantityMax: fullItem.QuantityMax,
+                        Unit: fullItem.Unit,
+                        IsPortionIncreaseDelta: deltaMin > 0m);
+
+                    if (deltaMin > 0m)
+                    {
+                        dayPartiallyAddedCount++;
+                        var deltaItem = new ShoppingListItem
+                        {
+                            RecipeId = entry.Recipe.Id,
+                            Name = fullItem.Name,
+                            Quantity = deltaMin,
+                            QuantityMax = deltaMax,
+                            Unit = fullItem.Unit,
+                            Comment = fullItem.Comment,
+                            IsChecked = false,
+                            RawText = _aggregator.FormatRawText(deltaMin, deltaMax, fullItem.Unit, fullItem.Name)
+                        };
+
+                        int diffServings = entry.PlannedServings - alreadyAddedServings;
+                        pendingDayItems.Add((
+                            PendingItem: deltaItem,
+                            FullItem: CloneShoppingItem(fullItem),
+                            Contrib: contribDto,
+                            DayLabel: $"{dayName} (+{diffServings} port, {alreadyAddedServings} av {entry.PlannedServings} port redan tillagda)"));
+                    }
+                    else
+                    {
+                        dayFullyAddedCount++;
+                        alreadyAddedDayItems.Add((
+                            FullItem: CloneShoppingItem(fullItem),
+                            Contrib: contribDto,
+                            DayLabel: $"{dayName} ({entry.PlannedServings} port)"));
+                    }
+                }
+                else
+                {
+                    dayFullyAddedCount++;
+                    var contribDto = new WeeklyMenuDayContributionDto(
+                        ExistingContributionId: matchedContrib?.Id,
+                        DayIndex: entry.Day.DayIndex,
+                        RecipeId: entry.Recipe.Id,
+                        RecipeTitle: entry.Recipe.Title,
+                        ContributionKey: key,
+                        PlannedServings: entry.PlannedServings,
+                        AlreadyAddedServings: alreadyAddedServings,
+                        FullQuantity: fullItem.Quantity,
+                        FullQuantityMax: fullItem.QuantityMax,
+                        Unit: fullItem.Unit,
+                        IsPortionIncreaseDelta: false);
+
+                    string label = alreadyAddedServings > entry.PlannedServings
+                        ? $"{dayName} ({entry.PlannedServings} port, tillagd för {alreadyAddedServings} port)"
+                        : $"{dayName} ({entry.PlannedServings} port)";
+
+                    alreadyAddedDayItems.Add((
+                        FullItem: CloneShoppingItem(fullItem),
+                        Contrib: contribDto,
+                        DayLabel: label));
+                }
+            }
+
+            bool isMealFullyAdded = dayTotalItems > 0 && dayFullyAddedCount == dayTotalItems;
+            bool isMealPartiallyAdded = !isMealFullyAdded && (dayFullyAddedCount > 0 || dayPartiallyAddedCount > 0);
+
+            plannedMeals.Add(new WeeklyMenuPlannedMealDto(
+                DayIndex: entry.Day.DayIndex,
+                DayName: dayName,
+                Date: entry.Day.Date,
+                RecipeId: entry.Recipe.Id,
+                RecipeTitle: entry.Recipe.Title,
+                BaseServings: entry.BaseServings,
+                PlannedServings: entry.PlannedServings,
+                ServingsUnit: entry.Recipe.ServingsUnit,
+                IsFullyAdded: isMealFullyAdded,
+                IsPartiallyAdded: isMealPartiallyAdded));
+        }
+
+        // Group pending items across the week using ShoppingListAggregator
+        var pendingGroups = new List<PreviewItemAccumulator>();
+        foreach (var p in pendingDayItems)
+        {
+            var matchGroup = pendingGroups.FirstOrDefault(g => _aggregator.CanMergeItems(g.AggregatedItem, p.PendingItem));
+            if (matchGroup != null)
+            {
+                var mergedList = _aggregator.MergeItems([matchGroup.AggregatedItem], [p.PendingItem]);
+                matchGroup.AggregatedItem = mergedList[0];
+                matchGroup.Contributions.Add(p.Contrib);
+                matchGroup.DayLabels.Add(p.DayLabel);
+                if (p.Contrib.IsPortionIncreaseDelta)
+                {
+                    matchGroup.AlreadyAddedLabels.Add($"{CalendarWeek.GetSwedishDayName(p.Contrib.DayIndex)} ({p.Contrib.AlreadyAddedServings} port redan tillagda)");
+                }
+            }
+            else
+            {
+                var acc = new PreviewItemAccumulator
+                {
+                    AggregatedItem = CloneShoppingItem(p.PendingItem),
+                    IsAlreadyAdded = false
+                };
+                acc.Contributions.Add(p.Contrib);
+                acc.DayLabels.Add(p.DayLabel);
+                if (p.Contrib.IsPortionIncreaseDelta)
+                {
+                    acc.AlreadyAddedLabels.Add($"{CalendarWeek.GetSwedishDayName(p.Contrib.DayIndex)} ({p.Contrib.AlreadyAddedServings} port redan tillagda)");
+                }
+                pendingGroups.Add(acc);
+            }
+        }
+
+        // Attach or group already-added items
+        var alreadyAddedGroups = new List<PreviewItemAccumulator>();
+        foreach (var a in alreadyAddedDayItems)
+        {
+            // Check if this already-added item belongs to an ingredient that also has a new pending need on another day
+            var matchingPendingGroup = pendingGroups.FirstOrDefault(g => _aggregator.CanMergeItems(g.AggregatedItem, a.FullItem));
+            if (matchingPendingGroup != null)
+            {
+                matchingPendingGroup.AlreadyAddedLabels.Add($"{a.DayLabel} ({a.FullItem.RawText})");
+                continue;
+            }
+
+            var matchAddedGroup = alreadyAddedGroups.FirstOrDefault(g => _aggregator.CanMergeItems(g.AggregatedItem, a.FullItem));
+            if (matchAddedGroup != null)
+            {
+                var mergedList = _aggregator.MergeItems([matchAddedGroup.AggregatedItem], [a.FullItem]);
+                matchAddedGroup.AggregatedItem = mergedList[0];
+                matchAddedGroup.Contributions.Add(a.Contrib);
+                matchAddedGroup.DayLabels.Add(a.DayLabel);
+            }
+            else
+            {
+                var acc = new PreviewItemAccumulator
+                {
+                    AggregatedItem = CloneShoppingItem(a.FullItem),
+                    IsAlreadyAdded = true
+                };
+                acc.Contributions.Add(a.Contrib);
+                acc.DayLabels.Add(a.DayLabel);
+                alreadyAddedGroups.Add(acc);
+            }
+        }
+
+        // Compare against current shopping list (Att handla & Klart)
+        var currentShoppingItems = await QueryOrderedItemsNoTrackingAsync(db, cancellationToken);
+        var uncheckedList = currentShoppingItems.Where(x => !x.IsChecked).ToList();
+        var checkedList = currentShoppingItems.Where(x => x.IsChecked).ToList();
+
+        var allAccumulators = pendingGroups.Concat(alreadyAddedGroups).ToList();
+        var previewItems = new List<WeeklyMenuPreviewItemDto>(allAccumulators.Count);
+
+        for (int i = 0; i < allAccumulators.Count; i++)
+        {
+            var acc = allAccumulators[i];
+            var item = acc.AggregatedItem;
+            var contribKey = _aggregator.GetContributionKey(item);
+            var prefix = acc.IsAlreadyAdded ? "ADDED" : "NEW";
+            var previewKey = $"{prefix}:{contribKey}:{i}";
+
+            var compatibleUnchecked = uncheckedList
+                .Where(u => _aggregator.CanMergeItems(u, item))
+                .Select(u => u.RawText)
+                .ToList();
+
+            var conflictingUnchecked = uncheckedList
+                .Where(u => _aggregator.AreSameIngredient(u.Name, item.Name) && !_aggregator.CanMergeItems(u, item))
+                .Select(u => u.RawText)
+                .ToList();
+
+            var matchingChecked = checkedList
+                .Where(c => _aggregator.AreSameIngredient(c.Name, item.Name))
+                .Select(c => c.RawText)
+                .ToList();
+
+            bool hasIntraWeekConflict = allAccumulators.Any(other =>
+                !ReferenceEquals(other, acc) &&
+                _aggregator.AreSameIngredient(other.AggregatedItem.Name, item.Name) &&
+                !_aggregator.CanMergeItems(other.AggregatedItem, item));
+
+            string? conflictWarning = null;
+            if (conflictingUnchecked.Count > 0)
+            {
+                conflictWarning = $"Finns i Att handla som {string.Join(", ", conflictingUnchecked)} (annan enhet/förpackning – läggs som separat rad)";
+            }
+            else if (hasIntraWeekConflict)
+            {
+                conflictWarning = "Förekommer med olika enheter eller förpackningsstorlekar i veckomenyn – visas som separata poster";
+            }
+
+            bool wasRemovedFromList = acc.IsAlreadyAdded &&
+                                      compatibleUnchecked.Count == 0 &&
+                                      conflictingUnchecked.Count == 0 &&
+                                      matchingChecked.Count == 0;
+
+            string? alreadyAddedSummary = acc.AlreadyAddedLabels.Count > 0
+                ? $"Redan tillagt: {string.Join(", ", acc.AlreadyAddedLabels.Distinct())}"
+                : null;
+
+            if (acc.IsAlreadyAdded && acc.Contributions.Any(c => c.AlreadyAddedServings > c.PlannedServings))
+            {
+                alreadyAddedSummary = "Tidigare tillagd för fler portioner – befintlig mängd i inköpslistan minskas inte automatiskt";
+            }
+
+            previewItems.Add(new WeeklyMenuPreviewItemDto
+            {
+                PreviewItemKey = previewKey,
+                Item = item,
+                IsAlreadyAdded = acc.IsAlreadyAdded,
+                IsSelectedByDefault = !acc.IsAlreadyAdded,
+                SourceDaysSummary = string.Join(", ", acc.DayLabels.Distinct()),
+                AlreadyAddedSummary = alreadyAddedSummary,
+                ExistingInUncheckedText = compatibleUnchecked.Count > 0 ? string.Join(", ", compatibleUnchecked) : null,
+                ExistingInCheckedText = matchingChecked.Count > 0 ? string.Join(", ", matchingChecked) : null,
+                ConflictWarning = conflictWarning,
+                WasRemovedFromShoppingList = wasRemovedFromList,
+                SourceContributions = acc.Contributions
+            });
+        }
+
+        string previewStamp = ComputePreviewStamp(effectiveMenu, dayEntries, savedContributions);
+
+        return new WeeklyMenuShoppingPreview
+        {
+            CalendarWeek = week,
+            WeeklyMenuId = dbMenu?.Id ?? (effectiveMenu.Id > 0 ? effectiveMenu.Id : null),
+            HasSavedMenu = dbMenu != null || effectiveMenu.Id > 0,
+            Status = effectiveMenu.Status,
+            PreviewStamp = previewStamp,
+            PlannedMeals = plannedMeals,
+            Items = previewItems,
+            HasReplacedOrClearedMealsWithPriorAdditions = hasReplacedOrClearedMealsWithPriorAdditions
+        };
+    }
+
+    private static string ComputePreviewStamp(
+        WeeklyMenu menu,
+        List<(WeeklyMenuDay Day, Recipe Recipe, int BaseServings, int PlannedServings, List<(ShoppingListItem FullItem, string ContributionKey)> DayItems)> dayEntries,
+        List<WeeklyMenuShoppingContribution> savedContributions)
+    {
+        var parts = new List<string>
+        {
+            $"M:{menu.Id}:{menu.WeekStartDate:yyyy-MM-dd}:{(int)menu.Status}:{menu.UpdatedAt.UtcTicks}"
+        };
+
+        foreach (var d in dayEntries)
+        {
+            parts.Add($"D:{d.Day.DayIndex}:{d.Recipe.Id}:{d.PlannedServings}:{d.Recipe.UpdatedAt.UtcTicks}");
+        }
+
+        foreach (var c in savedContributions.OrderBy(x => x.DayIndex).ThenBy(x => x.RecipeId).ThenBy(x => x.ContributionKey))
+        {
+            parts.Add($"C:{c.Id}:{c.DayIndex}:{c.RecipeId}:{c.ContributionKey}:{c.TargetServings}:{c.UpdatedAt.UtcTicks}");
+        }
+
+        return string.Join(";", parts);
+    }
+
+    private static ShoppingListItem CloneShoppingItem(ShoppingListItem src) =>
+        new()
+        {
+            Id = src.Id,
+            RecipeId = src.RecipeId,
+            Name = src.Name,
+            Quantity = src.Quantity,
+            QuantityMax = src.QuantityMax,
+            Unit = src.Unit,
+            Comment = src.Comment,
+            Department = src.Department,
+            IsChecked = src.IsChecked,
+            SortOrder = src.SortOrder,
+            CreatedAt = src.CreatedAt,
+            RawText = src.RawText
+        };
+
+    private sealed class PreviewItemAccumulator
+    {
+        public required ShoppingListItem AggregatedItem { get; set; }
+        public required bool IsAlreadyAdded { get; init; }
+        public List<WeeklyMenuDayContributionDto> Contributions { get; } = new();
+        public List<string> DayLabels { get; } = new();
+        public List<string> AlreadyAddedLabels { get; } = new();
     }
 }

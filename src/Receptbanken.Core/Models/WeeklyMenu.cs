@@ -21,6 +21,7 @@ public class WeeklyMenu
 
     public List<WeeklyMenuPantryItem> PantryItems { get; set; } = new();
     public List<WeeklyMenuDay> Days { get; set; } = new();
+    public List<WeeklyMenuShoppingContribution> ShoppingContributions { get; set; } = new();
 
     [NotMapped]
     public List<string> PantryIngredients
@@ -89,5 +90,37 @@ public class WeeklyMenuPantryItem
     public WeeklyMenu? WeeklyMenu { get; set; }
     public int OrderIndex { get; set; }
     public string IngredientName { get; set; } = string.Empty;
+}
+
+public class WeeklyMenuShoppingContribution
+{
+    public int Id { get; set; }
+    public int WeeklyMenuId { get; set; }
+    public WeeklyMenu? WeeklyMenu { get; set; }
+
+    public DateOnly WeekStartDate { get; set; }
+
+    /// <summary>
+    /// 0 = Måndag .. 6 = Söndag
+    /// </summary>
+    public int DayIndex { get; set; }
+
+    public int RecipeId { get; set; }
+
+    /// <summary>
+    /// Deterministic key representing the normalized ingredient, unit family, and package size key.
+    /// </summary>
+    public string ContributionKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Number of servings of <see cref="RecipeId"/> on this day that have been added to the shopping list.
+    /// </summary>
+    public int TargetServings { get; set; }
+
+    public decimal? AddedQuantity { get; set; }
+    public decimal? AddedQuantityMax { get; set; }
+    public string? Unit { get; set; }
+
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 

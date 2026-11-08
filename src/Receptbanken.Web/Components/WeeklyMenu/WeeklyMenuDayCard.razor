@@ -149,7 +149,11 @@
                         <span class="weekly-day-meta-item">@recipe.TotalTimeMinutes minuter</span>
                         <span class="weekly-day-meta-sep">·</span>
                     }
-                    <span class="weekly-day-meta-item">@servings @recipe.ServingsUnit</span>
+                    <div class="weekly-day-meta-item weekly-day-servings-control">
+                        <ServingAdjuster CurrentServings="servings"
+                                         Unit="@recipe.ServingsUnit"
+                                         OnServingsChanged="HandleServingsChanged" />
+                    </div>
                 </div>
 
                 @if (!string.IsNullOrWhiteSpace(Day.StatusMessage))
@@ -252,6 +256,7 @@
     [Parameter] public EventCallback<(int SourceDayIndex, int TargetDayIndex)> OnMoveRecipe { get; set; }
     [Parameter] public EventCallback<(int DayIndex, List<int> CategoryIds)> OnCategoriesChanged { get; set; }
     [Parameter] public EventCallback<(int DayIndex, int? RecipeId)> OnManualRecipeChanged { get; set; }
+    [Parameter] public EventCallback<(int DayIndex, int Servings)> OnServingsChanged { get; set; }
     [Parameter] public EventCallback<int> OnDragStartDay { get; set; }
     [Parameter] public EventCallback<int> OnDragEndDay { get; set; }
     [Parameter] public EventCallback<int> OnDropOnDay { get; set; }
@@ -380,6 +385,16 @@
         if (OnManualRecipeChanged.HasDelegate)
         {
             await OnManualRecipeChanged.InvokeAsync((Day.DayIndex, selectedRecipeId));
+        }
+    }
+
+    private async Task HandleServingsChanged(int newServings)
+    {
+        var clamped = Math.Clamp(newServings, 1, 50);
+        Day.Servings = clamped;
+        if (OnServingsChanged.HasDelegate)
+        {
+            await OnServingsChanged.InvokeAsync((Day.DayIndex, clamped));
         }
     }
 

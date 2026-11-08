@@ -364,6 +364,57 @@ namespace Receptbanken.Infrastructure.Migrations
                     b.ToTable("WeeklyMenuPantryItems");
                 });
 
+            modelBuilder.Entity("Receptbanken.Core.Models.WeeklyMenuShoppingContribution", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal?>("AddedQuantity")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("AddedQuantityMax")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ContributionKey")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DayIndex")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RecipeId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TargetServings")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Unit")
+                        .HasMaxLength(30)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("UpdatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateOnly>("WeekStartDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WeeklyMenuId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WeekStartDate");
+
+                    b.HasIndex("WeeklyMenuId", "DayIndex", "RecipeId", "ContributionKey")
+                        .IsUnique();
+
+                    b.ToTable("WeeklyMenuShoppingContributions");
+                });
+
             modelBuilder.Entity("Receptbanken.Core.Models.Ingredient", b =>
                 {
                     b.HasOne("Receptbanken.Core.Models.Recipe", "Recipe")
@@ -463,6 +514,17 @@ namespace Receptbanken.Infrastructure.Migrations
                     b.Navigation("WeeklyMenu");
                 });
 
+            modelBuilder.Entity("Receptbanken.Core.Models.WeeklyMenuShoppingContribution", b =>
+                {
+                    b.HasOne("Receptbanken.Core.Models.WeeklyMenu", "WeeklyMenu")
+                        .WithMany("ShoppingContributions")
+                        .HasForeignKey("WeeklyMenuId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("WeeklyMenu");
+                });
+
             modelBuilder.Entity("Receptbanken.Core.Models.Category", b =>
                 {
                     b.Navigation("RecipeCategories");
@@ -482,6 +544,8 @@ namespace Receptbanken.Infrastructure.Migrations
                     b.Navigation("Days");
 
                     b.Navigation("PantryItems");
+
+                    b.Navigation("ShoppingContributions");
                 });
 
             modelBuilder.Entity("Receptbanken.Core.Models.WeeklyMenuDay", b =>

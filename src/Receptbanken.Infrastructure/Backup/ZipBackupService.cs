@@ -75,6 +75,20 @@ public class ZipBackupService : IBackupService
             .OrderBy(x => x.Id)
             .ToListAsync(cancellationToken);
 
+        var weeklyMenus = await db.WeeklyMenus
+            .AsNoTracking()
+            .Include(m => m.PantryItems.OrderBy(p => p.OrderIndex))
+            .Include(m => m.Days.OrderBy(d => d.DayIndex))
+                .ThenInclude(d => d.Recipe)
+            .Include(m => m.Days)
+                .ThenInclude(d => d.SelectedCategories)
+                    .ThenInclude(sc => sc.Category)
+            .Include(m => m.ShoppingContributions)
+            .OrderBy(m => m.WeekStartDate)
+            .ToListAsync(cancellationToken);
+
+        var recipeTitleById = recipes.ToDictionary(r => r.Id, r => r.Title);
+
         var payload = new BackupDataPayload
         {
             Categories = categories.Select(c => new BackupCategoryDto
@@ -132,6 +146,45 @@ public class ZipBackupService : IBackupService
                 SortOrder = s.SortOrder,
                 Department = s.Department,
                 CreatedAt = s.CreatedAt
+            }).ToList(),
+            WeeklyMenus = weeklyMenus.Select(m => new BackupWeeklyMenuDto
+            {
+                WeekStartDate = m.WeekStartDate,
+                IsoYear = m.IsoYear,
+                IsoWeek = m.IsoWeek,
+                Status = m.Status,
+                ConfirmedAt = m.ConfirmedAt,
+                CreatedAt = m.CreatedAt,
+                UpdatedAt = m.UpdatedAt,
+                PantryIngredients = m.PantryItems
+                    .OrderBy(p => p.OrderIndex)
+                    .Select(p => p.IngredientName)
+                    .ToList(),
+                Days = m.Days.OrderBy(d => d.DayIndex).Select(d => new BackupWeeklyMenuDayDto
+                {
+                    DayIndex = d.DayIndex,
+                    Date = d.Date,
+                    RecipeTitle = d.Recipe?.Title ?? (d.RecipeId.HasValue && recipeTitleById.TryGetValue(d.RecipeId.Value, out var t) ? t : null),
+                    Servings = d.Servings,
+                    CategoryNames = d.SelectedCategories
+                        .Where(sc => sc.Category != null)
+                        .Select(sc => sc.Category!.Name)
+                        .ToList()
+                }).ToList(),
+                ShoppingContributions = m.ShoppingContributions
+                    .OrderBy(c => c.DayIndex)
+                    .ThenBy(c => c.ContributionKey)
+                    .Select(c => new BackupWeeklyMenuContributionDto
+                    {
+                        DayIndex = c.DayIndex,
+                        RecipeTitle = recipeTitleById.TryGetValue(c.RecipeId, out var rt) ? rt : string.Empty,
+                        ContributionKey = c.ContributionKey,
+                        TargetServings = c.TargetServings,
+                        AddedQuantity = c.AddedQuantity,
+                        AddedQuantityMax = c.AddedQuantityMax,
+                        Unit = c.Unit,
+                        UpdatedAt = c.UpdatedAt
+                    }).ToList()
             }).ToList()
         };
 
@@ -343,6 +396,11 @@ public class ZipBackupService : IBackupService
             {
                 if (replaceExisting)
                 {
+                    db.WeeklyMenuShoppingContributions.RemoveRange(await db.WeeklyMenuShoppingContributions.ToListAsync(cancellationToken));
+                    db.WeeklyMenuDayCategories.RemoveRange(await db.WeeklyMenuDayCategories.ToListAsync(cancellationToken));
+                    db.WeeklyMenuPantryItems.RemoveRange(await db.WeeklyMenuPantryItems.ToListAsync(cancellationToken));
+                    db.WeeklyMenuDays.RemoveRange(await db.WeeklyMenuDays.ToListAsync(cancellationToken));
+                    db.WeeklyMenus.RemoveRange(await db.WeeklyMenus.ToListAsync(cancellationToken));
                     db.ShoppingListItems.RemoveRange(await db.ShoppingListItems.ToListAsync(cancellationToken));
                     db.RecipeCategories.RemoveRange(await db.RecipeCategories.ToListAsync(cancellationToken));
                     db.Ingredients.RemoveRange(await db.Ingredients.ToListAsync(cancellationToken));
@@ -439,6 +497,92 @@ public class ZipBackupService : IBackupService
                 }
 
                 await db.SaveChangesAsync(cancellationToken);
+
+                // Restore Weekly Menus and their Shopping Contributions when present in backup
+                if (payload.WeeklyMenus is { Count: > 0 })
+                {
+                    var restoredRecipesByTitle = await db.Recipes
+                        .GroupBy(r => r.Title)
+                        .ToDictionaryAsync(g => g.Key, g => g.First().Id, StringComparer.OrdinalIgnoreCase, cancellationToken);
+
+                    foreach (var menuDto in payload.WeeklyMenus)
+                    {
+                        var existingMenu = await db.WeeklyMenus
+                            .FirstOrDefaultAsync(m => m.WeekStartDate == menuDto.WeekStartDate, cancellationToken);
+                        if (existingMenu != null)
+                            continue;
+
+                        var restoredMenu = new WeeklyMenu
+                        {
+                            WeekStartDate = menuDto.WeekStartDate,
+                            IsoYear = menuDto.IsoYear,
+                            IsoWeek = menuDto.IsoWeek,
+                            Status = menuDto.Status,
+                            ConfirmedAt = menuDto.ConfirmedAt,
+                            CreatedAt = menuDto.CreatedAt,
+                            UpdatedAt = menuDto.UpdatedAt,
+                            PantryItems = (menuDto.PantryIngredients ?? [])
+                                .Where(s => !string.IsNullOrWhiteSpace(s))
+                                .Select((name, idx) => new WeeklyMenuPantryItem
+                                {
+                                    OrderIndex = idx + 1,
+                                    IngredientName = name.Trim()
+                                })
+                                .ToList()
+                        };
+
+                        foreach (var dayDto in menuDto.Days ?? [])
+                        {
+                            int? matchedRecipeId = !string.IsNullOrWhiteSpace(dayDto.RecipeTitle) &&
+                                                   restoredRecipesByTitle.TryGetValue(dayDto.RecipeTitle, out var rid)
+                                ? rid
+                                : null;
+
+                            var restoredDay = new WeeklyMenuDay
+                            {
+                                DayIndex = dayDto.DayIndex,
+                                Date = dayDto.Date,
+                                RecipeId = matchedRecipeId,
+                                Servings = matchedRecipeId.HasValue ? dayDto.Servings : null
+                            };
+
+                            foreach (var catName in (dayDto.CategoryNames ?? []).Distinct(StringComparer.OrdinalIgnoreCase))
+                            {
+                                if (existingCategories.TryGetValue(catName, out var cat))
+                                {
+                                    restoredDay.SelectedCategories.Add(new WeeklyMenuDayCategory { Category = cat });
+                                }
+                            }
+
+                            restoredMenu.Days.Add(restoredDay);
+                        }
+
+                        foreach (var contribDto in menuDto.ShoppingContributions ?? [])
+                        {
+                            if (!string.IsNullOrWhiteSpace(contribDto.RecipeTitle) &&
+                                !string.IsNullOrWhiteSpace(contribDto.ContributionKey) &&
+                                restoredRecipesByTitle.TryGetValue(contribDto.RecipeTitle, out var contribRecipeId))
+                            {
+                                restoredMenu.ShoppingContributions.Add(new WeeklyMenuShoppingContribution
+                                {
+                                    WeekStartDate = menuDto.WeekStartDate,
+                                    DayIndex = contribDto.DayIndex,
+                                    RecipeId = contribRecipeId,
+                                    ContributionKey = contribDto.ContributionKey,
+                                    TargetServings = contribDto.TargetServings,
+                                    AddedQuantity = contribDto.AddedQuantity,
+                                    AddedQuantityMax = contribDto.AddedQuantityMax,
+                                    Unit = contribDto.Unit,
+                                    UpdatedAt = contribDto.UpdatedAt
+                                });
+                            }
+                        }
+
+                        db.WeeklyMenus.Add(restoredMenu);
+                    }
+
+                    await db.SaveChangesAsync(cancellationToken);
+                }
 
                 // Swap filesystem images
                 if (replaceExisting)
@@ -537,6 +681,7 @@ public class ZipBackupService : IBackupService
         public List<BackupCategoryDto> Categories { get; set; } = new();
         public List<BackupRecipeDto> Recipes { get; set; } = new();
         public List<BackupShoppingItemDto> ShoppingListItems { get; set; } = new();
+        public List<BackupWeeklyMenuDto> WeeklyMenus { get; set; } = new();
     }
 
     private sealed class BackupCategoryDto
@@ -597,6 +742,41 @@ public class ZipBackupService : IBackupService
         public int SortOrder { get; set; }
         public string? Department { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
+    }
+
+    private sealed class BackupWeeklyMenuDto
+    {
+        public DateOnly WeekStartDate { get; set; }
+        public int IsoYear { get; set; }
+        public int IsoWeek { get; set; }
+        public WeeklyMenuStatus Status { get; set; }
+        public DateTimeOffset? ConfirmedAt { get; set; }
+        public DateTimeOffset CreatedAt { get; set; }
+        public DateTimeOffset UpdatedAt { get; set; }
+        public List<string> PantryIngredients { get; set; } = new();
+        public List<BackupWeeklyMenuDayDto> Days { get; set; } = new();
+        public List<BackupWeeklyMenuContributionDto> ShoppingContributions { get; set; } = new();
+    }
+
+    private sealed class BackupWeeklyMenuDayDto
+    {
+        public int DayIndex { get; set; }
+        public DateOnly Date { get; set; }
+        public string? RecipeTitle { get; set; }
+        public int? Servings { get; set; }
+        public List<string> CategoryNames { get; set; } = new();
+    }
+
+    private sealed class BackupWeeklyMenuContributionDto
+    {
+        public int DayIndex { get; set; }
+        public string RecipeTitle { get; set; } = string.Empty;
+        public string ContributionKey { get; set; } = string.Empty;
+        public int TargetServings { get; set; }
+        public decimal? AddedQuantity { get; set; }
+        public decimal? AddedQuantityMax { get; set; }
+        public string? Unit { get; set; }
+        public DateTimeOffset UpdatedAt { get; set; }
     }
 }
 

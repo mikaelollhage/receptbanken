@@ -27,6 +27,7 @@ public class AppDbContext : DbContext
     public DbSet<WeeklyMenuDay> WeeklyMenuDays => Set<WeeklyMenuDay>();
     public DbSet<WeeklyMenuDayCategory> WeeklyMenuDayCategories => Set<WeeklyMenuDayCategory>();
     public DbSet<WeeklyMenuPantryItem> WeeklyMenuPantryItems => Set<WeeklyMenuPantryItem>();
+    public DbSet<WeeklyMenuShoppingContribution> WeeklyMenuShoppingContributions => Set<WeeklyMenuShoppingContribution>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -156,6 +157,11 @@ public class AppDbContext : DbContext
                 .WithOne(p => p.WeeklyMenu)
                 .HasForeignKey(p => p.WeeklyMenuId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.ShoppingContributions)
+                .WithOne(c => c.WeeklyMenu)
+                .HasForeignKey(c => c.WeeklyMenuId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // WeeklyMenuDay
@@ -192,6 +198,18 @@ public class AppDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.IngredientName).IsRequired().HasMaxLength(150);
+        });
+
+        // WeeklyMenuShoppingContribution
+        modelBuilder.Entity<WeeklyMenuShoppingContribution>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.ContributionKey).IsRequired().HasMaxLength(250);
+            entity.Property(e => e.Unit).HasMaxLength(30);
+            entity.Property(e => e.AddedQuantity).HasPrecision(10, 2);
+            entity.Property(e => e.AddedQuantityMax).HasPrecision(10, 2);
+            entity.HasIndex(e => new { e.WeeklyMenuId, e.DayIndex, e.RecipeId, e.ContributionKey }).IsUnique();
+            entity.HasIndex(e => e.WeekStartDate);
         });
     }
 }

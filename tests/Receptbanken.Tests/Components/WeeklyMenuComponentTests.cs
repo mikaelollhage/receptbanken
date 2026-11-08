@@ -1,6 +1,7 @@
 using Bunit;
 using FluentAssertions;
 using Microsoft.AspNetCore.Components.Web;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.FluentUI.AspNetCore.Components;
@@ -47,9 +48,15 @@ public class WeeklyMenuComponentTests : TestContext
         var generator = new WeeklyMenuGenerator(new SeededRandomProvider(42), pantryMatcher);
         var weeklyMenuService = new WeeklyMenuService(dbFactory, generator, pantryMatcher, NullLogger<WeeklyMenuService>.Instance);
         var localDateProvider = new FixedLocalDateProvider(localToday);
+        var calc = new ServingCalculator();
+        var aggregator = new ShoppingListAggregator(calc);
+        var parser = new SwedishIngredientParser();
+        var notifier = new ShoppingListNotifier();
+        var shoppingService = new ShoppingListService(dbFactory, aggregator, parser, notifier);
 
         Services.AddFluentUIComponents();
         Services.AddScoped<AppNotificationService>();
+        Services.AddSingleton<IDbContextFactory<AppDbContext>>(dbFactory);
         Services.AddSingleton<IImageStorageService>(imageStorage);
         Services.AddSingleton<ILocalDateProvider>(localDateProvider);
         Services.AddSingleton(recipeService);
@@ -57,6 +64,11 @@ public class WeeklyMenuComponentTests : TestContext
         Services.AddSingleton(pantryMatcher);
         Services.AddSingleton(generator);
         Services.AddSingleton(weeklyMenuService);
+        Services.AddSingleton(calc);
+        Services.AddSingleton(aggregator);
+        Services.AddSingleton(parser);
+        Services.AddSingleton(notifier);
+        Services.AddSingleton(shoppingService);
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         return (dbFactory, recipeService, categoryService, weeklyMenuService);
@@ -856,6 +868,429 @@ public class WeeklyMenuComponentTests : TestContext
             // Sunday (6) is unaffected
             cut.Find(".weekly-day-card[data-day-index='6'] .weekly-day-recipe-title").TextContent.Trim().Should().Be("Pasta");
             cut.Find(".weekly-day-card[data-day-index='6'] .weekly-drag-handle").ClassList.Should().NotContain("is-reorder-active");
+        });
+    }
+
+    [Fact]
+    public async Task K5_29_PortionAdjuster_ShownOnlyOnDaysWithRecipe_UpdatesServings_MarksUnsaved_AndFollowsRecipeOnSwap()
+    {
+        var localToday = new DateOnly(2026, 11, 2); // Vecka 45
+        var (dbFactory, recipeService, categoryService, weeklyMenuService) = await SetupServicesAsync(localToday);
+        using var _ = dbFactory;
+
+        var cats = await categoryService.GetCategoriesAsync();
+        var vardagId = cats.First(c => c.Name == "Vardagsmat").Id;
+
+        var pasta = await recipeService.CreateRecipeAsync(
+            new Recipe { Title = "Pasta Bolognese", PrepTimeMinutes = 15, CookTimeMinutes = 20, Servings = 4 },
+            [vardagId]);
+
+        var menu = await weeklyMenuService.GetOrCreateWeekMenuAsync(localToday);
+        // Endast måndag (index 0) har recept, övriga dagar är tomma
+        menu.Days[0].RecipeId = pasta.Id;
+        menu.Days[0].Recipe = pasta;
+        menu.Days[0].Servings = 4;
+        await weeklyMenuService.SaveDraftAsync(menu);
+
+        var cut = RenderComponent<WeeklyMenuPage>();
+
+        cut.WaitForAssertion(() =>
+        {
+            // Måndag visar portionsjusterare med 4 portioner
+            cut.FindAll(".weekly-day-card[data-day-index='0'] .weekly-day-servings-control .servings-adjuster").Should().ContainSingle();
+            cut.Find(".weekly-day-card[data-day-index='0'] .servings-count").TextContent.Trim().Should().Be("4 portioner");
+
+            // Tisdag (tom dag) har ingen portionsjusterare
+            cut.FindAll(".weekly-day-card[data-day-index='1'] .weekly-day-servings-control").Should().BeEmpty();
+        });
+
+        // Öka måndagens portioner från 4 -> 6 via '+'-knappen (andra .servings-btn)
+        cut.FindAll(".weekly-day-card[data-day-index='0'] .servings-btn").ElementAt(1).Click();
+        cut.FindAll(".weekly-day-card[data-day-index='0'] .servings-btn").ElementAt(1).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.Find(".weekly-day-card[data-day-index='0'] .servings-count").TextContent.Trim().Should().Be("6 portioner");
+            cut.Find(".weekly-status-badge.status-unsaved").TextContent.Should().Contain("Osparade ändringar");
+        });
+
+        // Flytta måndagens recept till tisdag via drag-and-drop -> portionsantalet (6) följer med till tisdag
+        cut.Find(".weekly-day-card[data-day-index='0'] .weekly-drag-handle").DragStart();
+        cut.Find(".weekly-day-card[data-day-index='1']").Drop();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.FindAll(".weekly-day-card[data-day-index='0'] .weekly-day-servings-control").Should().BeEmpty();
+            cut.Find(".weekly-day-card[data-day-index='1'] .servings-count").TextContent.Trim().Should().Be("6 portioner");
+        });
+    }
+
+    [Fact]
+    public async Task K5_30_And_32_WeeklyMenuPage_CreateShoppingList_HandlesUnsavedChanges_Previews_AndAddsSelectedItems()
+    {
+        var localToday = new DateOnly(2026, 11, 2); // Vecka 45
+        var (dbFactory, recipeService, categoryService, weeklyMenuService) = await SetupServicesAsync(localToday);
+        using var _ = dbFactory;
+
+        var cats = await categoryService.GetCategoriesAsync();
+        var vardagId = cats.First(c => c.Name == "Vardagsmat").Id;
+
+        var recipe = await recipeService.CreateRecipeAsync(
+            new Recipe
+            {
+                Title = "Kycklinggryta",
+                PrepTimeMinutes = 15,
+                CookTimeMinutes = 25,
+                Servings = 4,
+                Ingredients =
+                [
+                    new Ingredient { OrderIndex = 1, Quantity = 2m, Unit = "dl", Name = "grädde", RawText = "2 dl grädde" },
+                    new Ingredient { OrderIndex = 2, Quantity = 400m, Unit = "g", Name = "kycklingfilé", RawText = "400 g kycklingfilé" }
+                ]
+            },
+            [vardagId]);
+
+        var menu = await weeklyMenuService.GetOrCreateWeekMenuAsync(localToday);
+        menu.Days[0].RecipeId = recipe.Id;
+        menu.Days[0].Recipe = recipe;
+        menu.Days[0].Servings = 4;
+        await weeklyMenuService.SaveDraftAsync(menu);
+
+        var cut = RenderComponent<WeeklyMenuPage>();
+
+        // 1. Ändra måndagens portioner från 4 -> 6 utan att spara manuellt (osparade ändringar = true)
+        cut.WaitForAssertion(() => cut.FindAll(".weekly-day-card[data-day-index='0'] .servings-btn").Should().HaveCount(2));
+        cut.FindAll(".weekly-day-card[data-day-index='0'] .servings-btn").ElementAt(1).Click();
+        cut.FindAll(".weekly-day-card[data-day-index='0'] .servings-btn").ElementAt(1).Click();
+
+        // 2. Klicka på "🛒 Skapa inköpslista" -> dialog "Spara ändringar i veckomenyn?" visas (K1 #8)
+        cut.Find("button.create-shopping-list-btn").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var modal = cut.Find(".modal-dialog-custom");
+            modal.TextContent.Should().Contain("Spara ändringar i veckomenyn?");
+            modal.TextContent.Should().Contain("Spara och fortsätt");
+        });
+
+        // 3. Bekräfta "Spara och fortsätt" -> ändringarna (6 portioner) sparas och förhandsgranskningen öppnas
+        cut.Find(".modal-dialog-custom button.btn-danger-custom").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var previewDialog = cut.Find(".weekly-shopping-preview-dialog");
+            previewDialog.TextContent.Should().Contain("Vecka 45, 2026");
+            // Planerade middagar är hopfällda som standard (Etapp 3B.2A)
+            var mealsToggle = cut.Find("button.weekly-preview-meals-toggle");
+            mealsToggle.GetAttribute("aria-expanded").Should().Be("false");
+            mealsToggle.TextContent.Should().Contain("1 planerad middag");
+            cut.FindAll("#weekly-preview-meals-panel").Should().BeEmpty();
+
+            // 2 dl skalat till 6 portioner = 3 dl grädde; 400 g skalat till 6 portioner = 600 g kycklingfilé
+            previewDialog.TextContent.Should().Contain("3");
+            previewDialog.TextContent.Should().Contain("dl");
+            previewDialog.TextContent.Should().Contain("grädde");
+            previewDialog.TextContent.Should().Contain("600");
+            previewDialog.TextContent.Should().Contain("kycklingfilé");
+            previewDialog.TextContent.Should().Contain("2 varor att lägga till");
+        });
+
+        // Expandera planerade middagar och kontrollera att rätt och portioner visas
+        cut.Find("button.weekly-preview-meals-toggle").Click();
+        cut.WaitForAssertion(() =>
+        {
+            cut.Find("button.weekly-preview-meals-toggle").GetAttribute("aria-expanded").Should().Be("true");
+            var mealsPanel = cut.Find("#weekly-preview-meals-panel");
+            mealsPanel.TextContent.Should().Contain("Kycklinggryta");
+            mealsPanel.TextContent.Should().Contain("(6 portioner)");
+        });
+
+        // 4. Klicka på "🛒 Lägg till i inköpslistan (2)"
+        cut.Find("button.weekly-preview-confirm-btn").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.FindAll(".weekly-shopping-preview-dialog").Should().BeEmpty();
+            cut.Find(".rb-feedback-success").TextContent.Should().Contain("2").And.Contain("inköpslistan");
+        });
+
+        var shoppingService = Services.GetRequiredService<ShoppingListService>();
+        var items = await shoppingService.GetItemsAsync();
+        items.Should().HaveCount(2);
+        items.Should().Contain(i => i.Name == "grädde" && i.Quantity == 3m && i.Unit == "dl");
+        items.Should().Contain(i => i.Name == "kycklingfilé" && i.Quantity == 600m && i.Unit == "g");
+    }
+
+    [Fact]
+    public async Task K5_31_33_And_34_ShoppingListPage_AddFromWeeklyMenu_SupportsWeekNavigation_AndUpdatesListDirectly()
+    {
+        var localToday = new DateOnly(2026, 11, 2); // Vecka 45
+        var nextWeekDate = localToday.AddDays(7);   // Vecka 46
+        var (dbFactory, recipeService, categoryService, weeklyMenuService) = await SetupServicesAsync(localToday);
+        using var _ = dbFactory;
+
+        var cats = await categoryService.GetCategoriesAsync();
+        var vardagId = cats.First(c => c.Name == "Vardagsmat").Id;
+
+        var w45Recipe = await recipeService.CreateRecipeAsync(
+            new Recipe
+            {
+                Title = "Vecka 45 Gryta",
+                Servings = 4,
+                Ingredients = [new Ingredient { OrderIndex = 1, Quantity = 2m, Unit = "dl", Name = "mjölk", RawText = "2 dl mjölk" }]
+            },
+            [vardagId]);
+
+        var w46Recipe = await recipeService.CreateRecipeAsync(
+            new Recipe
+            {
+                Title = "Vecka 46 Soppa",
+                Servings = 4,
+                Ingredients = [new Ingredient { OrderIndex = 1, Quantity = 500m, Unit = "g", Name = "morötter", RawText = "500 g morötter" }]
+            },
+            [vardagId]);
+
+        var menu45 = await weeklyMenuService.GetOrCreateWeekMenuAsync(localToday);
+        menu45.Days[0].RecipeId = w45Recipe.Id;
+        await weeklyMenuService.SaveDraftAsync(menu45);
+
+        var menu46 = await weeklyMenuService.GetOrCreateWeekMenuAsync(nextWeekDate);
+        menu46.Days[1].RecipeId = w46Recipe.Id;
+        await weeklyMenuService.ConfirmMenuAsync(menu46);
+
+        var cut = RenderComponent<ShoppingPlaceholder>();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.Find("#shopping-weekly-menu-btn").TextContent.Should().Contain("Lägg till från veckomeny");
+        });
+
+        // 1. Öppna förhandsgranskningen från /inkopslista -> visar innevarande vecka (Vecka 45)
+        cut.Find("#shopping-weekly-menu-btn").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var dialog = cut.Find(".weekly-shopping-preview-dialog");
+            dialog.TextContent.Should().Contain("Vecka 45, 2026");
+            dialog.TextContent.Should().Contain("1 planerad middag");
+            dialog.TextContent.Should().Contain("mjölk");
+        });
+
+        // 2. Byt till nästa vecka (Vecka 46) via veckonavigeringen i förhandsgranskningen (K5 #34)
+        cut.Find("button.weekly-preview-next-week-btn").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var dialog = cut.Find(".weekly-shopping-preview-dialog");
+            dialog.TextContent.Should().Contain("Vecka 46, 2026");
+            dialog.TextContent.Should().Contain("Spikad");
+            dialog.TextContent.Should().Contain("morötter");
+        });
+
+        // Expandera planerade middagar för Vecka 46
+        cut.Find("button.weekly-preview-meals-toggle").Click();
+        cut.WaitForAssertion(() =>
+        {
+            cut.Find("#weekly-preview-meals-panel").TextContent.Should().Contain("Vecka 46 Soppa");
+        });
+
+        // 3. Bekräfta tillägg från Vecka 46 -> uppdaterar inköpslistan direkt (K5 #33)
+        cut.Find("button.weekly-preview-confirm-btn").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.FindAll(".weekly-shopping-preview-dialog").Should().BeEmpty();
+            cut.Find(".shopping-unchecked-list").TextContent.Should().Contain("500 g morötter");
+        });
+    }
+
+    [Fact]
+    public async Task Etapp3B2A_PreviewHierarchy_CollapsibleMeals_HiddenAlreadyAdded_InfoButton_Warnings_AndReselectRemovedItems()
+    {
+        var localToday = new DateOnly(2026, 11, 2); // Vecka 45
+        var (dbFactory, recipeService, categoryService, weeklyMenuService) = await SetupServicesAsync(localToday);
+        using var _ = dbFactory;
+
+        var shoppingService = Services.GetRequiredService<ShoppingListService>();
+        var cats = await categoryService.GetCategoriesAsync();
+        var vardagId = cats.First(c => c.Name == "Vardagsmat").Id;
+
+        var mondayRecipe = await recipeService.CreateRecipeAsync(
+            new Recipe
+            {
+                Title = "Kycklingpanna",
+                Servings = 4,
+                Ingredients =
+                [
+                    new Ingredient { OrderIndex = 1, Quantity = 400m, Unit = "g", Name = "kycklingfilé", RawText = "400 g kycklingfilé" },
+                    new Ingredient { OrderIndex = 2, Quantity = 2m, Unit = "dl", Name = "grädde", RawText = "2 dl grädde" },
+                    new Ingredient { OrderIndex = 3, Quantity = null, Unit = null, Name = "grädde", Preparation = "vispad", GroupHeader = "Till garnering", RawText = "vispad grädde" }
+                ]
+            },
+            [vardagId]);
+
+        var tuesdayRecipe = await recipeService.CreateRecipeAsync(
+            new Recipe
+            {
+                Title = "Tomatsoppa",
+                Servings = 4,
+                Ingredients =
+                [
+                    new Ingredient { OrderIndex = 1, Quantity = 500m, Unit = "g", Name = "tomater", RawText = "500 g tomater" }
+                ]
+            },
+            [vardagId]);
+
+        // Lägg in "2 st tomater" i Att handla så att "500 g tomater" ger en inkompatibel enhetsvarning!
+        await shoppingService.AddManualItemAsync("2 st tomater");
+
+        var menu = await weeklyMenuService.GetOrCreateWeekMenuAsync(localToday);
+        menu.Days[0].RecipeId = mondayRecipe.Id;
+        menu.Days[0].Servings = 4;
+        await weeklyMenuService.SaveDraftAsync(menu);
+
+        // Steg 1: Lägg till måndagens varor (kycklingfilé + grädde)
+        var initialPreview = await shoppingService.BuildWeeklyMenuPreviewAsync(localToday);
+        await shoppingService.ConfirmWeeklyMenuAdditionsAsync(
+            localToday,
+            initialPreview.PreviewStamp,
+            initialPreview.Items.Select(i => i.PreviewItemKey).ToList());
+
+        // Steg 2: Alla varor är nu hanterade -> verifiera meddelandet "Alla varor från veckomenyn är redan hanterade."
+        // och att redan tillagda varor ligger i den hopfällda sektionen "Visa redan tillagda varor (2)"
+        var cut = RenderComponent<WeeklyMenuPage>();
+        cut.WaitForAssertion(() => cut.Find("button.create-shopping-list-btn").Should().NotBeNull());
+        cut.Find("button.create-shopping-list-btn").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.Find(".weekly-preview-all-handled").TextContent.Should().Contain("Alla varor från veckomenyn är redan hanterade.");
+            cut.FindAll(".weekly-preview-pending-list").Should().BeEmpty();
+            var alreadyToggle = cut.Find("button.weekly-preview-already-added-toggle");
+            alreadyToggle.GetAttribute("aria-expanded").Should().Be("false");
+            alreadyToggle.TextContent.Should().Contain("Visa redan tillagda varor (2)");
+            cut.FindAll("#weekly-preview-already-added-panel").Should().BeEmpty();
+        });
+
+        // Stäng dialogen
+        cut.Find("button.weekly-preview-cancel-btn").Click();
+
+        // Steg 3: Radera "grädde" ur inköpslistan, öka måndagens portioner från 4 -> 6 (ger 200 g komplettering av kycklingfilé + 1 dl grädde),
+        // och lägg till tisdagens recept ("500 g tomater" som krockar i enhet med "2 st tomater").
+        // Dessutom: lägg till ett tredje recept eller låt oss testa en redan tillagd men borttagen vara genom att radera kycklingfilé på en måltid utan portionsökning!
+        // Låt oss behålla måndag på 4 portioner för grädde? Nej, om måndag ökar till 6 portioner får kycklingfilé en portionskomplettering (200 g).
+        // För att samtidigt ha en redan fullt tillagd men borttagen vara, lägger vi först till onsdag (Risotto, 4 port -> 3 dl arborioris) och raderar sedan arborioris ur inköpslistan!
+        var wednesdayRecipe = await recipeService.CreateRecipeAsync(
+            new Recipe
+            {
+                Title = "Svamprisotto",
+                Servings = 4,
+                Ingredients =
+                [
+                    new Ingredient { OrderIndex = 1, Quantity = 3m, Unit = "dl", Name = "arborioris", RawText = "3 dl arborioris" }
+                ]
+            },
+            [vardagId]);
+
+        menu.Days[2].RecipeId = wednesdayRecipe.Id;
+        menu.Days[2].Servings = 4;
+        await weeklyMenuService.SaveDraftAsync(menu);
+
+        var wedPreview = await shoppingService.BuildWeeklyMenuPreviewAsync(localToday);
+        await shoppingService.ConfirmWeeklyMenuAdditionsAsync(
+            localToday,
+            wedPreview.PreviewStamp,
+            wedPreview.Items.Where(i => i.IsSelectedByDefault).Select(i => i.PreviewItemKey).ToList());
+
+        // Radera arborioris ur inköpslistan (så att den är "Redan tillagd" men "Borttagen ur inköpslistan")
+        var currentShoppingItems = await shoppingService.GetItemsAsync();
+        var riceItem = currentShoppingItems.Single(i => i.Name == "arborioris");
+        await shoppingService.DeleteItemAsync(riceItem.Id);
+
+        // Ändra nu måndag till 6 portioner (komplettering för måndag) och lägg till tisdag (tomater med enhetsvarning)
+        menu.Days[0].Servings = 6;
+        menu.Days[1].RecipeId = tuesdayRecipe.Id;
+        menu.Days[1].Servings = 4;
+        await weeklyMenuService.SaveDraftAsync(menu);
+
+        // Ladda om sidan och öppna förhandsgranskningen
+        var cut2 = RenderComponent<WeeklyMenuPage>();
+        cut2.WaitForAssertion(() => cut2.Find("button.create-shopping-list-btn").Should().NotBeNull());
+        cut2.Find("button.create-shopping-list-btn").Click();
+
+        cut2.WaitForAssertion(() =>
+        {
+            // 1. Planerade middagar är hopfällda från start ("3 planerade middagar")
+            var mealsBtn = cut2.Find("button.weekly-preview-meals-toggle");
+            mealsBtn.GetAttribute("aria-expanded").Should().Be("false");
+            mealsBtn.TextContent.Should().Contain("3 planerade middagar");
+
+            // 2. Nya/kompletterande varor (kycklingfilé 200 g, grädde 1 dl med garneringskommentar, tomater 500 g med enhetsvarning)
+            // visas i .weekly-preview-pending-list medan redan tillagda (arborioris) är dolda i hopfälld sektion
+            var pendingRows = cut2.FindAll(".weekly-preview-pending-list .weekly-preview-item-row");
+            pendingRows.Should().HaveCount(3);
+
+            // 5. Garneringskommentar är synlig direkt på gräddraden
+            var creamRow = cut2.Find(".weekly-preview-pending-list .weekly-preview-item-row[data-ingredient-name='grädde']");
+            creamRow.QuerySelector(".weekly-preview-item-comment")!.TextContent.Should().Contain("till garnering");
+
+            // 6. Portionskomplettering är tydligt markerad på kycklingfilé ("Komplettering för måndag")
+            var chickenRow = cut2.Find(".weekly-preview-pending-list .weekly-preview-item-row[data-ingredient-name='kycklingfilé']");
+            chickenRow.QuerySelector(".weekly-preview-item-short-status")!.TextContent.Trim().Should().Be("Komplettering för måndag");
+            // Detaljerad spårning är dold innan man klickar på ⓘ
+            chickenRow.QuerySelectorAll(".weekly-preview-item-details").Should().BeEmpty();
+
+            // 7. Inkompatibla enheter har synlig varning direkt på tomatraden
+            var tomatoRow = cut2.Find(".weekly-preview-pending-list .weekly-preview-item-row[data-ingredient-name='tomater']");
+            tomatoRow.QuerySelector(".weekly-preview-inline-warning")!.TextContent.Should().Contain("Enhetsvarning");
+        });
+
+        // 4. Klicka på informationsknappen (ⓘ) på kycklingfilé och tomater -> visar spårningsdetaljer och enhetsvarning
+        cut2.Find(".weekly-preview-pending-list .weekly-preview-item-row[data-ingredient-name='kycklingfilé'] button.weekly-preview-info-btn").Click();
+        cut2.Find(".weekly-preview-pending-list .weekly-preview-item-row[data-ingredient-name='tomater'] button.weekly-preview-info-btn").Click();
+
+        cut2.WaitForAssertion(() =>
+        {
+            var chickenDetails = cut2.Find(".weekly-preview-pending-list .weekly-preview-item-row[data-ingredient-name='kycklingfilé'] .weekly-preview-item-details");
+            chickenDetails.TextContent.Should().Contain("Veckodagar:").And.Contain("4 av 6 port redan tillagda").And.Contain("Finns i Att handla: 400 g kycklingfilé");
+
+            var tomatoDetails = cut2.Find(".weekly-preview-pending-list .weekly-preview-item-row[data-ingredient-name='tomater'] .weekly-preview-item-details");
+            tomatoDetails.TextContent.Should().Contain("annan enhet");
+        });
+
+        // 9. Testa "Avmarkera alla" och "Välj nya"
+        cut2.Find("button.weekly-preview-deselect-all-btn").Click();
+        cut2.WaitForAssertion(() =>
+        {
+            cut2.Find(".weekly-preview-summary-counts").TextContent.Should().Contain("0 varor att lägga till");
+            cut2.Find("button.weekly-preview-confirm-btn").HasAttribute("disabled").Should().BeTrue();
+        });
+
+        cut2.Find("button.weekly-preview-select-new-btn").Click();
+        cut2.WaitForAssertion(() =>
+        {
+            cut2.Find(".weekly-preview-summary-counts").TextContent.Should().Contain("3 varor att lägga till");
+            cut2.Find("button.weekly-preview-confirm-btn").TextContent.Should().Contain("(3)");
+        });
+
+        // 3 & 8 & 10. Expandera "Visa redan tillagda varor (1)", verifiera att borttagna "arborioris" inte är förvald
+        // men kan bockas i manuellt och uppdaterar bekräftelseknappens antal till (4)!
+        cut2.Find("button.weekly-preview-already-added-toggle").Click();
+
+        cut2.WaitForAssertion(() =>
+        {
+            var riceRow = cut2.Find("#weekly-preview-already-added-panel .weekly-preview-item-row[data-ingredient-name='arborioris']");
+            riceRow.TextContent.Should().Contain("Borttagen ur inköpslistan");
+            riceRow.QuerySelector("input.weekly-preview-checkbox")!.HasAttribute("checked").Should().BeFalse();
+        });
+
+        // Bocka i arborioris manuellt
+        cut2.Find("#weekly-preview-already-added-panel .weekly-preview-item-row[data-ingredient-name='arborioris'] input.weekly-preview-checkbox").Change(true);
+
+        cut2.WaitForAssertion(() =>
+        {
+            cut2.Find(".weekly-preview-summary-counts").TextContent.Should().Contain("4 varor att lägga till");
+            cut2.Find("button.weekly-preview-confirm-btn").TextContent.Should().Contain("(4)");
         });
     }
 }

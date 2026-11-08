@@ -83,5 +83,32 @@ public class MigrationTests : IDisposable
         items[0].QuantityMax.Should().BeNull();
         items[0].Comment.Should().BeNull();
     }
+
+    [Fact]
+    public async Task Migrate_3B2_WhenExistingWeeklyMenusPresentBefore3B2_ShouldApplyCleanlyAndSupportContributions()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlite($"Data Source={_dbPath}")
+            .Options;
+
+        await using var context = new AppDbContext(options);
+
+        var migrator = context.Database.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>();
+        await migrator.MigrateAsync("AddShoppingListItemCommentAndQuantityMax");
+
+        await context.Database.ExecuteSqlRawAsync("""
+            INSERT INTO WeeklyMenus (IsoYear, IsoWeek, WeekStartDate, Status, CreatedAt, UpdatedAt)
+            VALUES (2026, 45, '2026-11-02', 0, 639297000000000000, 639297000000000000);
+            """);
+
+        await context.Database.MigrateAsync();
+
+        var appliedAfter = (await context.Database.GetAppliedMigrationsAsync()).ToList();
+        appliedAfter.Should().Contain(m => m.Contains("AddWeeklyMenuShoppingContributions"));
+
+        var menus = await context.WeeklyMenus.Include(m => m.ShoppingContributions).AsNoTracking().ToListAsync();
+        menus.Should().ContainSingle();
+        menus[0].ShoppingContributions.Should().BeEmpty();
+    }
 }
 
