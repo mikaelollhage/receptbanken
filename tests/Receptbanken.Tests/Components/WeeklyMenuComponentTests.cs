@@ -993,6 +993,7 @@ public class WeeklyMenuComponentTests : TestContext
             previewDialog.TextContent.Should().Contain("600");
             previewDialog.TextContent.Should().Contain("kycklingfilé");
             previewDialog.TextContent.Should().Contain("2 varor att lägga till");
+            cut.Find(".weekly-preview-selection-hint").TextContent.Should().Be("Avmarkera varor du redan har hemma eller inte behöver köpa.");
         });
 
         // Expandera planerade middagar och kontrollera att rätt och portioner visas
@@ -1166,6 +1167,7 @@ public class WeeklyMenuComponentTests : TestContext
         {
             cut.Find(".weekly-preview-all-handled").TextContent.Should().Contain("Alla varor från veckomenyn är redan hanterade.");
             cut.FindAll(".weekly-preview-pending-list").Should().BeEmpty();
+            cut.FindAll(".weekly-preview-selection-hint").Should().BeEmpty();
             var alreadyToggle = cut.Find("button.weekly-preview-already-added-toggle");
             alreadyToggle.GetAttribute("aria-expanded").Should().Be("false");
             alreadyToggle.TextContent.Should().Contain("Visa redan tillagda varor (2)");
@@ -1258,12 +1260,73 @@ public class WeeklyMenuComponentTests : TestContext
             tomatoDetails.TextContent.Should().Contain("annan enhet");
         });
 
-        // 9. Testa "Avmarkera alla" och "Välj nya"
+        // Informationsknappen använder en Fluent-ikon (inte tecknet ⓘ) och behåller sina ARIA-attribut/tillståndsklass
+        var openedInfoBtn = cut2.Find(".weekly-preview-pending-list .weekly-preview-item-row[data-ingredient-name='kycklingfilé'] button.weekly-preview-info-btn");
+        openedInfoBtn.QuerySelector("svg").Should().NotBeNull();
+        openedInfoBtn.TextContent.Should().NotContain("ⓘ");
+        openedInfoBtn.GetAttribute("aria-expanded").Should().Be("true");
+        openedInfoBtn.GetAttribute("aria-controls").Should().NotBeNullOrWhiteSpace();
+        openedInfoBtn.GetAttribute("aria-label").Should().Contain("kycklingfilé");
+        openedInfoBtn.ClassList.Should().Contain("is-open");
+        cut2.Find(".weekly-preview-pending-list .weekly-preview-item-row[data-ingredient-name='tomater'] button.weekly-preview-info-btn")
+            .ClassList.Should().Contain("has-warning");
+
+        // Planerade middagar: en rad per middag med fast kolumnstruktur, hopfälld som standard
+        cut2.FindAll("#weekly-preview-meals-panel").Should().BeEmpty();
+        cut2.Find("button.weekly-preview-meals-toggle").Click();
+        cut2.WaitForAssertion(() =>
+        {
+            var mealRows = cut2.FindAll("#weekly-preview-meals-panel > li.weekly-preview-meal-row").ToList();
+            mealRows.Should().HaveCount(3);
+            foreach (var mealRow in mealRows)
+            {
+                mealRow.QuerySelectorAll(".weekly-preview-meal-day").Should().ContainSingle();
+                mealRow.QuerySelectorAll(".weekly-preview-meal-title").Should().ContainSingle();
+                mealRow.QuerySelectorAll(".weekly-preview-meal-servings").Should().ContainSingle();
+                mealRow.QuerySelectorAll(".weekly-preview-meal-status").Should().ContainSingle();
+            }
+            mealRows.Select(r => r.GetAttribute("data-meal-day")).Should().Equal("0", "1", "2");
+            mealRows[0].QuerySelector(".weekly-preview-meal-day")!.TextContent.Should().Be("Måndag");
+            // Onsdagens recept är fullt tillagt (✓-ikon), måndagen har bara komplettering kvar
+            mealRows[2].QuerySelector(".weekly-preview-meal-status svg").Should().NotBeNull();
+            mealRows[0].QuerySelector(".weekly-preview-meal-status svg").Should().BeNull();
+        });
+
+        // Standardurval: alla nya förslag markerade, redan tillagda ej. "Markera endast nya" ändrar då inget (inaktiv).
+        cut2.Find(".weekly-preview-selection-hint").TextContent.Should().Be("Avmarkera varor du redan har hemma eller inte behöver köpa.");
+        bool IsChecked(string name) => cut2.Find($".weekly-preview-item-row[data-ingredient-name='{name}'] input.weekly-preview-checkbox").HasAttribute("checked");
+        var selectNewBtn = () => cut2.Find("button.weekly-preview-select-new-btn");
+        var deselectAllBtn = () => cut2.Find("button.weekly-preview-deselect-all-btn");
+        IsChecked("kycklingfilé").Should().BeTrue();
+        IsChecked("grädde").Should().BeTrue();
+        IsChecked("tomater").Should().BeTrue();
+        selectNewBtn().TextContent.Trim().Should().Be("Markera endast nya (3)");
+        selectNewBtn().HasAttribute("disabled").Should().BeTrue();
+        deselectAllBtn().HasAttribute("disabled").Should().BeFalse();
+
+        // Manuellt ändrat urval: avmarkera en ny vara -> massåtgärden blir aktiv och återställer endast urvalet
+        cut2.Find(".weekly-preview-item-row[data-ingredient-name='grädde'] input.weekly-preview-checkbox").Change(false);
+        cut2.WaitForAssertion(() =>
+        {
+            cut2.Find(".weekly-preview-summary-counts").TextContent.Should().Contain("2 varor att lägga till");
+            selectNewBtn().HasAttribute("disabled").Should().BeFalse();
+        });
+        selectNewBtn().Click();
+        cut2.WaitForAssertion(() =>
+        {
+            cut2.Find(".weekly-preview-summary-counts").TextContent.Should().Contain("3 varor att lägga till");
+            IsChecked("grädde").Should().BeTrue();
+            selectNewBtn().HasAttribute("disabled").Should().BeTrue();
+        });
+
+        // 9. Testa "Avmarkera alla" och "Markera endast nya"
         cut2.Find("button.weekly-preview-deselect-all-btn").Click();
         cut2.WaitForAssertion(() =>
         {
             cut2.Find(".weekly-preview-summary-counts").TextContent.Should().Contain("0 varor att lägga till");
             cut2.Find("button.weekly-preview-confirm-btn").HasAttribute("disabled").Should().BeTrue();
+            deselectAllBtn().HasAttribute("disabled").Should().BeTrue();
+            selectNewBtn().HasAttribute("disabled").Should().BeFalse();
         });
 
         cut2.Find("button.weekly-preview-select-new-btn").Click();
@@ -1271,6 +1334,8 @@ public class WeeklyMenuComponentTests : TestContext
         {
             cut2.Find(".weekly-preview-summary-counts").TextContent.Should().Contain("3 varor att lägga till");
             cut2.Find("button.weekly-preview-confirm-btn").TextContent.Should().Contain("(3)");
+            selectNewBtn().HasAttribute("disabled").Should().BeTrue();
+            deselectAllBtn().HasAttribute("disabled").Should().BeFalse();
         });
 
         // 3 & 8 & 10. Expandera "Visa redan tillagda varor (1)", verifiera att borttagna "arborioris" inte är förvald
@@ -1284,7 +1349,26 @@ public class WeeklyMenuComponentTests : TestContext
             riceRow.QuerySelector("input.weekly-preview-checkbox")!.HasAttribute("checked").Should().BeFalse();
         });
 
-        // Bocka i arborioris manuellt
+        // Bocka i arborioris manuellt -> "Markera endast nya" blir aktiv och kan rensa bort den igen
+        cut2.Find("#weekly-preview-already-added-panel .weekly-preview-item-row[data-ingredient-name='arborioris'] input.weekly-preview-checkbox").Change(true);
+
+        cut2.WaitForAssertion(() =>
+        {
+            cut2.Find(".weekly-preview-summary-counts").TextContent.Should().Contain("4 varor att lägga till");
+            cut2.Find("button.weekly-preview-confirm-btn").TextContent.Should().Contain("(4)");
+            selectNewBtn().HasAttribute("disabled").Should().BeFalse();
+        });
+
+        selectNewBtn().Click();
+        cut2.WaitForAssertion(() =>
+        {
+            cut2.Find(".weekly-preview-summary-counts").TextContent.Should().Contain("3 varor att lägga till");
+            cut2.Find("#weekly-preview-already-added-panel .weekly-preview-item-row[data-ingredient-name='arborioris'] input.weekly-preview-checkbox")
+                .HasAttribute("checked").Should().BeFalse();
+            selectNewBtn().HasAttribute("disabled").Should().BeTrue();
+        });
+
+        // Bocka i arborioris igen inför slutkontroll
         cut2.Find("#weekly-preview-already-added-panel .weekly-preview-item-row[data-ingredient-name='arborioris'] input.weekly-preview-checkbox").Change(true);
 
         cut2.WaitForAssertion(() =>

@@ -104,20 +104,25 @@
 
                         @if (isMealsExpanded)
                         {
-                            <div id="weekly-preview-meals-panel" class="weekly-preview-meals-list">
+                            <ul id="weekly-preview-meals-panel" class="weekly-preview-meals-list" aria-label="Planerade middagar">
                                 @foreach (var meal in preview.PlannedMeals)
                                 {
-                                    <span class="weekly-preview-meal-chip @(meal.IsFullyAdded ? "meal-added" : meal.IsPartiallyAdded ? "meal-partial" : "")"
-                                          data-meal-day="@meal.DayIndex">
-                                        <strong>@meal.DayName:</strong>
-                                        <span>@meal.RecipeTitle (@meal.PlannedServings @meal.ServingsUnit)</span>
-                                        @if (meal.IsFullyAdded)
-                                        {
-                                            <span class="weekly-preview-meal-status" title="Redan tillagd">✓</span>
-                                        }
-                                    </span>
+                                    <li class="weekly-preview-meal-row @(meal.IsFullyAdded ? "meal-added" : meal.IsPartiallyAdded ? "meal-partial" : "")"
+                                        data-meal-day="@meal.DayIndex">
+                                        <span class="weekly-preview-meal-day">@meal.DayName</span>
+                                        <span class="weekly-preview-meal-title">@meal.RecipeTitle</span>
+                                        <span class="weekly-preview-meal-servings">(@meal.PlannedServings @meal.ServingsUnit)</span>
+                                        <span class="weekly-preview-meal-status">
+                                            @if (meal.IsFullyAdded)
+                                            {
+                                                <span title="Redan tillagd" aria-label="Redan tillagd" role="img">
+                                                    <FluentIcon Value="@(new Icons.Regular.Size16.Checkmark())" Color="Color.Custom" CustomColor="currentColor" />
+                                                </span>
+                                            }
+                                        </span>
+                                    </li>
                                 }
-                            </div>
+                            </ul>
                         }
                     </div>
 
@@ -148,18 +153,18 @@
                                 {
                                     <button type="button"
                                             class="weekly-preview-link-btn weekly-preview-select-new-btn"
+                                            disabled="@(isSubmitting || IsSelectionAtDefault)"
+                                            title="Markerar endast de nya varorna och avmarkerar övriga"
                                             @onclick="SelectOnlyNewItems">
-                                        Välj nya (@preview.NewItemsCount)
+                                        Markera endast nya (@preview.NewItemsCount)
                                     </button>
                                 }
-                                @if (SelectedCount > 0)
-                                {
-                                    <button type="button"
-                                            class="weekly-preview-link-btn weekly-preview-deselect-all-btn"
-                                            @onclick="DeselectAllItems">
-                                        Avmarkera alla
-                                    </button>
-                                }
+                                <button type="button"
+                                        class="weekly-preview-link-btn weekly-preview-deselect-all-btn"
+                                        disabled="@(isSubmitting || SelectedCount == 0)"
+                                        @onclick="DeselectAllItems">
+                                    Avmarkera alla
+                                </button>
                             </div>
                         </div>
 
@@ -171,6 +176,8 @@
                         }
                         else
                         {
+                            <p class="weekly-preview-selection-hint">Avmarkera varor du redan har hemma eller inte behöver köpa.</p>
+
                             <ul class="weekly-preview-items-list weekly-preview-pending-list" aria-label="Varor att lägga till">
                                 @foreach (var row in pendingItems)
                                 {
@@ -259,6 +266,10 @@
     private IReadOnlyList<WeeklyMenuPreviewItemDto> AlreadyAddedItems =>
         preview == null ? [] : preview.Items.Where(i => i.IsAlreadyAdded).ToList();
 
+    /// <summary>True when the current selection equals the default one ("Markera endast nya" would change nothing).</summary>
+    private bool IsSelectionAtDefault => preview != null
+        && selectedKeys.SetEquals(preview.Items.Where(i => i.IsSelectedByDefault).Select(i => i.PreviewItemKey));
+
     private int SelectedCount => preview == null
         ? 0
         : preview.Items.Count(i => selectedKeys.Contains(i.PreviewItemKey));
@@ -270,6 +281,9 @@
         string? shortStatus = GetShortItemStatus(row);
         bool hasConflictWarning = !string.IsNullOrWhiteSpace(row.ConflictWarning);
         bool hasCheckedOverlap = !string.IsNullOrWhiteSpace(row.ExistingInCheckedText);
+        // The secondary overlap line already says "Finns redan under Klart: …", so the chip would be redundant.
+        bool checkedShownInOverlapLine = hasCheckedOverlap
+            && row.ExistingOverlapSummary?.Contains("under Klart", StringComparison.Ordinal) == true;
         bool hasDetails = HasItemDetails(row);
         string detailsId = $"weekly-preview-details-{row.PreviewItemKey.GetHashCode():X}";
 
@@ -306,7 +320,7 @@
                                     ⚠️ Enhetsvarning
                                 </span>
                             }
-                            else if (hasCheckedOverlap)
+                            else if (hasCheckedOverlap && !checkedShownInOverlapLine)
                             {
                                 <span class="weekly-preview-inline-checked"
                                       title="@($"Finns under Klart: {row.ExistingInCheckedText}")">
@@ -318,6 +332,11 @@
                         @if (!string.IsNullOrWhiteSpace(row.Item.Comment))
                         {
                             <div class="weekly-preview-item-comment">@row.Item.Comment</div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(row.ExistingOverlapSummary))
+                        {
+                            <div class="weekly-preview-item-overlap">@row.ExistingOverlapSummary</div>
                         }
 
                         @if (!string.IsNullOrWhiteSpace(shortStatus))
@@ -338,7 +357,7 @@
                             aria-label="@($"Visa detaljer för {row.Item.Name}")"
                             title="Visa detaljer"
                             @onclick="@(() => ToggleItemDetails(row.PreviewItemKey))">
-                        ⓘ
+                        <FluentIcon Value="@(new Icons.Regular.Size20.Info())" Color="Color.Custom" CustomColor="currentColor" />
                     </button>
                 }
             </div>

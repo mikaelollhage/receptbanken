@@ -46,6 +46,7 @@ public sealed class WeeklyMenuPreviewItemDto
     public string? AlreadyAddedSummary { get; init; }
     public string? ExistingInUncheckedText { get; set; }
     public string? ExistingInCheckedText { get; set; }
+    public string? ExistingOverlapSummary { get; set; }
     public string? ConflictWarning { get; set; }
     public bool WasRemovedFromShoppingList { get; set; }
     public required IReadOnlyList<WeeklyMenuDayContributionDto> SourceContributions { get; init; }

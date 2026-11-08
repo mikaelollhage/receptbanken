@@ -730,7 +730,8 @@ public class ShoppingListRealtimeComponentTests
         dragHandle2.DragEnd();
 
         // 6. The FIRST deliberate click on the drag handle after drag immediately opens the menu
-        view.FindAll(".shopping-drag-handle").ToList()[0].Click();
+        // Find + click run atomically on the renderer so a re-render cannot invalidate the handler id in between.
+        await view.InvokeAsync(() => view.FindAll(".shopping-drag-handle").ToList()[0].Click());
         view.WaitForAssertion(() =>
         {
             view.FindAll(".shopping-item-reorder-bar").Should().ContainSingle("första avsiktliga klicket efter dragning ska öppna menyn direkt");
@@ -749,10 +750,11 @@ public class ShoppingListRealtimeComponentTests
         handleToCancel.DragEnd();
         view.FindAll(".shopping-item-reorder-bar").Should().BeEmpty("avbruten dragning öppnar inte menyn");
 
-        view.FindAll(".shopping-drag-handle").ToList()[0].Click();
+        await view.InvokeAsync(() => view.FindAll(".shopping-drag-handle").ToList()[0].Click());
         view.WaitForAssertion(() =>
         {
-            view.FindAll(".shopping-item-reorder-bar").Should().ContainSingle("första klicket efter avbruten dragning ska öppna menyn direkt");
+            view.FindAll(".shopping-item-reorder-bar")
+            .Should().ContainSingle("första klicket efter avbruten dragning ska öppna menyn direkt");
         });
     }
 

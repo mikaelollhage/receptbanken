@@ -1405,6 +1405,9 @@ public class ShoppingListService
                 AlreadyAddedSummary = alreadyAddedSummary,
                 ExistingInUncheckedText = compatibleUnchecked.Count > 0 ? string.Join(", ", compatibleUnchecked) : null,
                 ExistingInCheckedText = matchingChecked.Count > 0 ? string.Join(", ", matchingChecked) : null,
+                ExistingOverlapSummary = acc.IsAlreadyAdded
+                    ? null
+                    : BuildExistingOverlapSummary(item, uncheckedList, checkedList),
                 ConflictWarning = conflictWarning,
                 WasRemovedFromShoppingList = wasRemovedFromList,
                 SourceContributions = acc.Contributions
@@ -1447,6 +1450,97 @@ public class ShoppingListService
         }
 
         return string.Join(";", parts);
+    }
+
+    /// <summary>
+    /// Builds a short, read-only hint describing matching items already on the shopping list.
+    /// Totals are only shown when the real merge would update exactly one unchecked row.
+    /// </summary>
+    private string? BuildExistingOverlapSummary(
+        ShoppingListItem incoming,
+        IReadOnlyList<ShoppingListItem> uncheckedList,
+        IReadOnlyList<ShoppingListItem> checkedList)
+    {
+        string Describe(ShoppingListItem x) => x.Quantity.HasValue
+            ? _aggregator.FormatRawText(x.Quantity, x.QuantityMax, x.Unit, string.Empty)
+            : string.Empty;
+
+        var sameUnchecked = uncheckedList.Where(u => _aggregator.AreSameIngredient(u.Name, incoming.Name)).ToList();
+        var sameChecked = checkedList.Where(c => _aggregator.AreSameIngredient(c.Name, incoming.Name)).ToList();
+
+        if (sameUnchecked.Count == 0 && sameChecked.Count == 0)
+        {
+            return null;
+        }
+
+        var parts = new List<string>();
+
+        if (sameUnchecked.Count > 0)
+        {
+            var quantified = sameUnchecked.Where(u => u.Quantity.HasValue).Select(Describe).ToList();
+            if (quantified.Count == 0)
+            {
+                parts.Add("Finns redan utan angiven mängd – kontrollera om det räcker");
+            }
+            else
+            {
+                var text = $"Finns redan: {string.Join(" + ", quantified)}";
+                if (sameUnchecked.Count == 1 && sameUnchecked[0].Quantity.HasValue && incoming.Quantity.HasValue)
+                {
+                    var total = TrySimulateMergedTotal(sameUnchecked[0], incoming, uncheckedList);
+                    if (total != null)
+                    {
+                        text += $" · Efter tillägg: {total}";
+                    }
+                }
+                parts.Add(text);
+            }
+        }
+
+        if (sameChecked.Count > 0)
+        {
+            var quantified = sameChecked.Where(c => c.Quantity.HasValue).Select(Describe).ToList();
+            parts.Add(quantified.Count > 0
+                ? $"Finns redan under Klart: {string.Join(" + ", quantified)}"
+                : "Finns redan under Klart utan angiven mängd");
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    private string? TrySimulateMergedTotal(
+        ShoppingListItem target,
+        ShoppingListItem incoming,
+        IReadOnlyList<ShoppingListItem> uncheckedList)
+    {
+        var clones = uncheckedList.Select(CloneShoppingItem).ToList();
+        var targetIndex = uncheckedList.ToList().IndexOf(target);
+        if (targetIndex < 0)
+        {
+            return null;
+        }
+        var targetClone = clones[targetIndex];
+        var result = _aggregator.MergeItems(clones, [CloneShoppingItem(incoming)]);
+
+        // Only trust the total if the real merge updates exactly this row and adds no new one
+        if (result.Count != clones.Count || !result.Contains(targetClone))
+        {
+            return null;
+        }
+
+        var changedRows = clones
+            .Select((c, i) => (c, o: uncheckedList[i]))
+            .Where(x => x.c.Quantity != x.o.Quantity || x.c.QuantityMax != x.o.QuantityMax ||
+                        !string.Equals(x.c.Unit, x.o.Unit, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.c)
+            .ToList();
+
+        if (changedRows.Count != 1 || !ReferenceEquals(changedRows[0], targetClone) || !targetClone.Quantity.HasValue)
+        {
+            return null;
+        }
+
+        return _aggregator.FormatRawText(targetClone.Quantity, targetClone.QuantityMax, targetClone.Unit, string.Empty);
     }
 
     private static ShoppingListItem CloneShoppingItem(ShoppingListItem src) =>

@@ -3525,39 +3525,56 @@ body.shopping-touch-reordering * {
 }
 
 .weekly-preview-meals-list {
+  list-style: none;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 10px 12px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
   margin-top: 6px;
   background-color: rgba(255, 255, 255, 0.015);
   border: 1px solid var(--rb-border);
   border-radius: var(--rb-radius-sm);
 }
 
-.weekly-preview-meal-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border-radius: var(--rb-radius-sm);
-  background-color: var(--rb-bg-card);
-  border: 1px solid var(--rb-border);
-  font-size: 12px;
+.weekly-preview-meal-row {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr) auto 20px;
+  align-items: start;
+  column-gap: 8px;
+  padding: 5px 2px;
+  font-size: 13px;
   color: var(--rb-text-primary);
 }
 
-.weekly-preview-meal-chip strong {
-  color: var(--rb-accent-gold);
+.weekly-preview-meal-row + .weekly-preview-meal-row {
+  border-top: 1px solid var(--rb-border);
 }
 
-.weekly-preview-meal-chip.meal-added {
-  border-color: rgba(52, 211, 153, 0.35);
+.weekly-preview-meal-day {
+  color: var(--rb-accent-gold);
+  font-weight: 600;
+}
+
+.weekly-preview-meal-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.weekly-preview-meal-servings {
+  color: var(--rb-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  line-height: 1.6;
 }
 
 .weekly-preview-meal-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
   color: #6ee7b7;
-  font-weight: 700;
 }
 
 .weekly-preview-prior-meals-notice {
@@ -3604,11 +3621,36 @@ body.shopping-touch-reordering * {
   font-size: 12px;
   cursor: pointer;
   min-height: 32px;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.weekly-preview-link-btn:hover {
+.weekly-preview-link-btn:hover:not(:disabled) {
   color: var(--rb-text-primary);
   border-color: var(--rb-accent-gold);
+}
+
+/* Massåtgärder är inga valbara lägen: ingen "vald"-look efter klick/tryck, men tydlig fokusmarkering för tangentbord */
+.weekly-preview-link-btn:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.weekly-preview-link-btn:focus-visible {
+  outline: 2px solid var(--rb-accent-gold);
+  outline-offset: 2px;
+  color: var(--rb-text-primary);
+}
+
+.weekly-preview-link-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  border-style: dashed;
+}
+
+.weekly-preview-selection-hint {
+  font-size: 13px;
+  color: var(--rb-text-secondary);
+  margin: 0 0 10px 0;
+  line-height: 1.4;
 }
 
 .weekly-preview-all-handled {
@@ -3760,14 +3802,15 @@ body.shopping-touch-reordering * {
   border: 1px solid transparent;
   color: var(--rb-text-secondary);
   border-radius: var(--rb-radius-sm);
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  min-height: 34px;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
   cursor: pointer;
   flex-shrink: 0;
   transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
@@ -3779,6 +3822,11 @@ body.shopping-touch-reordering * {
   color: var(--rb-text-primary);
   border-color: var(--rb-border);
   background-color: rgba(255, 255, 255, 0.05);
+}
+
+.weekly-preview-info-btn.is-open {
+  border-color: rgba(242, 166, 90, 0.45);
+  background-color: rgba(242, 166, 90, 0.1);
 }
 
 .weekly-preview-info-btn.has-warning {
@@ -3845,4 +3893,11 @@ body.shopping-touch-reordering * {
     width: 100%;
     justify-content: center;
   }
+}
+
+.weekly-preview-item-overlap {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--rb-text-secondary);
+  line-height: 1.35;
 }
