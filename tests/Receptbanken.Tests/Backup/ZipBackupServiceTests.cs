@@ -192,6 +192,121 @@ public class ZipBackupServiceTests : IDisposable
         (await File.ReadAllBytesAsync(existingImageFile)).Should().Equal([9, 9, 9]);
     }
 
+    [Fact]
+    public async Task ExportAndRestore_I3_24_ShouldPreserveShoppingListCommentAndQuantityMax_AndRestoreLegacyBackupWithoutComment()
+    {
+        await using (var sourceDb = _sourceDbFactory.CreateDbContext())
+        {
+            sourceDb.ShoppingListItems.AddRange(
+                new ShoppingListItem
+                {
+                    Name = "grädde",
+                    Quantity = 3m,
+                    Unit = "dl",
+                    Comment = "Extra vispad grädde till garnering, mängd ej angiven",
+                    RawText = "3 dl grädde",
+                    SortOrder = 1,
+                    IsChecked = false
+                },
+                new ShoppingListItem
+                {
+                    Name = "spiskummin",
+                    Quantity = 2m,
+                    QuantityMax = 4m,
+                    Unit = "tsk",
+                    Comment = "malen",
+                    RawText = "2–4 tsk spiskummin",
+                    SortOrder = 2,
+                    IsChecked = true
+                });
+            await sourceDb.SaveChangesAsync();
+        }
+
+        var exporter = CreateBackupService(_sourceDbFactory, "source");
+        var zipBytes = await exporter.CreateBackupArchiveAsync();
+
+        var restorer = CreateBackupService(_targetDbFactory, "target");
+        using (var zipStream = new MemoryStream(zipBytes))
+        {
+            var restoreResult = await restorer.RestoreFromArchiveAsync(zipStream, replaceExisting: true);
+            restoreResult.Success.Should().BeTrue();
+        }
+
+        await using (var targetDb = _targetDbFactory.CreateDbContext())
+        {
+            var items = targetDb.ShoppingListItems.OrderBy(x => x.SortOrder).ToList();
+            items.Should().HaveCount(2);
+
+            items[0].Name.Should().Be("grädde");
+            items[0].Quantity.Should().Be(3m);
+            items[0].Comment.Should().Be("Extra vispad grädde till garnering, mängd ej angiven");
+
+            items[1].Name.Should().Be("spiskummin");
+            items[1].Quantity.Should().Be(2m);
+            items[1].QuantityMax.Should().Be(4m);
+            items[1].Comment.Should().Be("malen");
+            items[1].RawText.Should().Be("2–4 tsk spiskummin");
+        }
+
+        // Also verify that an older backup archive without "comment" or "quantityMax" on shoppingListItems restores cleanly
+        using var legacyZipMs = new MemoryStream();
+        using (var archive = new ZipArchive(legacyZipMs, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            var manifestEntry = archive.CreateEntry("manifest.json");
+            await using (var s = manifestEntry.Open())
+            {
+                await s.WriteAsync(Encoding.UTF8.GetBytes("""
+                    {
+                      "formatVersion": 1,
+                      "application": "Receptbanken",
+                      "exportedAtUtc": "2026-11-01T12:00:00Z",
+                      "categoryCount": 0,
+                      "recipeCount": 0,
+                      "shoppingListItemCount": 1,
+                      "imageCount": 0
+                    }
+                    """));
+            }
+
+            var dataEntry = archive.CreateEntry("data.json");
+            await using (var s = dataEntry.Open())
+            {
+                await s.WriteAsync(Encoding.UTF8.GetBytes("""
+                    {
+                      "categories": [],
+                      "recipes": [],
+                      "shoppingListItems": [
+                        {
+                          "rawText": "2 dl mjölk",
+                          "quantity": 2.0,
+                          "unit": "dl",
+                          "name": "mjölk",
+                          "isChecked": false,
+                          "sortOrder": 1,
+                          "department": null,
+                          "createdAt": "2026-11-01T12:00:00Z"
+                        }
+                      ]
+                    }
+                    """));
+            }
+        }
+        legacyZipMs.Position = 0;
+
+        var legacyRestoreResult = await restorer.RestoreFromArchiveAsync(legacyZipMs, replaceExisting: true);
+        legacyRestoreResult.Success.Should().BeTrue();
+
+        await using (var targetDbAfterLegacy = _targetDbFactory.CreateDbContext())
+        {
+            var legacyItems = targetDbAfterLegacy.ShoppingListItems.ToList();
+            legacyItems.Should().ContainSingle();
+            legacyItems[0].Name.Should().Be("mjölk");
+            legacyItems[0].Quantity.Should().Be(2m);
+            legacyItems[0].QuantityMax.Should().BeNull();
+            legacyItems[0].Comment.Should().BeNull();
+        }
+    }
+
     public void Dispose()
     {
         _sourceDbFactory.Dispose();

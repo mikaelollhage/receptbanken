@@ -547,6 +547,102 @@ public class ShoppingListServiceTests : IDisposable
         checkedItems.Single(x => x.Id == creamCheese.Id).IsChecked.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task AddRecipeIngredients_AddManual_Update_And_Restore_I3_20_To_23_ShouldPreserveCommentAndQuantityMax()
+    {
+        // I3 #20: AddRecipeIngredientsAsync saves Comment and QuantityMax and performs conservative merging
+        var recipe = await _recipeService.CreateRecipeAsync(
+            new Recipe
+            {
+                Title = "Blåbärspannacotta",
+                Servings = 4,
+                Ingredients =
+                [
+                    new Ingredient { OrderIndex = 1, Quantity = 2m, Unit = "st", Name = "gelatinblad", RawText = "2 st gelatinblad" },
+                    new Ingredient { OrderIndex = 2, Quantity = 2m, Unit = "dl", Name = "blåbär", RawText = "2 dl blåbär" },
+                    new Ingredient { OrderIndex = 3, Quantity = 1m, Unit = "msk", Name = "pressad citron", RawText = "1 msk pressad citron" },
+                    new Ingredient { OrderIndex = 4, Quantity = 3m, Unit = "dl", Name = "grädde", RawText = "3 dl grädde" },
+                    new Ingredient { OrderIndex = 5, Name = "blåbär till garnering", RawText = "blåbär till garnering" },
+                    new Ingredient { OrderIndex = 6, Name = "vispad grädde till garnering", RawText = "vispad grädde till garnering" },
+                    new Ingredient { OrderIndex = 7, Quantity = 1m, QuantityMax = 2m, Unit = "tsk", Name = "vaniljsocker", RawText = "1–2 tsk vaniljsocker" }
+                ]
+            },
+            []);
+
+        await _shoppingService.AddRecipeIngredientsAsync(recipe.Id, targetServings: 4);
+
+        var items = await _shoppingService.GetItemsAsync();
+        items.Should().HaveCount(5);
+
+        var blueberries = items.Single(x => x.Name == "blåbär");
+        blueberries.Quantity.Should().Be(2m);
+        blueberries.Unit.Should().Be("dl");
+        blueberries.Comment.Should().Be("Extra blåbär till garnering, mängd ej angiven");
+
+        var cream = items.Single(x => x.Name == "grädde");
+        cream.Quantity.Should().Be(3m);
+        cream.Unit.Should().Be("dl");
+        cream.Comment.Should().Be("Extra vispad grädde till garnering, mängd ej angiven");
+
+        var vanilla = items.Single(x => x.Name == "vaniljsocker");
+        vanilla.Quantity.Should().Be(1m);
+        vanilla.QuantityMax.Should().Be(2m);
+        vanilla.RawText.Should().Be("1–2 tsk vaniljsocker");
+
+        // Verify original recipe ingredients in DB were NOT mutated
+        var persistedRecipe = await _recipeService.GetRecipeByIdAsync(recipe.Id);
+        persistedRecipe!.Ingredients.Should().HaveCount(7);
+        persistedRecipe.Ingredients.Should().Contain(i => i.Name == "blåbär till garnering");
+        persistedRecipe.Ingredients.Should().Contain(i => i.Name == "vispad grädde till garnering");
+
+        // I3 #21: AddManualItemAsync preserves comment and interval from parser
+        var manualTomatoes = await _shoppingService.AddManualItemAsync("1 burk krossade tomater (à 400 g)");
+        manualTomatoes.Name.Should().Be("krossade tomater");
+        manualTomatoes.Quantity.Should().Be(1m);
+        manualTomatoes.Unit.Should().Be("burk");
+        manualTomatoes.Comment.Should().Be("à 400 g");
+
+        // I3 #22: UpdateItemAsync preserves or updates Comment and QuantityMax
+        await _shoppingService.UpdateItemAsync(manualTomatoes.Id, 2m, "burk", "krossade tomater");
+        var afterLegacyUpdate = (await _shoppingService.GetItemsAsync()).Single(x => x.Id == manualTomatoes.Id);
+        afterLegacyUpdate.Quantity.Should().Be(2m);
+        afterLegacyUpdate.Comment.Should().Be("à 400 g", "4-parametig UpdateItemAsync får inte tyst radera befintlig kommentar");
+
+        await _shoppingService.UpdateItemAsync(manualTomatoes.Id, 2m, 3m, "burk", "krossade tomater", "à 400 g, ekologiska");
+        var afterFullUpdate = (await _shoppingService.GetItemsAsync()).Single(x => x.Id == manualTomatoes.Id);
+        afterFullUpdate.Quantity.Should().Be(2m);
+        afterFullUpdate.QuantityMax.Should().Be(3m);
+        afterFullUpdate.Comment.Should().Be("à 400 g, ekologiska");
+        afterFullUpdate.RawText.Should().Be("2–3 burk krossade tomater");
+
+        // I3 #23: DeleteItemAsync + RestoreDeletedItemAsync restores Comment and QuantityMax
+        await _shoppingService.DeleteItemAsync(afterFullUpdate.Id);
+        (await _shoppingService.GetItemsAsync()).Should().NotContain(x => x.Id == afterFullUpdate.Id);
+
+        var restored = await _shoppingService.RestoreDeletedItemAsync(afterFullUpdate);
+        restored.Should().BeTrue();
+
+        var afterRestore = (await _shoppingService.GetItemsAsync()).Single(x => x.Id == afterFullUpdate.Id);
+        afterRestore.Comment.Should().Be("à 400 g, ekologiska");
+        afterRestore.Quantity.Should().Be(2m);
+        afterRestore.QuantityMax.Should().Be(3m);
+        afterRestore.RawText.Should().Be("2–3 burk krossade tomater");
+    }
+
+    [Fact]
+    public async Task AddManualAndRecipeIngredients_3B1A_WrittenOutKiloAndGram_ShouldMergeTo700g()
+    {
+        await _shoppingService.AddManualItemAsync("200 g nötfärs");
+        await _shoppingService.AddManualItemAsync("0,5 kilo nötfärs");
+
+        var items = await _shoppingService.GetItemsAsync();
+        items.Should().ContainSingle();
+        items[0].Name.Should().Be("nötfärs");
+        items[0].Quantity.Should().Be(700m);
+        items[0].Unit.Should().Be("g");
+        items[0].RawText.Should().Be("700 g nötfärs");
+    }
+
     public void Dispose()
     {
         _dbFactory.Dispose();

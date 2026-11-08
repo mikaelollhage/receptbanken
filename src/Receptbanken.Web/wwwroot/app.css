@@ -2978,10 +2978,27 @@ body.weekly-touch-reordering .weekly-drag-handle {
   outline-offset: 2px;
 }
 
+.shopping-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
 .shopping-item-text {
   font-size: 16px;
   line-height: 1.4;
   color: var(--rb-text-primary);
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.shopping-item-comment {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--rb-text-secondary);
+  font-style: italic;
   overflow-wrap: break-word;
   word-break: break-word;
 }
@@ -3006,6 +3023,15 @@ body.weekly-touch-reordering .weekly-drag-handle {
   color: var(--rb-text-muted);
   text-decoration: line-through;
   overflow-wrap: break-word;
+}
+
+.shopping-checked-comment {
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--rb-text-muted);
+  font-style: italic;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .shopping-row-actions {
@@ -3146,6 +3172,12 @@ body.shopping-touch-reordering * {
   min-width: 160px;
   font-size: 16px;
   min-height: 42px;
+}
+
+.shopping-edit-comment {
+  flex: 1 1 100%;
+  font-size: 14px;
+  min-height: 38px;
 }
 
 .shopping-edit-actions {

@@ -7,8 +7,10 @@ public class ShoppingListItem
     public Recipe? Recipe { get; set; }
     public string RawText { get; set; } = string.Empty;
     public decimal? Quantity { get; set; }
+    public decimal? QuantityMax { get; set; }
     public string? Unit { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string? Comment { get; set; }
     public bool IsChecked { get; set; }
     public int SortOrder { get; set; }
     public string? Department { get; set; }

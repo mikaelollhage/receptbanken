@@ -33,6 +33,21 @@ public class ServingCalculator
         return rounded.ToString("0.##", SwedishCulture);
     }
 
+    public string FormatQuantityRange(decimal? quantity, decimal? quantityMax)
+    {
+        if (!quantity.HasValue)
+            return string.Empty;
+
+        var minFormatted = FormatQuantity(quantity);
+        if (quantityMax.HasValue && quantityMax.Value > quantity.Value)
+        {
+            var maxFormatted = FormatQuantity(quantityMax);
+            return $"{minFormatted}–{maxFormatted}";
+        }
+
+        return minFormatted;
+    }
+
     public string FormatScaledIngredientPrefix(Ingredient ingredient, int baseServings, int targetServings)
     {
         if (!ingredient.Quantity.HasValue || baseServings <= 0 || targetServings <= 0)

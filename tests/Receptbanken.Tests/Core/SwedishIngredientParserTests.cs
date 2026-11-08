@@ -321,5 +321,30 @@ public class SwedishIngredientParserTests
         prefix.Should().Be("8 ");
         ingredient.Comment.Should().Be("4 filéer motsvarar ca 600 g");
     }
+
+    [Theory]
+    [InlineData("0,5 kilo nötfärs", 0.5, "kg", "nötfärs")]
+    [InlineData("1 kilogram potatis", 1, "kg", "potatis")]
+    [InlineData("200 gram smör", 200, "g", "smör")]
+    [InlineData("2 hekto räkor", 2, "hg", "räkor")]
+    [InlineData("3 hektogram lösgodis", 3, "hg", "lösgodis")]
+    [InlineData("1,5 liter mjölk", 1.5, "l", "mjölk")]
+    [InlineData("2 deciliter grädde", 2, "dl", "grädde")]
+    [InlineData("5 centiliter citronsaft", 5, "cl", "citronsaft")]
+    [InlineData("50 milliliter vatten", 50, "ml", "vatten")]
+    [InlineData("1 matsked soja", 1, "msk", "soja")]
+    [InlineData("2 matskedar olivolja", 2, "msk", "olivolja")]
+    [InlineData("1 tesked salt", 1, "tsk", "salt")]
+    [InlineData("2 teskedar bakpulver", 2, "tsk", "bakpulver")]
+    [InlineData("1 kryddmått svartpeppar", 1, "krm", "svartpeppar")]
+    public void Parse_WrittenOutSwedishUnitNames_ShouldNormalizeToStandardUnitCodes(
+        string input, double expectedQty, string expectedUnit, string expectedName)
+    {
+        var result = _parser.Parse(input);
+
+        result.Quantity.Should().Be((decimal)expectedQty);
+        result.Unit.Should().Be(expectedUnit);
+        result.Name.Should().Be(expectedName);
+    }
 }
 

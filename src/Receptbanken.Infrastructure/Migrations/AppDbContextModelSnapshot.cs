@@ -201,6 +201,10 @@ namespace Receptbanken.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("Comment")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
                     b.Property<long>("CreatedAt")
                         .HasColumnType("INTEGER");
 
@@ -217,6 +221,10 @@ namespace Receptbanken.Infrastructure.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<decimal?>("Quantity")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("QuantityMax")
                         .HasPrecision(10, 2)
                         .HasColumnType("TEXT");
 

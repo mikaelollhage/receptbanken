@@ -1185,4 +1185,102 @@ public class ShoppingListRealtimeComponentTests
                 .Should().Equal("2 dl gräddfil");
         });
     }
+
+    [Fact]
+    public async Task ShoppingPlaceholder_I3_25_ShouldRenderAndEditCommentsAndIntervalsInUncheckedAndCheckedLists()
+    {
+        using var dbFactory = new TestDbContextFactory();
+        var sharedNotifier = new ShoppingListNotifier();
+
+        using var ctx = CreateSessionContext(dbFactory, sharedNotifier);
+        var recipeService = ctx.Services.GetRequiredService<RecipeService>();
+        var shoppingService = ctx.Services.GetRequiredService<ShoppingListService>();
+
+        var recipe = await recipeService.CreateRecipeAsync(new Recipe
+        {
+            Title = "Blåbärsdessert",
+            Servings = 4,
+            Ingredients =
+            [
+                new Ingredient { OrderIndex = 1, Quantity = 2m, Unit = "dl", Name = "blåbär", RawText = "2 dl blåbär" },
+                new Ingredient { OrderIndex = 2, Name = "blåbär till garnering", RawText = "blåbär till garnering" },
+                new Ingredient { OrderIndex = 3, Quantity = 3m, Unit = "dl", Name = "grädde", RawText = "3 dl grädde" },
+                new Ingredient { OrderIndex = 4, Name = "vispad grädde till garnering", RawText = "vispad grädde till garnering" },
+                new Ingredient { OrderIndex = 5, Quantity = 1m, QuantityMax = 2m, Unit = "tsk", Name = "spiskummin", RawText = "1–2 tsk spiskummin" }
+            ]
+        });
+
+        await shoppingService.AddRecipeIngredientsAsync(recipe.Id, targetServings: 4);
+
+        var view = ctx.RenderComponent<ShoppingPlaceholder>();
+
+        // 1. Verify rendering in "Att handla": discreet comment lines and interval quantity
+        view.WaitForAssertion(() =>
+        {
+            view.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(3);
+            var comments = view.FindAll(".shopping-unchecked-list .shopping-item-comment")
+                .Select(x => x.TextContent.Trim())
+                .ToList();
+            comments.Should().Equal(
+                "Extra blåbär till garnering, mängd ej angiven",
+                "Extra vispad grädde till garnering, mängd ej angiven");
+
+            var texts = view.FindAll(".shopping-unchecked-list .shopping-item-text")
+                .Select(x => x.TextContent.Trim())
+                .ToList();
+            texts.Should().Equal("2 dl blåbär", "3 dl grädde", "1–2 tsk spiskummin");
+        });
+
+        // 2. Editing an item without changing the comment preserves the existing comment
+        await view.InvokeAsync(() => view.FindAll(".shopping-unchecked-list .shopping-edit-btn").First().Click());
+        view.WaitForAssertion(() =>
+        {
+            view.Find(".shopping-edit-comment").GetAttribute("value")
+                .Should().Be("Extra blåbär till garnering, mängd ej angiven");
+        });
+
+        await view.InvokeAsync(() => view.Find(".shopping-edit-qty").Change("4"));
+        await view.InvokeAsync(() => view.Find(".shopping-save-edit-btn").Click());
+
+        view.WaitForAssertion(() =>
+        {
+            view.FindAll(".shopping-unchecked-list .shopping-item-text").First().TextContent.Trim()
+                .Should().Be("4 dl blåbär");
+            view.FindAll(".shopping-unchecked-list .shopping-item-comment").First().TextContent.Trim()
+                .Should().Be("Extra blåbär till garnering, mängd ej angiven");
+        });
+
+        // 3. Editing and updating the comment in the edit panel updates it cleanly
+        await view.InvokeAsync(() => view.FindAll(".shopping-unchecked-list .shopping-edit-btn").First().Click());
+        await view.InvokeAsync(() => view.Find(".shopping-edit-comment").Change("Extra till garnering"));
+        await view.InvokeAsync(() => view.Find(".shopping-save-edit-btn").Click());
+
+        view.WaitForAssertion(() =>
+        {
+            view.FindAll(".shopping-unchecked-list .shopping-item-comment").First().TextContent.Trim()
+                .Should().Be("Extra till garnering");
+        });
+
+        // 4. Checking off the item moves it to "Klart" and renders both struck-through text and discreet comment
+        await view.InvokeAsync(() => view.FindAll(".shopping-unchecked-list .shopping-row-check-target").First().ClickAsync(new MouseEventArgs()));
+
+        view.WaitForAssertion(() =>
+        {
+            view.FindAll(".shopping-checked-list .shopping-item-row").Should().ContainSingle();
+            view.Find(".shopping-checked-list .shopping-checked-text").TextContent.Trim().Should().Be("4 dl blåbär");
+            view.Find(".shopping-checked-list .shopping-checked-comment").TextContent.Trim().Should().Be("Extra till garnering");
+            view.FindAll(".shopping-checked-list .shopping-delete-btn").Should().ContainSingle();
+        });
+
+        // 5. Deleting from "Klart" and clicking "Ångra" restores the item with its comment intact
+        await view.InvokeAsync(() => view.Find(".shopping-checked-list .shopping-delete-btn").ClickAsync(new MouseEventArgs()));
+        view.WaitForAssertion(() => view.FindAll(".shopping-checked-list").Should().BeEmpty());
+
+        await view.InvokeAsync(() => view.Find(".shopping-undo-feedback .rb-feedback-action-btn").ClickAsync(new MouseEventArgs()));
+        view.WaitForAssertion(() =>
+        {
+            view.FindAll(".shopping-checked-list .shopping-item-row").Should().ContainSingle();
+            view.Find(".shopping-checked-list .shopping-checked-comment").TextContent.Trim().Should().Be("Extra till garnering");
+        });
+    }
 }

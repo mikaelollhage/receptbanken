@@ -127,8 +127,10 @@ public class AppDbContext : DbContext
             entity.Property(e => e.RawText).IsRequired();
             entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
             entity.Property(e => e.Unit).HasMaxLength(30);
+            entity.Property(e => e.Comment).HasMaxLength(500);
             entity.Property(e => e.Department).HasMaxLength(100);
             entity.Property(e => e.Quantity).HasPrecision(10, 2);
+            entity.Property(e => e.QuantityMax).HasPrecision(10, 2);
             entity.Property(e => e.SortOrder).HasDefaultValue(0);
 
             entity.HasOne(e => e.Recipe)

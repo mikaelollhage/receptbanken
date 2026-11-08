@@ -18,8 +18,16 @@ public class SwedishIngredientParser
 
     private static readonly HashSet<string> KnownUnits = new(StringComparer.OrdinalIgnoreCase)
     {
-        "dl", "msk", "tsk", "krm", "l", "cl", "ml",
-        "g", "kg", "hg",
+        "dl", "deciliter",
+        "msk", "matsked", "matskedar",
+        "tsk", "tesked", "teskedar",
+        "krm", "kryddmått",
+        "l", "liter",
+        "cl", "centiliter",
+        "ml", "milliliter",
+        "g", "gram",
+        "kg", "kilo", "kilogram",
+        "hg", "hekto", "hektogram",
         "st", "stycken", "styck",
         "klyfta", "klyftor",
         "kruka", "krukor",
@@ -337,9 +345,19 @@ public class SwedishIngredientParser
 
     private static string NormalizeUnit(string unit)
     {
-        var lower = unit.ToLowerInvariant();
+        var lower = unit.Trim().TrimEnd('.').ToLowerInvariant();
         return lower switch
         {
+            "kilo" or "kilogram" => "kg",
+            "gram" => "g",
+            "hekto" or "hektogram" => "hg",
+            "liter" => "l",
+            "deciliter" => "dl",
+            "centiliter" => "cl",
+            "milliliter" => "ml",
+            "matsked" or "matskedar" => "msk",
+            "tesked" or "teskedar" => "tsk",
+            "kryddmått" => "krm",
             "stycken" or "styck" => "st",
             "förpackning" or "förpackningar" => "förp",
             "pkt" => "paket",

@@ -124,8 +124,10 @@ public class ZipBackupService : IBackupService
             {
                 RawText = s.RawText,
                 Quantity = s.Quantity,
+                QuantityMax = s.QuantityMax,
                 Unit = s.Unit,
                 Name = s.Name,
+                Comment = s.Comment,
                 IsChecked = s.IsChecked,
                 SortOrder = s.SortOrder,
                 Department = s.Department,
@@ -425,8 +427,10 @@ public class ZipBackupService : IBackupService
                     {
                         RawText = shopDto.RawText,
                         Quantity = shopDto.Quantity,
+                        QuantityMax = shopDto.QuantityMax,
                         Unit = shopDto.Unit,
                         Name = shopDto.Name,
+                        Comment = shopDto.Comment,
                         IsChecked = shopDto.IsChecked,
                         SortOrder = shopDto.SortOrder > 0 ? shopDto.SortOrder : fallbackSortOrder,
                         Department = shopDto.Department,
@@ -585,8 +589,10 @@ public class ZipBackupService : IBackupService
     {
         public string RawText { get; set; } = string.Empty;
         public decimal? Quantity { get; set; }
+        public decimal? QuantityMax { get; set; }
         public string? Unit { get; set; }
         public string Name { get; set; } = string.Empty;
+        public string? Comment { get; set; }
         public bool IsChecked { get; set; }
         public int SortOrder { get; set; }
         public string? Department { get; set; }

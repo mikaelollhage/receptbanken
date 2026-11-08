@@ -223,12 +223,12 @@
                             {
                                 <div class="shopping-edit-panel">
                                     <div class="shopping-edit-fields">
-                                        <input type="number"
-                                               step="0.01"
+                                        <input type="text"
+                                               inputmode="decimal"
                                                class="form-input-custom shopping-edit-qty"
                                                placeholder="Mängd"
                                                aria-label="Mängd"
-                                               @bind="editQuantity"
+                                               @bind="editQuantityText"
                                                @onkeydown="@(e => HandleEditKeyDown(e, item.Id))" />
                                         <input type="text"
                                                class="form-input-custom shopping-edit-unit"
@@ -241,6 +241,12 @@
                                                placeholder="Vara"
                                                aria-label="Varans namn"
                                                @bind="editName"
+                                               @onkeydown="@(e => HandleEditKeyDown(e, item.Id))" />
+                                        <input type="text"
+                                               class="form-input-custom shopping-edit-comment"
+                                               placeholder="Kommentar (valfritt)"
+                                               aria-label="Kommentar"
+                                               @bind="editComment"
                                                @onkeydown="@(e => HandleEditKeyDown(e, item.Id))" />
                                     </div>
                                     <div class="shopping-edit-reorder-row">
@@ -292,16 +298,22 @@
                                          aria-label="@($"Markera {item.RawText} som klar")"
                                          @onclick="@(() => SetItemChecked(item, true))"
                                          @onkeydown="@(e => HandleRowKeyDown(e, item, true))">
-                                        <div class="shopping-item-text">
-                                            @if (item.Quantity.HasValue)
+                                        <div class="shopping-item-body">
+                                            <div class="shopping-item-text">
+                                                @if (item.Quantity.HasValue)
+                                                {
+                                                    <span class="shopping-item-qty">@($"{ServingCalculator.FormatQuantityRange(item.Quantity, item.QuantityMax)} ")</span>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(item.Unit))
+                                                {
+                                                    <span class="shopping-item-unit">@($"{item.Unit.Trim()} ")</span>
+                                                }
+                                                <span class="shopping-item-name">@item.Name</span>
+                                            </div>
+                                            @if (!string.IsNullOrWhiteSpace(item.Comment))
                                             {
-                                                <span class="shopping-item-qty">@($"{ServingCalculator.FormatQuantity(item.Quantity)} ")</span>
+                                                <div class="shopping-item-comment">@item.Comment</div>
                                             }
-                                            @if (!string.IsNullOrWhiteSpace(item.Unit))
-                                            {
-                                                <span class="shopping-item-unit">@($"{item.Unit.Trim()} ")</span>
-                                            }
-                                            <span class="shopping-item-name">@item.Name</span>
                                         </div>
                                     </div>
                                     <div class="shopping-row-actions">
@@ -387,7 +399,13 @@
                                      aria-label="@($"Återställ {item.RawText} till att handla")"
                                      @onclick="@(() => SetItemChecked(item, false))"
                                      @onkeydown="@(e => HandleRowKeyDown(e, item, false))">
-                                    <span class="shopping-checked-text">@item.RawText</span>
+                                    <div class="shopping-item-body">
+                                        <span class="shopping-checked-text">@item.RawText</span>
+                                        @if (!string.IsNullOrWhiteSpace(item.Comment))
+                                        {
+                                            <div class="shopping-checked-comment">@item.Comment</div>
+                                        }
+                                    </div>
                                 </div>
                                 @if (!isShoppingMode)
                                 {
@@ -445,9 +463,10 @@
     private int selectedRecipeServings = 4;
 
     private int? editingItemId;
-    private decimal? editQuantity;
+    private string editQuantityText = string.Empty;
     private string? editUnit;
     private string editName = string.Empty;
+    private string? editComment;
 
     private int? undoCheckedItemId;
     private ShoppingListItem? undoDeletedItemSnapshot;
@@ -1093,9 +1112,10 @@
         listFeedback.Clear();
         reorderMenuOpenItemId = null;
         editingItemId = item.Id;
-        editQuantity = item.Quantity;
+        editQuantityText = ServingCalculator.FormatQuantityRange(item.Quantity, item.QuantityMax);
         editUnit = item.Unit;
         editName = item.Name;
+        editComment = item.Comment;
     }
 
     private void CancelEdit()
@@ -1112,10 +1132,22 @@
             return;
         }
 
+        if (!TryParseEditQuantityRange(editQuantityText, out var parsedQty, out var parsedQtyMax))
+        {
+            listFeedback.ShowError("Ange en giltig mängd (t.ex. 2 eller 1–2).");
+            return;
+        }
+
         listFeedback.Clear();
         try
         {
-            var updated = await ShoppingListService.UpdateItemAsync(id, editQuantity, editUnit, editName);
+            var updated = await ShoppingListService.UpdateItemAsync(
+                id,
+                parsedQty,
+                parsedQtyMax,
+                editUnit,
+                editName,
+                editComment);
             editingItemId = null;
             await ReloadItemsAsync();
 
@@ -1135,6 +1167,49 @@
         }
     }
 
+    private static bool TryParseEditQuantityRange(string? rawText, out decimal? quantity, out decimal? quantityMax)
+    {
+        quantity = null;
+        quantityMax = null;
+
+        if (string.IsNullOrWhiteSpace(rawText))
+            return true;
+
+        var trimmed = rawText.Trim();
+        var rangeParts = trimmed.Split(new[] { '–', '—', '-' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (rangeParts.Length == 2)
+        {
+            if (TryParseSingleDecimal(rangeParts[0], out var minVal) &&
+                TryParseSingleDecimal(rangeParts[1], out var maxVal) &&
+                minVal >= 0 && maxVal >= minVal)
+            {
+                quantity = minVal;
+                quantityMax = maxVal > minVal ? maxVal : null;
+                return true;
+            }
+            return false;
+        }
+
+        if (rangeParts.Length == 1 && TryParseSingleDecimal(rangeParts[0], out var singleVal) && singleVal >= 0)
+        {
+            quantity = singleVal;
+            quantityMax = null;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryParseSingleDecimal(string text, out decimal value)
+    {
+        var normalized = text.Trim().Replace(',', '.');
+        return decimal.TryParse(
+            normalized,
+            System.Globalization.NumberStyles.Number,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out value);
+    }
+
     private async Task DeleteItem(int id)
     {
         listFeedback.Clear();
@@ -1149,8 +1224,10 @@
                     RecipeId = existingItem.RecipeId,
                     RawText = existingItem.RawText,
                     Quantity = existingItem.Quantity,
+                    QuantityMax = existingItem.QuantityMax,
                     Unit = existingItem.Unit,
                     Name = existingItem.Name,
+                    Comment = existingItem.Comment,
                     IsChecked = existingItem.IsChecked,
                     SortOrder = existingItem.SortOrder,
                     Department = existingItem.Department,

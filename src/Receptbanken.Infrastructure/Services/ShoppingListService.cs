@@ -85,15 +85,7 @@ public class ShoppingListService
             throw new ArgumentException("Ange en vara att lägga till i inköpslistan.", nameof(rawInput));
 
         var parsed = _ingredientParser.Parse(rawInput.Trim());
-        var item = new ShoppingListItem
-        {
-            Name = parsed.Name,
-            Quantity = parsed.Quantity,
-            Unit = parsed.Unit,
-            RawText = _aggregator.FormatRawText(parsed.Quantity, parsed.Unit, parsed.Name),
-            IsChecked = false,
-            CreatedAt = DateTimeOffset.UtcNow
-        };
+        var item = _aggregator.CreateFromRecipeIngredient(parsed, baseServings: 1, targetServings: 1, recipeId: null);
 
         await WriteLock.WaitAsync(cancellationToken);
         try
@@ -104,7 +96,7 @@ public class ShoppingListService
 
             var matched = mergedList.LastOrDefault(x =>
                 !x.IsChecked &&
-                string.Equals(x.Name.Trim(), parsed.Name.Trim(), StringComparison.OrdinalIgnoreCase));
+                _aggregator.AreSameIngredient(x.Name, item.Name));
 
             return matched ?? mergedList.Last();
         }
@@ -115,8 +107,8 @@ public class ShoppingListService
     }
 
     /// <summary>
-    /// Updates an existing shopping list item. Returns <c>true</c> if the item existed and was updated,
-    /// or <c>false</c> if the item had already been deleted by another session.
+    /// Updates an existing shopping list item while preserving its existing <see cref="ShoppingListItem.Comment"/>.
+    /// Returns <c>true</c> if the item existed and was updated, or <c>false</c> if the item had already been deleted.
     /// </summary>
     public async Task<bool> UpdateItemAsync(int id, decimal? quantity, string? unit, string name, CancellationToken cancellationToken = default)
     {
@@ -133,10 +125,60 @@ public class ShoppingListService
                 return false;
             }
 
+            if (existing.Quantity != quantity)
+            {
+                existing.QuantityMax = null;
+            }
+
             existing.Quantity = quantity;
             existing.Unit = string.IsNullOrWhiteSpace(unit) ? null : unit.Trim();
             existing.Name = name.Trim();
-            existing.RawText = _aggregator.FormatRawText(existing.Quantity, existing.Unit, existing.Name);
+            existing.RawText = _aggregator.FormatRawText(existing.Quantity, existing.QuantityMax, existing.Unit, existing.Name);
+
+            await db.SaveChangesAsync(cancellationToken);
+            _notifier.NotifyChanged();
+            return true;
+        }
+        finally
+        {
+            WriteLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Updates an existing shopping list item including optional interval max quantity and comment.
+    /// Returns <c>true</c> if the item existed and was updated, or <c>false</c> if the item had already been deleted.
+    /// </summary>
+    public async Task<bool> UpdateItemAsync(
+        int id,
+        decimal? quantity,
+        decimal? quantityMax,
+        string? unit,
+        string name,
+        string? comment,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("Varans namn får inte vara tomt.", nameof(name));
+
+        await WriteLock.WaitAsync(cancellationToken);
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+            var existing = await db.ShoppingListItems.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+            if (existing == null)
+            {
+                return false;
+            }
+
+            existing.Quantity = quantity;
+            existing.QuantityMax = (quantity.HasValue && quantityMax.HasValue && quantityMax.Value > quantity.Value)
+                ? quantityMax
+                : null;
+            existing.Unit = string.IsNullOrWhiteSpace(unit) ? null : unit.Trim();
+            existing.Name = name.Trim();
+            existing.Comment = string.IsNullOrWhiteSpace(comment) ? null : comment.Trim();
+            existing.RawText = _aggregator.FormatRawText(existing.Quantity, existing.QuantityMax, existing.Unit, existing.Name);
 
             await db.SaveChangesAsync(cancellationToken);
             _notifier.NotifyChanged();
@@ -268,9 +310,13 @@ public class ShoppingListService
 
             var trimmedName = snapshot.Name.Trim();
             var trimmedUnit = string.IsNullOrWhiteSpace(snapshot.Unit) ? null : snapshot.Unit.Trim();
+            var trimmedComment = string.IsNullOrWhiteSpace(snapshot.Comment) ? null : snapshot.Comment.Trim();
+            var qtyMax = (snapshot.Quantity.HasValue && snapshot.QuantityMax.HasValue && snapshot.QuantityMax.Value > snapshot.Quantity.Value)
+                ? snapshot.QuantityMax
+                : null;
             var rawText = !string.IsNullOrWhiteSpace(snapshot.RawText)
                 ? snapshot.RawText.Trim()
-                : _aggregator.FormatRawText(snapshot.Quantity, trimmedUnit, trimmedName);
+                : _aggregator.FormatRawText(snapshot.Quantity, qtyMax, trimmedUnit, trimmedName);
 
             var restored = new ShoppingListItem
             {
@@ -278,7 +324,9 @@ public class ShoppingListService
                 Name = trimmedName,
                 RawText = rawText,
                 Quantity = snapshot.Quantity,
+                QuantityMax = qtyMax,
                 Unit = trimmedUnit,
+                Comment = trimmedComment,
                 RecipeId = validRecipeId,
                 Department = string.IsNullOrWhiteSpace(snapshot.Department) ? null : snapshot.Department.Trim(),
                 IsChecked = snapshot.IsChecked,
