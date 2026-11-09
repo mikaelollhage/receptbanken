@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Receptbanken.Core.Interfaces;
+using Receptbanken.Core.Models;
 using Receptbanken.Core.Services;
 using Receptbanken.Infrastructure.Backup;
 using Receptbanken.Infrastructure.Data;
@@ -88,6 +89,7 @@ builder.Services.AddScoped<AppNotificationService>();
 
 // Recipe Import Services with Strengthened SSRF Protection
 builder.Services.AddSingleton<SwedishIngredientParser>();
+builder.Services.AddSingleton<VoiceShoppingListParser>();
 builder.Services.AddSingleton<JsonLdRecipeExtractor>();
 builder.Services.AddSingleton<HtmlFallbackExtractor>();
 builder.Services.AddSingleton<HtmlRecipeTextExtractor>();
@@ -157,6 +159,31 @@ app.MapGet("/api/backup/export", async (IBackupService backupService, Cancellati
     var bytes = await backupService.CreateBackupArchiveAsync(ct);
     var fileName = $"receptbanken-backup-{DateTime.Now:yyyyMMdd-HHmm}.zip";
     return Results.File(bytes, "application/zip", fileName);
+});
+
+// Voice shopping list read-only preview (API-1A)
+app.MapPost("/api/voice/shopping-list/preview", (
+    [Microsoft.AspNetCore.Mvc.FromBody] VoiceShoppingListRequest? request,
+    VoiceShoppingListParser parser) =>
+{
+    if (request == null || request.Items == null || request.Items.Count == 0)
+    {
+        return Results.BadRequest(new
+        {
+            error = "Inga varor angavs. Fältet 'items' måste innehålla minst en varufras."
+        });
+    }
+
+    if (request.Items.Count > VoiceShoppingListParser.MaxItemsPerRequest)
+    {
+        return Results.BadRequest(new
+        {
+            error = $"Maximalt {VoiceShoppingListParser.MaxItemsPerRequest} varufraser kan tolkas per anrop."
+        });
+    }
+
+    var preview = parser.ParsePreview(request);
+    return Results.Ok(preview);
 });
 
 app.MapRazorComponents<App>()
