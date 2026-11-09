@@ -85,6 +85,21 @@
                                OnCancel="@(() => showWeeklyMenuPreview = false)"
                                OnConfirmed="HandleWeeklyMenuAdditionsConfirmedAsync" />
 
+    <RecipePickerModal IsVisible="showRecipePicker"
+                       Recipes="recipes"
+                       Categories="categories"
+                       SelectedRecipeId="selectedRecipe?.Id"
+                       AllowClear="false"
+                       Title="Välj recept att handla för"
+                       OnSelected="HandleRecipePicked"
+                       OnCancel="CloseRecipePicker" />
+
+    <RecipeShoppingPreviewModal IsVisible="showRecipePreview"
+                               RecipeId="selectedRecipe?.Id ?? 0"
+                               Servings="selectedRecipeServings"
+                               OnCancel="@(() => showRecipePreview = false)"
+                               OnConfirmed="HandleRecipeShoppingAdditionsConfirmedAsync" />
+
     <!-- Snabbinmatning och infällbart receptval -->
     <div class="detail-card shopping-quick-add-card">
         <div class="shopping-quick-add-row">
@@ -115,10 +130,9 @@
                     <button type="button"
                             id="shopping-recipe-toggle-btn"
                             class="shopping-recipe-toggle"
-                            aria-expanded="@showRecipePicker"
-                            @onclick="ToggleRecipePicker">
+                            aria-haspopup="dialog"
+                            @onclick="OpenRecipePicker">
                         <span>📖 Lägg till från recept</span>
-                        <span class="shopping-recipe-toggle-chevron" aria-hidden="true">@(showRecipePicker ? "▴" : "▾")</span>
                     </button>
 
                     <button type="button"
@@ -129,48 +143,52 @@
                     </button>
                 </div>
 
-                @if (showRecipePicker)
+                @if (selectedRecipe != null)
                 {
-                    <div class="shopping-recipe-panel">
-                        @if (recipes.Count == 0)
-                        {
-                            <p class="shopping-recipe-empty">Du har inga sparade recept ännu.</p>
-                        }
-                        else
-                        {
-                            <div class="form-group">
-                                <label class="form-label" for="shopping-recipe-select">Välj recept</label>
-                                <select id="shopping-recipe-select"
-                                        class="form-input-custom"
-                                        @bind="selectedRecipeId"
-                                        @bind:after="OnSelectedRecipeChanged">
-                                    <option value="0">-- Välj ett recept --</option>
-                                    @foreach (var r in recipes)
-                                    {
-                                        <option value="@r.Id">@r.Title (@r.Servings @r.ServingsUnit)</option>
-                                    }
-                                </select>
-                            </div>
+                    <div class="shopping-recipe-panel shopping-recipe-selected-panel" role="region" aria-label="Valt recept">
+                        <div class="shopping-selected-recipe-header">
+                            <span class="shopping-selected-recipe-title">
+                                🥘 <strong>@selectedRecipe.Title</strong>
+                            </span>
+                            <button type="button"
+                                    id="shopping-change-recipe-btn"
+                                    class="btn-secondary-custom shopping-change-recipe-btn"
+                                    disabled="@showRecipePreview"
+                                    @onclick="OpenRecipePicker">
+                                Byt recept…
+                            </button>
+                        </div>
 
-                            @if (selectedRecipeId > 0)
-                            {
-                                <div class="form-group">
-                                    <label class="form-label" for="shopping-recipe-servings">Antal portioner att handla för</label>
-                                    <input id="shopping-recipe-servings"
-                                           type="number"
-                                           min="1"
-                                           max="100"
-                                           class="form-input-custom"
-                                           @bind="selectedRecipeServings" />
-                                </div>
-                                <button type="button"
-                                        id="shopping-add-recipe-btn"
-                                        class="btn-primary-custom shopping-add-recipe-submit"
-                                        @onclick="AddSelectedRecipeToShoppingList">
-                                    🛒 Lägg till receptets ingredienser
-                                </button>
-                            }
-                        }
+                        <div class="form-group shopping-servings-group">
+                            <label class="form-label" for="shopping-recipe-servings">Antal portioner att handla för</label>
+                            <div class="shopping-servings-input-wrap">
+                                <input id="shopping-recipe-servings"
+                                       type="number"
+                                       min="1"
+                                       max="100"
+                                       class="form-input-custom shopping-recipe-servings-input"
+                                       disabled="@showRecipePreview"
+                                       @bind="selectedRecipeServings" />
+                                <span class="shopping-servings-unit">@selectedRecipe.ServingsUnit</span>
+                            </div>
+                        </div>
+
+                        <div class="shopping-selected-recipe-actions">
+                            <button type="button"
+                                    id="shopping-add-recipe-btn"
+                                    class="btn-primary-custom shopping-add-recipe-submit"
+                                    disabled="@showRecipePreview"
+                                    @onclick="OpenRecipePreview">
+                                <span>🛒 Lägg till ingredienser…</span>
+                            </button>
+                            <button type="button"
+                                    id="shopping-cancel-recipe-btn"
+                                    class="btn-secondary-custom shopping-cancel-recipe-btn"
+                                    disabled="@showRecipePreview"
+                                    @onclick="CancelSelectedRecipe">
+                                Avbryt
+                            </button>
+                        </div>
                     </div>
                 }
 
@@ -449,11 +467,15 @@
 @code {
     private List<ShoppingListItem> items = new();
     private List<Recipe> recipes = new();
+    private List<Category> categories = new();
     private bool isLoading = true;
     private bool isShoppingMode = false;
     private bool showClearAllConfirm = false;
     private bool showRecipePicker = false;
+    private bool showRecipePreview = false;
     private bool showWeeklyMenuPreview = false;
+    private Recipe? selectedRecipe;
+    private int selectedRecipeServings = 4;
     private DateOnly weeklyMenuPreviewDate;
     private bool _isDisposed;
     private bool _isDragging;
@@ -478,8 +500,6 @@
         }
     }
 
-    private int selectedRecipeId = 0;
-    private int selectedRecipeServings = 4;
 
     private int? editingItemId;
     private string editQuantityText = string.Empty;
@@ -558,6 +578,31 @@
         _lastLoadedOrderingVersion = ShoppingListService.CurrentOrderingVersion;
         items = await ShoppingListService.GetItemsAsync();
         recipes = await RecipeService.GetRecipesAsync();
+        try
+        {
+            var categoryService = ServiceProvider.GetService(typeof(CategoryService)) as CategoryService;
+            if (categoryService != null)
+            {
+                var categoryDtos = await categoryService.GetCategoriesAsync();
+                categories = categoryDtos
+                    .Select(c => new Category { Id = c.Id, Name = c.Name, ColorHex = c.ColorHex })
+                    .ToList();
+            }
+            else
+            {
+                categories = recipes
+                    .SelectMany(r => r.RecipeCategories)
+                    .Select(rc => rc.Category)
+                    .Where(c => c != null)
+                    .GroupBy(c => c!.Id)
+                    .Select(g => g.First()!)
+                    .ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Kunde inte läsa in kategorier för receptväljaren i inköpslistan.");
+        }
         isLoading = false;
     }
 
@@ -630,6 +675,8 @@
         isShoppingMode = true;
         editingItemId = null;
         showRecipePicker = false;
+        showRecipePreview = false;
+        selectedRecipe = null;
         showWeeklyMenuPreview = false;
         showClearAllConfirm = false;
 
@@ -936,9 +983,32 @@
         });
     }
 
-    private void ToggleRecipePicker()
+    private void OpenRecipePicker()
     {
-        showRecipePicker = !showRecipePicker;
+        recipeAddFeedback.Clear();
+        showRecipePicker = true;
+    }
+
+    private void ToggleRecipePicker() => OpenRecipePicker();
+
+    private void CloseRecipePicker()
+    {
+        showRecipePicker = false;
+    }
+
+    private void HandleRecipePicked(Recipe recipe)
+    {
+        showRecipePicker = false;
+        selectedRecipe = recipe;
+        selectedRecipeServings = recipe.Servings > 0 ? recipe.Servings : 4;
+        recipeAddFeedback.Clear();
+    }
+
+    private void CancelSelectedRecipe()
+    {
+        selectedRecipe = null;
+        showRecipePreview = false;
+        recipeAddFeedback.Clear();
     }
 
     private DateOnly GetReferenceToday()
@@ -969,14 +1039,6 @@
         }
     }
 
-    private void OnSelectedRecipeChanged()
-    {
-        var rec = recipes.FirstOrDefault(r => r.Id == selectedRecipeId);
-        if (rec != null)
-        {
-            selectedRecipeServings = rec.Servings;
-        }
-    }
 
     private async Task HandleManualKeyDown(KeyboardEventArgs e)
     {
@@ -1039,26 +1101,30 @@
         }
     }
 
-    private async Task AddSelectedRecipeToShoppingList()
+    private void OpenRecipePreview()
     {
-        if (selectedRecipeId <= 0)
+        if (selectedRecipe == null)
             return;
 
+        if (selectedRecipeServings < 1 || selectedRecipeServings > 100)
+        {
+            recipeAddFeedback.ShowError("Ange ett giltigt antal portioner (1–100).");
+            return;
+        }
+
         recipeAddFeedback.Clear();
-        listFeedback.Clear();
-        try
-        {
-            var count = await ShoppingListService.AddRecipeIngredientsAsync(selectedRecipeId, selectedRecipeServings);
-            await ReloadItemsAsync();
-            selectedRecipeId = 0;
-            showRecipePicker = false;
-            recipeAddFeedback.ShowSuccess($"{count} ingredienser lades till i inköpslistan.");
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Fel vid tillägg av receptingredienser i inköpslistan.");
-            recipeAddFeedback.ShowError("Kunde inte lägga till ingredienserna i inköpslistan. Försök igen.");
-        }
+        showRecipePreview = true;
+    }
+
+    private async Task HandleRecipeShoppingAdditionsConfirmedAsync(RecipeShoppingConfirmResult result)
+    {
+        showRecipePreview = false;
+        var recipeTitle = selectedRecipe?.Title ?? "Receptet";
+        var servings = selectedRecipeServings;
+        var servingsUnit = selectedRecipe?.ServingsUnit ?? "portioner";
+        selectedRecipe = null;
+        await ReloadItemsAsync();
+        recipeAddFeedback.ShowSuccess(result.Message ?? $"{result.AddedItemsCount} ingredienser från \"{recipeTitle}\" ({servings} {servingsUnit}) lades till i inköpslistan.");
     }
 
     private async Task SetItemChecked(ShoppingListItem item, bool isChecked)

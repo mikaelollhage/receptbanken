@@ -2810,6 +2810,52 @@ body.weekly-touch-reordering .weekly-drag-handle {
   border-radius: var(--rb-radius-md);
 }
 
+.shopping-selected-recipe-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.shopping-selected-recipe-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--rb-text-primary);
+}
+
+.shopping-servings-group {
+  margin-bottom: 14px;
+}
+
+.shopping-servings-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shopping-recipe-servings-input {
+  max-width: 120px;
+}
+
+.shopping-servings-unit {
+  font-size: 13px;
+  color: var(--rb-text-secondary);
+}
+
+.shopping-selected-recipe-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.shopping-selected-recipe-actions .shopping-add-recipe-submit {
+  flex: 1;
+  min-width: 200px;
+}
+
 .shopping-recipe-empty {
   font-size: 13px;
   color: var(--rb-text-muted);

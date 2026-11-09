@@ -18,6 +18,7 @@ using Receptbanken.Tests.Infrastructure;
 
 namespace Receptbanken.Tests.Integration;
 
+[Collection("IntegrationTests")]
 public class WebAppIntegrationTests : IDisposable
 {
     private readonly string _tempDataPath;

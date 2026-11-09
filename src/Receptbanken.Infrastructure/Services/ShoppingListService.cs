@@ -39,6 +39,11 @@ public class ShoppingListService
     public Action? BeforeWeeklyMenuCommitTestHook { get; set; }
 
     /// <summary>
+    /// Optional hook for testing transactional rollback when an error occurs right before committing recipe shopping additions.
+    /// </summary>
+    public Action? BeforeRecipeShoppingCommitTestHook { get; set; }
+
+    /// <summary>
     /// Optional hook for testing transactional error handling when an error occurs while saving a specific item during voice add.
     /// </summary>
     public Action<ShoppingListItem>? BeforeVoiceItemSaveTestHook { get; set; }
@@ -1065,6 +1070,110 @@ public class ShoppingListService
         }
     }
 
+    public async Task<RecipeShoppingPreview?> BuildRecipeShoppingPreviewAsync(
+        int recipeId,
+        int? targetServings = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        return await BuildRecipeShoppingPreviewInternalAsync(db, recipeId, targetServings ?? 0, cancellationToken);
+    }
+
+    public async Task<RecipeShoppingConfirmResult> ConfirmRecipeShoppingAdditionsAsync(
+        int recipeId,
+        int targetServings,
+        string expectedPreviewStamp,
+        IReadOnlyCollection<string> selectedPreviewItemKeys,
+        CancellationToken cancellationToken = default)
+    {
+        await WriteLock.WaitAsync(cancellationToken);
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+            var currentPreview = await BuildRecipeShoppingPreviewInternalAsync(db, recipeId, targetServings, cancellationToken);
+            if (currentPreview == null)
+            {
+                return new RecipeShoppingConfirmResult(
+                    RecipeShoppingConfirmStatus.RecipeNotFound,
+                    AddedItemsCount: 0,
+                    UpdatedPreview: new RecipeShoppingPreview
+                    {
+                        RecipeId = recipeId,
+                        RecipeTitle = string.Empty,
+                        BaseServings = 1,
+                        TargetServings = targetServings,
+                        ServingsUnit = "port",
+                        PreviewStamp = string.Empty,
+                        Items = []
+                    },
+                    Message: $"Receptet med ID {recipeId} hittades inte längre.");
+            }
+
+            if (!string.Equals(expectedPreviewStamp, currentPreview.PreviewStamp, StringComparison.Ordinal))
+            {
+                return new RecipeShoppingConfirmResult(
+                    RecipeShoppingConfirmStatus.Conflict,
+                    AddedItemsCount: 0,
+                    UpdatedPreview: currentPreview,
+                    Message: "Inköpslistan eller receptet har ändrats sedan förhandsgranskningen öppnades. Förhandsgranskningen har uppdaterats.");
+            }
+
+            var selectedSet = (selectedPreviewItemKeys ?? Array.Empty<string>())
+                .Where(k => !string.IsNullOrWhiteSpace(k))
+                .ToHashSet(StringComparer.Ordinal);
+
+            var selectedItems = currentPreview.Items
+                .Where(x => selectedSet.Contains(x.PreviewItemKey))
+                .ToList();
+
+            if (selectedItems.Count == 0)
+            {
+                return new RecipeShoppingConfirmResult(
+                    RecipeShoppingConfirmStatus.NoSelection,
+                    AddedItemsCount: 0,
+                    UpdatedPreview: currentPreview,
+                    Message: "Inga varor var valda för tillägg.");
+            }
+
+            var incomingShoppingItems = selectedItems
+                .Select(x => x.Item)
+                .ToList();
+
+            await MergeIntoTrackedShoppingListAsync(db, incomingShoppingItems, cancellationToken);
+
+            BeforeRecipeShoppingCommitTestHook?.Invoke();
+
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            _notifier.NotifyChanged();
+
+            var updatedPreview = await BuildRecipeShoppingPreviewInternalAsync(db, recipeId, targetServings, cancellationToken);
+            int conflictCount = selectedItems.Count(x => !string.IsNullOrWhiteSpace(x.ConflictWarning));
+
+            var messageParts = new List<string>
+            {
+                $"{incomingShoppingItems.Count} {(incomingShoppingItems.Count == 1 ? "vara lades" : "varor lades")} till i inköpslistan från {currentPreview.RecipeTitle}."
+            };
+            if (conflictCount > 0)
+            {
+                messageParts.Add($"{conflictCount} {(conflictCount == 1 ? "vara hölls" : "varor hölls")} som separat rad p.g.a. olika enhet eller förpackning.");
+            }
+
+            return new RecipeShoppingConfirmResult(
+                RecipeShoppingConfirmStatus.Success,
+                AddedItemsCount: incomingShoppingItems.Count,
+                UpdatedPreview: updatedPreview ?? currentPreview,
+                Message: string.Join(" ", messageParts));
+        }
+        finally
+        {
+            WriteLock.Release();
+        }
+    }
+
     private async Task MergeIntoTrackedShoppingListAsync(
         AppDbContext db,
         List<ShoppingListItem> incoming,
@@ -1500,40 +1609,18 @@ public class ShoppingListService
             var prefix = acc.IsAlreadyAdded ? "ADDED" : "NEW";
             var previewKey = $"{prefix}:{contribKey}:{i}";
 
-            var compatibleUnchecked = uncheckedList
-                .Where(u => _aggregator.CanMergeItems(u, item))
-                .Select(u => u.RawText)
-                .ToList();
-
-            var conflictingUnchecked = uncheckedList
-                .Where(u => _aggregator.AreSameIngredient(u.Name, item.Name) && !_aggregator.CanMergeItems(u, item))
-                .Select(u => u.RawText)
-                .ToList();
-
-            var matchingChecked = checkedList
-                .Where(c => _aggregator.AreSameIngredient(c.Name, item.Name))
-                .Select(c => c.RawText)
-                .ToList();
-
             bool hasIntraWeekConflict = allAccumulators.Any(other =>
                 !ReferenceEquals(other, acc) &&
                 _aggregator.AreSameIngredient(other.AggregatedItem.Name, item.Name) &&
                 !_aggregator.CanMergeItems(other.AggregatedItem, item));
 
-            string? conflictWarning = null;
-            if (conflictingUnchecked.Count > 0)
-            {
-                conflictWarning = $"Finns i Att handla som {string.Join(", ", conflictingUnchecked)} (annan enhet/förpackning – läggs som separat rad)";
-            }
-            else if (hasIntraWeekConflict)
-            {
-                conflictWarning = "Förekommer med olika enheter eller förpackningsstorlekar i veckomenyn – visas som separata poster";
-            }
+            string? intraWeekWarning = hasIntraWeekConflict
+                ? "Förekommer med olika enheter eller förpackningsstorlekar i veckomenyn – visas som separata poster"
+                : null;
 
-            bool wasRemovedFromList = acc.IsAlreadyAdded &&
-                                      compatibleUnchecked.Count == 0 &&
-                                      conflictingUnchecked.Count == 0 &&
-                                      matchingChecked.Count == 0;
+            var overlap = AnalyzeOverlap(item, uncheckedList, checkedList, intraWeekWarning);
+
+            bool wasRemovedFromList = acc.IsAlreadyAdded && !overlap.HasAnyExistingMatch;
 
             string? alreadyAddedSummary = acc.AlreadyAddedLabels.Count > 0
                 ? $"Redan tillagt: {string.Join(", ", acc.AlreadyAddedLabels.Distinct())}"
@@ -1552,12 +1639,12 @@ public class ShoppingListService
                 IsSelectedByDefault = !acc.IsAlreadyAdded,
                 SourceDaysSummary = string.Join(", ", acc.DayLabels.Distinct()),
                 AlreadyAddedSummary = alreadyAddedSummary,
-                ExistingInUncheckedText = compatibleUnchecked.Count > 0 ? string.Join(", ", compatibleUnchecked) : null,
-                ExistingInCheckedText = matchingChecked.Count > 0 ? string.Join(", ", matchingChecked) : null,
+                ExistingInUncheckedText = overlap.ExistingInUncheckedText,
+                ExistingInCheckedText = overlap.ExistingInCheckedText,
                 ExistingOverlapSummary = acc.IsAlreadyAdded
                     ? null
-                    : BuildExistingOverlapSummary(item, uncheckedList, checkedList),
-                ConflictWarning = conflictWarning,
+                    : overlap.ExistingOverlapSummary,
+                ConflictWarning = overlap.ConflictWarning,
                 WasRemovedFromShoppingList = wasRemovedFromList,
                 SourceContributions = acc.Contributions
             });
@@ -1599,6 +1686,134 @@ public class ShoppingListService
         }
 
         return string.Join(";", parts);
+    }
+
+    private async Task<RecipeShoppingPreview?> BuildRecipeShoppingPreviewInternalAsync(
+        AppDbContext db,
+        int recipeId,
+        int targetServings,
+        CancellationToken cancellationToken)
+    {
+        var recipe = await db.Recipes
+            .AsNoTracking()
+            .Include(r => r.Ingredients.OrderBy(i => i.OrderIndex))
+            .FirstOrDefaultAsync(r => r.Id == recipeId, cancellationToken);
+
+        if (recipe == null)
+        {
+            return null;
+        }
+
+        var servings = targetServings > 0 ? targetServings : recipe.Servings;
+
+        var rawItems = recipe.Ingredients
+            .Where(i => !string.IsNullOrWhiteSpace(i.Name))
+            .Select(i => _aggregator.CreateFromRecipeIngredient(i, recipe.Servings, servings, recipe.Id))
+            .ToList();
+
+        var groupedRecipeItems = _aggregator.MergeItems([], rawItems);
+
+        var currentShoppingItems = await QueryOrderedItemsNoTrackingAsync(db, cancellationToken);
+        var uncheckedList = currentShoppingItems.Where(x => !x.IsChecked).ToList();
+        var checkedList = currentShoppingItems.Where(x => x.IsChecked).ToList();
+
+        var previewItems = new List<RecipePreviewItemDto>(groupedRecipeItems.Count);
+
+        for (int i = 0; i < groupedRecipeItems.Count; i++)
+        {
+            var item = groupedRecipeItems[i];
+            var contribKey = _aggregator.GetContributionKey(item);
+            var previewKey = $"RECIPE:{recipe.Id}:{contribKey}:{i}";
+
+            var overlap = AnalyzeOverlap(item, uncheckedList, checkedList);
+
+            previewItems.Add(new RecipePreviewItemDto
+            {
+                PreviewItemKey = previewKey,
+                Item = item,
+                IsSelectedByDefault = true,
+                ExistingInUncheckedText = overlap.ExistingInUncheckedText,
+                ExistingInCheckedText = overlap.ExistingInCheckedText,
+                ExistingOverlapSummary = overlap.ExistingOverlapSummary,
+                ConflictWarning = overlap.ConflictWarning
+            });
+        }
+
+        string previewStamp = ComputeRecipePreviewStamp(recipe, servings, currentShoppingItems);
+
+        return new RecipeShoppingPreview
+        {
+            RecipeId = recipe.Id,
+            RecipeTitle = recipe.Title,
+            BaseServings = recipe.Servings,
+            TargetServings = servings,
+            ServingsUnit = recipe.ServingsUnit,
+            PreviewStamp = previewStamp,
+            Items = previewItems
+        };
+    }
+
+    private static string ComputeRecipePreviewStamp(Recipe recipe, int servings, IReadOnlyList<ShoppingListItem> currentShoppingItems)
+    {
+        var parts = new List<string>
+        {
+            $"R:{recipe.Id}:{recipe.Servings}:{servings}:{recipe.UpdatedAt.UtcTicks}",
+            $"SL:{currentShoppingItems.Count}"
+        };
+        foreach (var x in currentShoppingItems)
+        {
+            parts.Add($"{x.Id}:{x.IsChecked}:{x.SortOrder}:{x.Quantity}:{x.QuantityMax}:{x.Unit}:{x.Name}");
+        }
+        return string.Join(";", parts);
+    }
+
+    /// <summary>
+    /// Analyzes an incoming item against the current unchecked and checked shopping list items.
+    /// Determines compatible matches, unit conflicts, matches in Klart, and computes the overlap summary.
+    /// </summary>
+    private (string? ExistingInUncheckedText, string? ExistingInCheckedText, string? ExistingOverlapSummary, string? ConflictWarning, bool HasAnyExistingMatch)
+        AnalyzeOverlap(
+            ShoppingListItem item,
+            IReadOnlyList<ShoppingListItem> uncheckedList,
+            IReadOnlyList<ShoppingListItem> checkedList,
+            string? fallbackConflictWarning = null)
+    {
+        var compatibleUnchecked = uncheckedList
+            .Where(u => _aggregator.CanMergeItems(u, item))
+            .Select(u => u.RawText)
+            .ToList();
+
+        var conflictingUnchecked = uncheckedList
+            .Where(u => _aggregator.AreSameIngredient(u.Name, item.Name) && !_aggregator.CanMergeItems(u, item))
+            .Select(u => u.RawText)
+            .ToList();
+
+        var matchingChecked = checkedList
+            .Where(c => _aggregator.AreSameIngredient(c.Name, item.Name))
+            .Select(c => c.RawText)
+            .ToList();
+
+        string? conflictWarning = null;
+        if (conflictingUnchecked.Count > 0)
+        {
+            conflictWarning = $"Finns i Att handla som {string.Join(", ", conflictingUnchecked)} (annan enhet/förpackning – läggs som separat rad)";
+        }
+        else if (!string.IsNullOrWhiteSpace(fallbackConflictWarning))
+        {
+            conflictWarning = fallbackConflictWarning;
+        }
+
+        bool hasAnyExistingMatch = compatibleUnchecked.Count > 0
+            || conflictingUnchecked.Count > 0
+            || matchingChecked.Count > 0;
+
+        return (
+            compatibleUnchecked.Count > 0 ? string.Join(", ", compatibleUnchecked) : null,
+            matchingChecked.Count > 0 ? string.Join(", ", matchingChecked) : null,
+            BuildExistingOverlapSummary(item, uncheckedList, checkedList),
+            conflictWarning,
+            hasAnyExistingMatch
+        );
     }
 
     /// <summary>

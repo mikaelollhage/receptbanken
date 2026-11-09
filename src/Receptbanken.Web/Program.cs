@@ -161,7 +161,6 @@ app.MapGet("/api/backup/export", async (IBackupService backupService, Cancellati
     return Results.File(bytes, "application/zip", fileName);
 });
 
-// Voice shopping list add items (API-1B)
 app.MapPost("/api/voice/shopping-list/add", async (
     [Microsoft.AspNetCore.Mvc.FromBody] VoiceShoppingListRequest? request,
     ShoppingListService shoppingListService,
