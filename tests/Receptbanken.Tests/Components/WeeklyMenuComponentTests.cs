@@ -1377,5 +1377,291 @@ public class WeeklyMenuComponentTests : TestContext
             cut2.Find("button.weekly-preview-confirm-btn").TextContent.Should().Contain("(4)");
         });
     }
-}
 
+    // ---------- UX-1C: receptväljarmodal i veckomenyns dagkort ----------
+
+    private const string ChangeRecipeButton = ".weekly-day-change-recipe-toggle";
+
+    private static string DayCard(int dayIndex) => $".weekly-day-card[data-day-index='{dayIndex}']";
+
+    private static string DayTitle(IRenderedComponent<WeeklyMenuPage> cut, int dayIndex) =>
+        cut.Find($"{DayCard(dayIndex)} .weekly-day-recipe-title").TextContent.Trim();
+
+    /// <summary>Måndag = Pasta (6 port.), tisdag = Soppa (2 port.), övriga dagar tomma. Paj finns som tredje recept.</summary>
+    private async Task<(IRenderedComponent<WeeklyMenuPage> Cut, WeeklyMenuService Service, DateOnly Today, Recipe Paj)> RenderPageWithPickerDataAsync()
+    {
+        var localToday = new DateOnly(2026, 11, 2); // Vecka 45
+        var (dbFactory, recipeService, categoryService, weeklyMenuService) = await SetupServicesAsync(localToday);
+        Services.AddSingleton(dbFactory); // hålls vid liv under testet
+
+        var cats = await categoryService.GetCategoriesAsync();
+        var vardagId = cats.First(c => c.Name == "Vardagsmat").Id;
+
+        var pasta = await recipeService.CreateRecipeAsync(new Recipe { Title = "Pasta", Servings = 4 }, [vardagId]);
+        var soppa = await recipeService.CreateRecipeAsync(new Recipe { Title = "Soppa", Servings = 2 }, [vardagId]);
+        var paj = await recipeService.CreateRecipeAsync(new Recipe { Title = "Paj", Servings = 6 }, [vardagId]);
+
+        var menu = await weeklyMenuService.GetOrCreateWeekMenuAsync(localToday);
+        menu.Days[0].RecipeId = pasta.Id;
+        menu.Days[0].Recipe = pasta;
+        menu.Days[0].Servings = 6;
+        menu.Days[1].RecipeId = soppa.Id;
+        menu.Days[1].Recipe = soppa;
+        menu.Days[1].Servings = 2;
+        await weeklyMenuService.SaveDraftAsync(menu);
+
+        var cut = RenderComponent<WeeklyMenuPage>();
+        cut.WaitForAssertion(() => cut.FindAll(".weekly-day-card").Should().HaveCount(7));
+        return (cut, weeklyMenuService, localToday, paj);
+    }
+
+    private static void OpenPicker(IRenderedComponent<WeeklyMenuPage> cut, int dayIndex) =>
+        cut.Find($"{DayCard(dayIndex)} {ChangeRecipeButton}").Click();
+
+    private static void PickCard(IRenderedComponent<WeeklyMenuPage> cut, string title) =>
+        cut.FindAll(".recipe-picker-card")
+            .First(c => c.QuerySelector(".recipe-picker-card-title")!.TextContent.Trim() == title)
+            .Click();
+
+    [Fact]
+    public async Task RecipePicker_ButtonsOpenModal_WithoutOldDropdown_AndCancelChangesNothing()
+    {
+        var (cut, _, _, _) = await RenderPageWithPickerDataAsync();
+
+        cut.FindAll("select.weekly-day-recipe-select").Should().BeEmpty();
+        cut.FindAll(".recipe-picker").Should().BeEmpty();
+        cut.Find($"{DayCard(0)} {ChangeRecipeButton}").TextContent.Trim().Should().Be("Byt recept…");
+        cut.Find($"{DayCard(2)} {ChangeRecipeButton}").TextContent.Trim().Should().Be("Välj recept…");
+
+        OpenPicker(cut, 0);
+
+        cut.FindAll(".recipe-picker").Should().ContainSingle();
+        cut.Find(".recipe-picker-title").TextContent.Should().Contain("Måndag");
+        cut.FindAll(".recipe-picker-card-title").Select(e => e.TextContent.Trim()).Should().Contain(new[] { "Pasta", "Soppa", "Paj" });
+
+        cut.Find(".recipe-picker-cancel").Click();
+
+        cut.FindAll(".recipe-picker").Should().BeEmpty();
+        DayTitle(cut, 0).Should().Be("Pasta");
+        DayTitle(cut, 1).Should().Be("Soppa");
+        cut.Find($"{DayCard(0)} .servings-count").TextContent.Trim().Should().Be("6 portioner");
+        cut.FindAll(".weekly-status-badge.status-unsaved").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RecipePicker_Escape_ClosesWithoutChange()
+    {
+        var (cut, _, _, _) = await RenderPageWithPickerDataAsync();
+        OpenPicker(cut, 1);
+
+        cut.Find(".recipe-picker").KeyDown(new KeyboardEventArgs { Key = "Escape" });
+
+        cut.FindAll(".recipe-picker").Should().BeEmpty();
+        DayTitle(cut, 1).Should().Be("Soppa");
+        cut.FindAll(".weekly-status-badge.status-unsaved").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RecipePicker_SelectingRecipe_UpdatesOnlyThatDay_AndMarksMenuUnsaved()
+    {
+        var (cut, _, _, _) = await RenderPageWithPickerDataAsync();
+
+        OpenPicker(cut, 1); // tisdag
+        PickCard(cut, "Paj");
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.FindAll(".recipe-picker").Should().BeEmpty();
+            DayTitle(cut, 1).Should().Be("Paj");
+            // Befintligt beteende: nytt recept får receptets egna portionsantal
+            cut.Find($"{DayCard(1)} .servings-count").TextContent.Trim().Should().Be("6 portioner");
+            cut.Find(".weekly-status-badge.status-unsaved").TextContent.Should().Contain("Osparade ändringar");
+        });
+
+        // Övriga dagar är orörda
+        DayTitle(cut, 0).Should().Be("Pasta");
+        cut.Find($"{DayCard(0)} .servings-count").TextContent.Trim().Should().Be("6 portioner");
+        for (var i = 2; i < 7; i++)
+        {
+            cut.FindAll($"{DayCard(i)} .weekly-day-recipe-title").Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task RecipePicker_SelectingRecipeOnEmptyDay_FillsThatDayOnly()
+    {
+        var (cut, _, _, _) = await RenderPageWithPickerDataAsync();
+
+        OpenPicker(cut, 4); // fredag, tom
+        cut.FindAll(".recipe-picker-clear").Should().BeEmpty("tom dag har inget val att tömma");
+        PickCard(cut, "Soppa");
+
+        cut.WaitForAssertion(() =>
+        {
+            DayTitle(cut, 4).Should().Be("Soppa");
+            cut.Find($"{DayCard(4)} .servings-count").TextContent.Trim().Should().Be("2 portioner");
+            cut.Find($"{DayCard(4)} {ChangeRecipeButton}").TextContent.Trim().Should().Be("Byt recept…");
+        });
+        DayTitle(cut, 0).Should().Be("Pasta");
+        DayTitle(cut, 1).Should().Be("Soppa");
+        cut.FindAll($"{DayCard(3)} .weekly-day-recipe-title").Should().BeEmpty();
+        cut.FindAll($"{DayCard(5)} .weekly-day-recipe-title").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RecipePicker_ClearDay_EmptiesOnlyThatDay()
+    {
+        var (cut, _, _, _) = await RenderPageWithPickerDataAsync();
+
+        OpenPicker(cut, 0);
+        cut.Find(".recipe-picker-clear").TextContent.Trim().Should().Be("Ingen middag (töm dag)");
+        cut.Find(".recipe-picker-clear").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.FindAll(".recipe-picker").Should().BeEmpty();
+            cut.FindAll($"{DayCard(0)} .weekly-day-recipe-title").Should().BeEmpty();
+            cut.FindAll($"{DayCard(0)} .weekly-day-servings-control").Should().BeEmpty();
+            cut.Find($"{DayCard(0)} {ChangeRecipeButton}").TextContent.Trim().Should().Be("Välj recept…");
+            cut.Find(".weekly-status-badge.status-unsaved").TextContent.Should().Contain("Osparade ändringar");
+        });
+        DayTitle(cut, 1).Should().Be("Soppa");
+    }
+
+    [Fact]
+    public async Task RecipePicker_SelectingCurrentRecipe_KeepsServingsAndDoesNotMarkUnsaved()
+    {
+        var (cut, _, _, _) = await RenderPageWithPickerDataAsync();
+
+        OpenPicker(cut, 0);
+        cut.FindAll(".recipe-picker-card")
+            .Single(c => c.GetAttribute("aria-current") == "true")
+            .QuerySelector(".recipe-picker-card-title")!.TextContent.Trim().Should().Be("Pasta");
+        PickCard(cut, "Pasta");
+
+        cut.FindAll(".recipe-picker").Should().BeEmpty();
+        cut.Find($"{DayCard(0)} .servings-count").TextContent.Trim().Should().Be("6 portioner");
+        cut.FindAll(".weekly-status-badge.status-unsaved").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RecipePicker_OnlyOneModalIsOpenAtATime()
+    {
+        var (cut, _, _, _) = await RenderPageWithPickerDataAsync();
+
+        OpenPicker(cut, 3);
+
+        cut.FindAll(".recipe-picker").Should().ContainSingle();
+        cut.FindAll("fluent-dialog").Should().HaveCount(7);
+        cut.FindAll("fluent-dialog").Count(d => !d.HasAttribute("hidden")).Should().Be(1);
+        cut.Find($"{DayCard(3)} .recipe-picker").Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task RecipePicker_ChangeCanBeSavedAndRestored()
+    {
+        var (cut, weeklyMenuService, today, _) = await RenderPageWithPickerDataAsync();
+
+        OpenPicker(cut, 1);
+        PickCard(cut, "Paj");
+        cut.WaitForAssertion(() => cut.Find(".weekly-status-badge.status-unsaved").Should().NotBeNull());
+
+        // Återställ sparad version -> tisdag är åter Soppa
+        cut.Find("button.discard-changes-btn").Click();
+        cut.WaitForAssertion(() =>
+        {
+            DayTitle(cut, 1).Should().Be("Soppa");
+            cut.FindAll(".weekly-status-badge.status-unsaved").Should().BeEmpty();
+        });
+
+        // Ändra igen och spara utkast -> ändringen finns i databasen och inget är osparat
+        OpenPicker(cut, 1);
+        PickCard(cut, "Paj");
+        cut.WaitForAssertion(() => DayTitle(cut, 1).Should().Be("Paj"));
+        cut.Find("button.save-draft-btn").Click();
+        cut.WaitForAssertion(() => cut.FindAll(".weekly-status-badge.status-unsaved").Should().BeEmpty());
+
+        var saved = await weeklyMenuService.GetOrCreateWeekMenuAsync(today);
+        saved.Days.Single(d => d.DayIndex == 1).Recipe!.Title.Should().Be("Paj");
+        saved.Days.Single(d => d.DayIndex == 0).Recipe!.Title.Should().Be("Pasta");
+        saved.Days.Single(d => d.DayIndex == 0).Servings.Should().Be(6);
+    }
+
+    // --- Isolerade tester av dagkortet: callbackkontrakt, status och fokus ---
+
+    private static WeeklyMenuDay MakeDay(Recipe? recipe, int dayIndex = 2, int? servings = null, string? status = null) => new()
+    {
+        Id = dayIndex + 1,
+        DayIndex = dayIndex,
+        Date = new DateOnly(2026, 11, 2).AddDays(dayIndex),
+        RecipeId = recipe?.Id,
+        Recipe = recipe,
+        Servings = servings,
+        StatusMessage = status
+    };
+
+    private IRenderedComponent<WeeklyMenuDayCard> RenderDayCard(
+        WeeklyMenuDay day,
+        IReadOnlyList<Recipe> recipes,
+        List<(int DayIndex, int? RecipeId)> changes)
+    {
+        Services.AddFluentUIComponents();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        return RenderComponent<WeeklyMenuDayCard>(p => p
+            .Add(c => c.Day, day)
+            .Add(c => c.AllRecipes, recipes)
+            .Add(c => c.AllCategories, Array.Empty<Category>())
+            .Add(c => c.OnManualRecipeChanged,
+                Microsoft.AspNetCore.Components.EventCallback.Factory.Create<(int DayIndex, int? RecipeId)>(this, a => changes.Add(a))));
+    }
+
+    [Fact]
+    public void DayCard_PickingAnotherRecipe_RaisesCallbackForThatDayOnly_AndMovesFocusToButton()
+    {
+        var pasta = new Recipe { Id = 1, Title = "Pasta", Servings = 4 };
+        var soppa = new Recipe { Id = 2, Title = "Soppa", Servings = 2 };
+        var changes = new List<(int DayIndex, int? RecipeId)>();
+        var cut = RenderDayCard(MakeDay(pasta, dayIndex: 3, servings: 6, status: "Obs"), new[] { pasta, soppa }, changes);
+
+        cut.Find(ChangeRecipeButton).Click();
+        cut.FindAll(".recipe-picker-card").First(c => c.TextContent.Contains("Soppa")).Click();
+
+        changes.Should().Equal((3, (int?)2));
+        cut.FindAll(".recipe-picker").Should().BeEmpty();
+        JSInterop.Invocations["Blazor._internal.domWrapper.focus"].Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void DayCard_Cancel_KeepsServingsAndStatus_AndRaisesNoCallback()
+    {
+        var pasta = new Recipe { Id = 1, Title = "Pasta", Servings = 4 };
+        var changes = new List<(int DayIndex, int? RecipeId)>();
+        var day = MakeDay(pasta, servings: 6, status: "Inget recept hittades");
+        var cut = RenderDayCard(day, new[] { pasta }, changes);
+
+        cut.Find(ChangeRecipeButton).Click();
+        cut.Find(".recipe-picker-cancel").Click();
+
+        changes.Should().BeEmpty();
+        day.Servings.Should().Be(6);
+        day.RecipeId.Should().Be(1);
+        cut.Find(".weekly-day-status-message").TextContent.Should().Contain("Inget recept hittades");
+        cut.Find(".servings-count").TextContent.Trim().Should().Be("6 portioner");
+    }
+
+    [Fact]
+    public void DayCard_ClearAndSameRecipe_RaiseExpectedCallbacks()
+    {
+        var pasta = new Recipe { Id = 1, Title = "Pasta", Servings = 4 };
+        var changes = new List<(int DayIndex, int? RecipeId)>();
+        var cut = RenderDayCard(MakeDay(pasta, dayIndex: 5, servings: 4), new[] { pasta }, changes);
+
+        cut.Find(ChangeRecipeButton).Click();
+        cut.Find(".recipe-picker-card").Click(); // samma recept -> ingen ändring
+        changes.Should().BeEmpty();
+
+        cut.Find(ChangeRecipeButton).Click();
+        cut.Find(".recipe-picker-clear").Click();
+        changes.Should().Equal((5, (int?)null));
+    }
+}

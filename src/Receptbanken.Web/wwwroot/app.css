@@ -2637,13 +2637,6 @@ body.weekly-touch-reordering .weekly-drag-handle {
   color: var(--rb-text-secondary);
 }
 
-.weekly-day-recipe-picker {
-  padding: 12px;
-  background-color: var(--rb-bg-surface);
-  border: 1px solid var(--rb-border);
-  border-radius: var(--rb-radius-md);
-}
-
 .weekly-bottom-bar {
   display: flex;
   justify-content: flex-end;
@@ -3902,23 +3895,61 @@ body.shopping-touch-reordering * {
   line-height: 1.35;
 }
 
+/* Bakgrundslås när RecipePickerModal är öppen */
+html.rb-modal-open,
+body.rb-modal-open {
+  overflow: hidden !important;
+  touch-action: none;
+}
+
 /* ===== Recipe picker modal (RecipePickerModal / RecipePickerCard) ===== */
 fluent-dialog.recipe-picker-dialog {
-  --dialog-width: min(1000px, 94vw);
-  --dialog-height: min(88vh, 820px);
+  --dialog-width: min(1000px, calc(100vw - 64px));
+  --dialog-height: min(calc(100dvh - 64px), 820px);
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 1000 !important;
+  pointer-events: auto;
+}
+
+fluent-dialog.recipe-picker-dialog::part(positioning-region) {
+  position: fixed !important;
+  inset: 0 !important;
+  padding: 32px 16px;
+  box-sizing: border-box;
+  overflow: hidden !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  z-index: 1000 !important;
+}
+
+fluent-dialog.recipe-picker-dialog::part(overlay) {
+  position: fixed !important;
+  inset: 0 !important;
+  background: rgba(0, 0, 0, 0.72) !important;
+  backdrop-filter: blur(4px);
+  z-index: 1 !important;
+  pointer-events: auto !important;
 }
 
 fluent-dialog.recipe-picker-dialog::part(control) {
-  width: min(1000px, 94vw);
-  height: min(88vh, 820px);
-  max-width: 100%;
-  max-height: 100%;
-  padding: 0;
-  overflow: hidden;
+  position: relative !important;
+  z-index: 2 !important;
+  width: min(1000px, calc(100vw - 64px)) !important;
+  height: min(calc(100dvh - 64px), 820px) !important;
+  max-width: calc(100vw - 64px) !important;
+  max-height: calc(100dvh - 64px) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
   background-color: var(--rb-bg-card);
   border: 1px solid var(--rb-border);
   border-radius: var(--rb-radius-lg);
   box-shadow: var(--rb-shadow);
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
 }
 
 .recipe-picker {
@@ -3926,6 +3957,7 @@ fluent-dialog.recipe-picker-dialog::part(control) {
   flex-direction: column;
   width: 100%;
   height: 100%;
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -3938,6 +3970,7 @@ fluent-dialog.recipe-picker-dialog::part(control) {
   justify-content: space-between;
   gap: 12px;
   padding: 16px 20px 8px;
+  flex-shrink: 0;
 }
 
 .recipe-picker-title {
@@ -3973,6 +4006,7 @@ fluent-dialog.recipe-picker-dialog::part(control) {
   gap: 10px;
   padding: 4px 20px 12px;
   border-bottom: 1px solid var(--rb-border-subtle);
+  flex-shrink: 0;
 }
 
 .recipe-picker-search {
@@ -3991,21 +4025,25 @@ fluent-dialog.recipe-picker-dialog::part(control) {
   padding: 4px 14px;
 }
 
+.recipe-picker-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 20px 10px;
+  border-bottom: 1px solid var(--rb-border-subtle);
+  flex-shrink: 0;
+  background-color: var(--rb-bg-card);
+}
+
 /* Enda scrollområdet i modalen */
 .recipe-picker-scroll {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 16px 20px;
   overscroll-behavior: contain;
-}
-
-.recipe-picker-categories {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 14px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .recipe-picker-count {
@@ -4198,27 +4236,38 @@ fluent-dialog.recipe-picker-dialog::part(control) {
   overflow-wrap: anywhere;
 }
 
-/* Mobil: nära fullskärm, två kort per rad */
+/* Mobil: nära fullskärm med 12px marginal, två kort per rad */
 @media (max-width: 640px) {
   fluent-dialog.recipe-picker-dialog {
-    --dialog-width: 100vw;
-    --dialog-height: 100vh;
+    --dialog-width: calc(100vw - 24px);
+    --dialog-height: calc(100dvh - 24px);
+  }
+
+  fluent-dialog.recipe-picker-dialog::part(positioning-region) {
+    padding: 12px !important;
   }
 
   fluent-dialog.recipe-picker-dialog::part(control) {
-    width: 100vw;
-    height: 100vh;
-    height: 100dvh;
-    border-radius: 0;
-    border: none;
+    width: calc(100vw - 24px) !important;
+    height: calc(100dvh - 24px) !important;
+    max-width: calc(100vw - 24px) !important;
+    max-height: calc(100dvh - 24px) !important;
+    border-radius: var(--rb-radius-md) !important;
+    border: 1px solid var(--rb-border) !important;
   }
 
   .recipe-picker-header {
-    padding: 8px 8px 4px 16px;
+    padding: 10px 12px 6px 14px;
   }
 
   .recipe-picker-toolbar {
     padding: 4px 12px 10px;
+    gap: 8px;
+  }
+
+  .recipe-picker-categories {
+    padding: 8px 12px 8px;
+    gap: 6px;
   }
 
   .recipe-picker-scroll {

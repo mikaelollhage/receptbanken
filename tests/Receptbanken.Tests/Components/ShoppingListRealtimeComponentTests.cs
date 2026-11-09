@@ -715,6 +715,7 @@ public class ShoppingListRealtimeComponentTests
         });
 
         // 5. Dragging an item committed via mouse HTML5 drag does not open menu automatically
+        // Re-query target inside Drop action to ensure fresh event handler ID if a re-render occurred
         var dragHandle2 = view.FindAll(".shopping-drag-handle").ToList()[1]; // Vara 2
         dragHandle2.DragStart();
         view.FindAll(".shopping-unchecked-list .shopping-item-row").ToList()[0].Drop();
@@ -727,7 +728,8 @@ public class ShoppingListRealtimeComponentTests
             view.FindAll(".shopping-item-reorder-bar").Should().BeEmpty("musdragning öppnar inte flyttmenyn automatiskt vid släpp");
         });
 
-        dragHandle2.DragEnd();
+        // Re-query handle after DOM update from drop before emitting dragend
+        view.FindAll(".shopping-drag-handle").ToList()[0].DragEnd();
 
         // 6. The FIRST deliberate click on the drag handle after drag immediately opens the menu
         // Find + click run atomically on the renderer so a re-render cannot invalidate the handler id in between.

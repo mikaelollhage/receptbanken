@@ -40,33 +40,33 @@
                 </button>
             </div>
 
-            <div class="recipe-picker-scroll">
-                @if (availableCategories.Count > 0)
-                {
-                    <div class="recipe-picker-categories" role="group" aria-label="Filtrera på kategori">
+            @if (availableCategories.Count > 0)
+            {
+                <div class="recipe-picker-categories" role="group" aria-label="Filtrera på kategori">
+                    <button type="button"
+                            class="category-badge @(selectedCategoryId == null ? "active" : "")"
+                            aria-pressed="@(selectedCategoryId == null ? "true" : "false")"
+                            @onclick="() => SelectCategory(null)">
+                        Alla kategorier
+                    </button>
+                    @foreach (var category in availableCategories)
+                    {
+                        var isActive = selectedCategoryId == category.Id;
                         <button type="button"
-                                class="category-badge @(selectedCategoryId == null ? "active" : "")"
-                                aria-pressed="@(selectedCategoryId == null ? "true" : "false")"
-                                @onclick="() => SelectCategory(null)">
-                            Alla kategorier
+                                class="category-badge @(isActive ? "active" : "")"
+                                aria-pressed="@(isActive ? "true" : "false")"
+                                @onclick="() => SelectCategory(category.Id)">
+                            @if (!string.IsNullOrWhiteSpace(category.ColorHex))
+                            {
+                                <span class="category-dot" style="background-color: @category.ColorHex;"></span>
+                            }
+                            @category.Name
                         </button>
-                        @foreach (var category in availableCategories)
-                        {
-                            var isActive = selectedCategoryId == category.Id;
-                            <button type="button"
-                                    class="category-badge @(isActive ? "active" : "")"
-                                    aria-pressed="@(isActive ? "true" : "false")"
-                                    @onclick="() => SelectCategory(category.Id)">
-                                @if (!string.IsNullOrWhiteSpace(category.ColorHex))
-                                {
-                                    <span class="category-dot" style="background-color: @category.ColorHex;"></span>
-                                }
-                                @category.Name
-                            </button>
-                        }
-                    </div>
-                }
+                    }
+                </div>
+            }
 
+            <div class="recipe-picker-scroll">
                 @if (filteredRecipes.Count == 0)
                 {
                     <div class="recipe-picker-empty" role="status">
@@ -368,6 +368,11 @@
 
     public async ValueTask DisposeAsync()
     {
+        if (wasVisible)
+        {
+            await InvokeModuleAsync("restoreOpener");
+        }
+
         if (module != null)
         {
             try

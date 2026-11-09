@@ -184,9 +184,11 @@
             </button>
 
             <button type="button"
+                    @ref="changeRecipeButton"
                     class="btn-secondary-custom weekly-day-change-recipe-toggle"
-                    @onclick="ToggleRecipePicker">
-                @(showRecipePicker ? "Stäng receptval" : "Byt recept…")
+                    aria-haspopup="dialog"
+                    @onclick="OpenRecipePicker">
+                Byt recept…
             </button>
         </div>
     }
@@ -212,31 +214,26 @@
                 </button>
 
                 <button type="button"
+                        @ref="changeRecipeButton"
                         class="btn-secondary-custom weekly-day-change-recipe-toggle"
-                        @onclick="ToggleRecipePicker">
-                    @(showRecipePicker ? "Stäng receptval" : "Välj recept…")
+                        aria-haspopup="dialog"
+                        @onclick="OpenRecipePicker">
+                    Välj recept…
                 </button>
             </div>
         </div>
     }
 
-    @if (showRecipePicker)
-    {
-        <div class="weekly-day-recipe-picker">
-            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                <select class="form-input-custom weekly-day-recipe-select"
-                        style="flex: 1; min-width: 200px;"
-                        value="@(Day.RecipeId?.ToString() ?? "")"
-                        @onchange="HandleManualRecipeSelected">
-                    <option value="">— Ingen middag (töm dag) —</option>
-                    @foreach (var r in AllRecipes.OrderBy(r => r.Title))
-                    {
-                        <option value="@r.Id">@r.Title</option>
-                    }
-                </select>
-            </div>
-        </div>
-    }
+    <RecipePickerModal IsVisible="showRecipePicker"
+                       Recipes="AllRecipes"
+                       Categories="AllCategories"
+                       SelectedRecipeId="Day.RecipeId"
+                       AllowClear="true"
+                       ClearText="Ingen middag (töm dag)"
+                       Title="@($"Välj middag – {CalendarWeek.GetSwedishDayName(Day.DayIndex)}")"
+                       OnSelected="HandleRecipePicked"
+                       OnCleared="HandleRecipeCleared"
+                       OnCancel="CloseRecipePicker" />
 </div>
 
 @code {
@@ -263,6 +260,8 @@
 
     private bool showCategoryPicker = false;
     private bool showRecipePicker = false;
+    private bool focusChangeButtonAfterRender = false;
+    private ElementReference changeRecipeButton;
     private bool isDragOver = false;
     private bool imageLoadFailed = false;
 
@@ -317,9 +316,14 @@
         }
     }
 
-    private void ToggleRecipePicker()
+    private void OpenRecipePicker()
     {
-        showRecipePicker = !showRecipePicker;
+        showRecipePicker = true;
+    }
+
+    private void CloseRecipePicker()
+    {
+        showRecipePicker = false;
     }
 
     private void DismissDayStatus()
@@ -376,15 +380,52 @@
         }
     }
 
-    private async Task HandleManualRecipeSelected(ChangeEventArgs e)
+    private async Task HandleRecipePicked(Recipe recipe)
     {
         showRecipePicker = false;
-        var raw = e.Value?.ToString();
-        int? selectedRecipeId = int.TryParse(raw, out int parsed) && parsed > 0 ? parsed : null;
+
+        // Samma recept igen är ingen ändring (som när det inte gick att välja samma option i listan förut);
+        // annars skulle portionsantal och statusmeddelande nollställas.
+        if (recipe.Id == Day.RecipeId)
+        {
+            return;
+        }
+
+        await NotifyManualRecipeChangedAsync(recipe.Id);
+    }
+
+    private async Task HandleRecipeCleared()
+    {
+        showRecipePicker = false;
+        await NotifyManualRecipeChangedAsync(null);
+    }
+
+    private async Task NotifyManualRecipeChangedAsync(int? recipeId)
+    {
+        // Knappen kan ersättas när dagen byter mellan tomt och ifyllt läge; flytta då fokus till den nya knappen.
+        focusChangeButtonAfterRender = true;
 
         if (OnManualRecipeChanged.HasDelegate)
         {
-            await OnManualRecipeChanged.InvokeAsync((Day.DayIndex, selectedRecipeId));
+            await OnManualRecipeChanged.InvokeAsync((Day.DayIndex, recipeId));
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!focusChangeButtonAfterRender || showRecipePicker)
+        {
+            return;
+        }
+
+        focusChangeButtonAfterRender = false;
+        try
+        {
+            await changeRecipeButton.FocusAsync();
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException)
+        {
+            // Fokus är en förbättring, inte en förutsättning.
         }
     }
 
