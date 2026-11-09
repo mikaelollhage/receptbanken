@@ -161,10 +161,12 @@ app.MapGet("/api/backup/export", async (IBackupService backupService, Cancellati
     return Results.File(bytes, "application/zip", fileName);
 });
 
-// Voice shopping list read-only preview (API-1A)
-app.MapPost("/api/voice/shopping-list/preview", (
+// Voice shopping list add items (API-1B)
+app.MapPost("/api/voice/shopping-list/add", async (
     [Microsoft.AspNetCore.Mvc.FromBody] VoiceShoppingListRequest? request,
-    VoiceShoppingListParser parser) =>
+    ShoppingListService shoppingListService,
+    VoiceShoppingListParser parser,
+    CancellationToken ct) =>
 {
     if (request == null || request.Items == null || request.Items.Count == 0)
     {
@@ -182,8 +184,8 @@ app.MapPost("/api/voice/shopping-list/preview", (
         });
     }
 
-    var preview = parser.ParsePreview(request);
-    return Results.Ok(preview);
+    var result = await shoppingListService.AddVoiceItemsAsync(request, parser, ct);
+    return Results.Ok(result);
 });
 
 app.MapRazorComponents<App>()

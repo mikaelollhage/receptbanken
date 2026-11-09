@@ -42,6 +42,18 @@ public class SwedishIngredientParser
         "klick", "klickar", "stänk", "skvätt", "droppe", "droppar"
     };
 
+    private static readonly HashSet<string> WordNumberExcludedNextTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "och", "eller", "till",
+        "halv", "halvt", "halva",
+        "kvart", "kvarts",
+        "tredjedel", "tredjedels",
+        "fjärdedel", "fjärdedels",
+        "femtedel", "femtedels",
+        "sjättedel", "sjättedels",
+        "åttondel", "åttondels"
+    };
+
     public Ingredient Parse(string rawLine, int orderIndex = 1, string? groupHeader = null)
     {
         if (string.IsNullOrWhiteSpace(rawLine))
@@ -207,16 +219,20 @@ public class SwedishIngredientParser
             return rangeMatch.Groups[3].Value.Trim();
         }
 
-        // Leading Swedish word numbers "en" / "ett" before a known unit (e.g. "En skvätt balsamvinäger", "Ett paket jäst")
-        var wordNumberMatch = Regex.Match(input, @"^(?:en|ett)\s+(.*)$", RegexOptions.IgnoreCase);
+        // Leading Swedish word numbers "en" / "ett" (e.g. "En skvätt balsamvinäger", "Ett paket jäst", "En mjölk", "Ett äpple")
+        var wordNumberMatch = Regex.Match(input, @"^(?:en|ett)\s+(.+)$", RegexOptions.IgnoreCase);
         if (wordNumberMatch.Success)
         {
-            var candidateRest = wordNumberMatch.Groups[1].Value;
+            var candidateRest = wordNumberMatch.Groups[1].Value.Trim();
             var nextTokenMatch = Regex.Match(candidateRest, @"^([a-zA-ZåäöÅÄÖ]+)\.?(?:\s+|(?=\()|$)(.*)$");
-            if (nextTokenMatch.Success && KnownUnits.Contains(nextTokenMatch.Groups[1].Value))
+            if (nextTokenMatch.Success)
             {
-                quantity = 1m;
-                return candidateRest;
+                var nextToken = nextTokenMatch.Groups[1].Value;
+                if (!WordNumberExcludedNextTokens.Contains(nextToken))
+                {
+                    quantity = 1m;
+                    return candidateRest;
+                }
             }
         }
 

@@ -58,8 +58,13 @@ public class VoiceShoppingListParserTests
     [InlineData("2 st ägg", 2, null, "st", "ägg", null)]
     [InlineData("1 burk krossade tomater (à 400 g)", 1, null, "burk", "krossade tomater", "à 400 g")]
     [InlineData("2 msk smör, smält", 2, null, "msk", "smör", "smält")]
+    [InlineData("en mjölk", 1.0, null, null, "mjölk", null)]
+    [InlineData("en ketchup", 1.0, null, null, "ketchup", null)]
+    [InlineData("ett äpple", 1.0, null, null, "äpple", null)]
+    [InlineData("ett paket ris", 1.0, null, "paket", "ris", null)]
+    [InlineData("en nypa salt", 1.0, null, "nypa", "salt", null)]
     public void ParseItem_VariousQuantitiesAndUnits_ShouldExtractExpectedFields(
-        string input, double expectedQty, double? expectedMax, string expectedUnit, string expectedName, string? expectedComment)
+        string input, double expectedQty, double? expectedMax, string? expectedUnit, string expectedName, string? expectedComment)
     {
         var result = _parser.ParseItem(input);
 
@@ -78,6 +83,22 @@ public class VoiceShoppingListParserTests
         result.Unit.Should().Be(expectedUnit);
         result.Comment.Should().Be(expectedComment);
         result.Error.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("enbär", "enbär")]
+    [InlineData("enkel grädde", "enkel grädde")]
+    [InlineData("ettårig ost", "ettårig ost")]
+    [InlineData("ett halvt kilo potatis", "ett halvt kilo potatis")]
+    [InlineData("en och en halv liter mjölk", "en och en halv liter mjölk")]
+    public void ParseItem_RegressionPhrases_ShouldNotExtractFalseCount(string input, string expectedName)
+    {
+        var result = _parser.ParseItem(input);
+
+        result.Success.Should().BeTrue();
+        result.Quantity.Should().BeNull();
+        result.Unit.Should().BeNull();
+        result.Name.Should().Be(expectedName);
     }
 
     [Theory]

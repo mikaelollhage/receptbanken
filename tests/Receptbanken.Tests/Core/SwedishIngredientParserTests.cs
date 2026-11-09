@@ -102,6 +102,45 @@ public class SwedishIngredientParserTests
         result.Name.Should().Be("balsamvinäger");
     }
 
+    [Theory]
+    [InlineData("en mjölk", 1.0, null, "mjölk")]
+    [InlineData("en ketchup", 1.0, null, "ketchup")]
+    [InlineData("ett äpple", 1.0, null, "äpple")]
+    [InlineData("ett paket ris", 1.0, "paket", "ris")]
+    [InlineData("en nypa salt", 1.0, "nypa", "salt")]
+    public void Parse_SwedishWordNumbers_StandaloneEnEtt_ShouldExtractQuantityOne(
+        string rawLine, double expectedQuantity, string? expectedUnit, string expectedName)
+    {
+        var result = _parser.Parse(rawLine);
+
+        result.Quantity.Should().Be((decimal)expectedQuantity);
+        result.Unit.Should().Be(expectedUnit);
+        result.Name.Should().Be(expectedName);
+    }
+
+    [Theory]
+    [InlineData("enbär", null, null, "enbär")]
+    [InlineData("enkel grädde", null, null, "enkel grädde")]
+    [InlineData("ettårig ost", null, null, "ettårig ost")]
+    [InlineData("ett halvt kilo potatis", null, null, "ett halvt kilo potatis")]
+    [InlineData("en och en halv liter mjölk", null, null, "en och en halv liter mjölk")]
+    public void Parse_SwedishWordNumbers_NonCountWordsAndFractions_ShouldNotExtractFalseCount(
+        string rawLine, double? expectedQuantity, string? expectedUnit, string expectedName)
+    {
+        var result = _parser.Parse(rawLine);
+
+        if (expectedQuantity.HasValue)
+        {
+            result.Quantity.Should().Be((decimal)expectedQuantity.Value);
+        }
+        else
+        {
+            result.Quantity.Should().BeNull();
+        }
+        result.Unit.Should().Be(expectedUnit);
+        result.Name.Should().Be(expectedName);
+    }
+
     [Fact]
     public void Parse_CountWithoutExplicitUnit_ShouldExtractQuantityAndName()
     {

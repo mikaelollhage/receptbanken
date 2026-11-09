@@ -38,6 +38,11 @@ public class ShoppingListService
     /// </summary>
     public Action? BeforeWeeklyMenuCommitTestHook { get; set; }
 
+    /// <summary>
+    /// Optional hook for testing transactional error handling when an error occurs while saving a specific item during voice add.
+    /// </summary>
+    public Action<ShoppingListItem>? BeforeVoiceItemSaveTestHook { get; set; }
+
     public event Action<long>? OnChanged
     {
         add => _notifier.OnChanged += value;
@@ -104,6 +109,150 @@ public class ShoppingListService
                 _aggregator.AreSameIngredient(x.Name, item.Name));
 
             return matched ?? mergedList.Last();
+        }
+        finally
+        {
+            WriteLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Lägger till varor via röststyrning (API-1B). Tolkar och validerar varje vara individuellt,
+    /// kontrollerar om varan redan finns i den aktuella inköpslistan (!IsChecked), och sparar
+    /// nya varor transaktionellt utan att ändra befintliga poster.
+    /// </summary>
+    public async Task<VoiceShoppingListAddResponse> AddVoiceItemsAsync(
+        VoiceShoppingListRequest request,
+        VoiceShoppingListParser parser,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(parser);
+
+        if (request.Items == null || request.Items.Count == 0)
+        {
+            throw new ArgumentException("Minst en varufras måste anges i 'items'.", nameof(request));
+        }
+
+        if (request.Items.Count > VoiceShoppingListParser.MaxItemsPerRequest)
+        {
+            throw new ArgumentException($"Maximalt {VoiceShoppingListParser.MaxItemsPerRequest} varufraser kan tolkas per anrop.", nameof(request));
+        }
+
+        await WriteLock.WaitAsync(cancellationToken);
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+
+            var currentItems = await db.ShoppingListItems
+                .OrderBy(x => x.IsChecked)
+                .ThenBy(x => x.SortOrder)
+                .ThenBy(x => x.CreatedAt)
+                .ThenBy(x => x.Id)
+                .ToListAsync(cancellationToken);
+
+            int maxSortOrder = currentItems.Count == 0 ? 0 : currentItems.Max(x => x.SortOrder);
+            var results = new List<VoiceShoppingListItemResultDto>();
+            int addedCount = 0;
+            int alreadyExistsCount = 0;
+            int errorCount = 0;
+
+            foreach (var rawPhrase in request.Items)
+            {
+                // 1. Tolka och validera frasen med VoiceShoppingListParser
+                var preview = parser.ParseItem(rawPhrase);
+                if (!preview.Success)
+                {
+                    results.Add(new VoiceShoppingListItemResultDto
+                    {
+                        RawPhrase = preview.RawPhrase,
+                        Status = VoiceShoppingListItemStatus.Error,
+                        DisplayText = null,
+                        Error = preview.Error
+                    });
+                    errorCount++;
+                    continue;
+                }
+
+                // 2. Kontrollera om varan redan finns i den aktuella inköpslistan (!IsChecked)
+                var exists = currentItems.Any(existing =>
+                    !existing.IsChecked &&
+                    _aggregator.AreSameIngredient(existing.Name, preview.Name));
+
+                if (exists)
+                {
+                    results.Add(new VoiceShoppingListItemResultDto
+                    {
+                        RawPhrase = preview.RawPhrase,
+                        Status = VoiceShoppingListItemStatus.AlreadyExists,
+                        DisplayText = preview.DisplayText,
+                        Error = null
+                    });
+                    alreadyExistsCount++;
+                    continue;
+                }
+
+                // 3. Om den saknas: spara via transaktion för enskild vara
+                await using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
+                try
+                {
+                    var newItem = new ShoppingListItem
+                    {
+                        Name = preview.Name!,
+                        Quantity = preview.Quantity,
+                        QuantityMax = preview.QuantityMax,
+                        Unit = preview.Unit,
+                        Comment = preview.Comment,
+                        RawText = preview.DisplayText ?? preview.RawPhrase,
+                        IsChecked = false,
+                        SortOrder = ++maxSortOrder,
+                        CreatedAt = DateTimeOffset.UtcNow
+                    };
+
+                    BeforeVoiceItemSaveTestHook?.Invoke(newItem);
+
+                    db.ShoppingListItems.Add(newItem);
+                    await db.SaveChangesAsync(cancellationToken);
+                    await tx.CommitAsync(cancellationToken);
+
+                    currentItems.Add(newItem);
+                    results.Add(new VoiceShoppingListItemResultDto
+                    {
+                        RawPhrase = preview.RawPhrase,
+                        Status = VoiceShoppingListItemStatus.Added,
+                        DisplayText = preview.DisplayText,
+                        Error = null
+                    });
+                    addedCount++;
+                }
+                catch (Exception ex)
+                {
+                    await tx.RollbackAsync(cancellationToken);
+                    results.Add(new VoiceShoppingListItemResultDto
+                    {
+                        RawPhrase = preview.RawPhrase,
+                        Status = VoiceShoppingListItemStatus.Error,
+                        DisplayText = null,
+                        Error = $"Kunde inte spara varan i inköpslistan: {ex.Message}"
+                    });
+                    errorCount++;
+                }
+            }
+
+            if (addedCount > 0)
+            {
+                _notifier.NotifyChanged();
+            }
+
+            return new VoiceShoppingListAddResponse
+            {
+                Success = errorCount == 0,
+                TotalCount = results.Count,
+                AddedCount = addedCount,
+                AlreadyExistsCount = alreadyExistsCount,
+                ErrorCount = errorCount,
+                Items = results
+            };
         }
         finally
         {
