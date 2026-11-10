@@ -1471,6 +1471,11 @@ fluent-number-field::part(control) {
   color: #fff;
 }
 
+.btn-primary-custom:active:not(:disabled),
+.btn-secondary-custom:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
 .btn-danger-custom {
   background-color: rgba(239, 68, 68, 0.15);
   color: var(--rb-danger);
@@ -2773,33 +2778,11 @@ body.weekly-touch-reordering .weekly-drag-handle {
   border-top: 1px solid var(--rb-border-subtle);
 }
 
-.shopping-recipe-toggle {
-  background: none;
-  border: none;
-  color: var(--rb-text-secondary);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
+.shopping-source-toggles-row {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  padding: 6px 4px;
-  border-radius: var(--rb-radius-sm);
-  transition: color 0.15s ease;
-}
-
-.shopping-recipe-toggle:hover {
-  color: var(--rb-text-primary);
-}
-
-.shopping-recipe-toggle:focus-visible {
-  outline: 2px solid var(--rb-accent);
-  outline-offset: 2px;
-}
-
-.shopping-recipe-toggle-chevron {
-  color: var(--rb-accent);
-  font-size: 12px;
+  margin-top: 8px;
 }
 
 .shopping-recipe-panel {
@@ -3379,34 +3362,6 @@ body.shopping-touch-reordering * {
 .weekly-day-servings-control .servings-count {
   font-size: 13px;
   min-width: auto;
-}
-
-.shopping-source-toggles-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.shopping-weekly-menu-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--rb-text-secondary);
-  background-color: var(--rb-bg-card);
-  border: 1px solid var(--rb-border);
-  border-radius: var(--rb-radius-sm);
-  cursor: pointer;
-  min-height: 40px;
-  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
-}
-
-.shopping-weekly-menu-toggle:hover {
-  color: var(--rb-text-primary);
-  border-color: var(--rb-accent-gold);
 }
 
 /* Förhandsgranskningsdialog (Etapp 3B.2 & 3B.2A) */

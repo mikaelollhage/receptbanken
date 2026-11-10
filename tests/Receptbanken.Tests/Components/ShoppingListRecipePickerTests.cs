@@ -313,6 +313,30 @@ public class ShoppingListRecipePickerTests : TestContext
         });
     }
 
+    [Fact]
+    public void ImportButtons_ShouldHaveConsistentSecondaryButtonStylingAndAriaAttributes()
+    {
+        var cut = RenderComponent<ShoppingPlaceholder>();
+
+        var recipeBtn = cut.Find("#shopping-recipe-toggle-btn");
+        var weeklyMenuBtn = cut.Find("#shopping-weekly-menu-btn");
+
+        // Båda knapparna ska ha enhetlig Fluent UI/Receptbanken sekundär knappstyling
+        recipeBtn.ClassList.Should().Contain("btn-secondary-custom");
+        weeklyMenuBtn.ClassList.Should().Contain("btn-secondary-custom");
+
+        // Båda knapparna ska ha type="button" och dialog-popup deklarerat
+        recipeBtn.GetAttribute("type").Should().Be("button");
+        weeklyMenuBtn.GetAttribute("type").Should().Be("button");
+        recipeBtn.GetAttribute("aria-haspopup").Should().Be("dialog");
+        weeklyMenuBtn.GetAttribute("aria-haspopup").Should().Be("dialog");
+
+        // Båda knapparna ska ligga i samma toggles-rad
+        recipeBtn.ParentElement.Should().NotBeNull();
+        recipeBtn.ParentElement!.ClassList.Should().Contain("shopping-source-toggles-row");
+        weeklyMenuBtn.ParentElement.Should().Be(recipeBtn.ParentElement);
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
