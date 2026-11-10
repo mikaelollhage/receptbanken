@@ -12,7 +12,7 @@
                 <button type="button" class="btn-secondary-custom" @onclick="Cancel">
                     @CancelText
                 </button>
-                <button type="button" class="btn-danger-custom" style="padding: 10px 18px; font-size: 14px;" @onclick="Confirm">
+                <button type="button" class="@ConfirmButtonClass" style="padding: 10px 18px; font-size: 14px;" @onclick="Confirm">
                     @ConfirmText
                 </button>
             </div>
@@ -26,8 +26,15 @@
     [Parameter] public string Message { get; set; } = "Är du säker på att du vill fortsätta?";
     [Parameter] public string ConfirmText { get; set; } = "Radera";
     [Parameter] public string CancelText { get; set; } = "Avbryt";
+    [Parameter] public ConfirmDialogVariant Variant { get; set; } = ConfirmDialogVariant.Danger;
     [Parameter] public EventCallback OnConfirm { get; set; }
     [Parameter] public EventCallback OnCancel { get; set; }
+
+    private string ConfirmButtonClass => Variant switch
+    {
+        ConfirmDialogVariant.Primary => "btn-primary-custom",
+        _ => "btn-danger-custom"
+    };
 
     private async Task Confirm()
     {

@@ -973,8 +973,11 @@ public class WeeklyMenuComponentTests : TestContext
             modal.TextContent.Should().Contain("Spara och fortsätt");
         });
 
-        // 3. Bekräfta "Spara och fortsätt" -> ändringarna (6 portioner) sparas och förhandsgranskningen öppnas
-        cut.Find(".modal-dialog-custom button.btn-danger-custom").Click();
+        // 3. Bekräfta "Spara och fortsätt" -> bekräftelseknappen använder nu semantiskt korrekt primär styling (btn-primary-custom)
+        var confirmBtn = cut.FindAll(".modal-dialog-custom button").First(b => b.TextContent.Contains("Spara och fortsätt"));
+        confirmBtn.ClassList.Should().Contain("btn-primary-custom");
+        confirmBtn.ClassList.Should().NotContain("btn-danger-custom");
+        confirmBtn.Click();
 
         cut.WaitForAssertion(() =>
         {
