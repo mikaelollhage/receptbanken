@@ -48,17 +48,17 @@
     <div class="weekly-nav-controls">
         <div class="weekly-nav-primary-row">
             <button type="button"
-                    class="btn-secondary-custom week-prev-btn"
+                    class="btn-secondary-custom btn-md week-prev-btn"
                     disabled="@(isLoading || isSaving)"
                     @onclick="RequestPreviousWeek">
-                ← Föregående vecka
+                <FluentIcon Value="@(new Icons.Regular.Size20.ArrowLeft())" Color="Color.Neutral" /> Föregående vecka
             </button>
 
             <button type="button"
-                    class="btn-secondary-custom week-next-btn"
+                    class="btn-secondary-custom btn-md week-next-btn"
                     disabled="@(isLoading || isSaving)"
                     @onclick="RequestNextWeek">
-                Nästa vecka →
+                Nästa vecka <FluentIcon Value="@(new Icons.Regular.Size20.ArrowRight())" Color="Color.Neutral" />
             </button>
         </div>
 
@@ -66,7 +66,7 @@
         {
             <div class="weekly-nav-today-row">
                 <button type="button"
-                        class="btn-secondary-custom week-today-btn"
+                        class="btn-secondary-custom btn-md week-today-btn"
                         disabled="@(isLoading || isSaving)"
                         @onclick="RequestCurrentWeek">
                     Denna vecka
@@ -143,7 +143,7 @@
 <div class="weekly-actions-bar">
     <div class="weekly-actions-left">
         <button type="button"
-                class="btn-primary-custom generate-week-btn"
+                class="btn-secondary-custom generate-week-btn"
                 disabled="@(isLoading || isSaving)"
                 @onclick="HandleGenerateWeekClicked">
             🎲 Generera veckomeny

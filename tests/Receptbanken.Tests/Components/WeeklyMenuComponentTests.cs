@@ -1725,4 +1725,84 @@ public class WeeklyMenuComponentTests : TestContext
         cut.Find(".recipe-picker-clear").Click();
         changes.Should().Equal((5, (int?)null));
     }
+
+    // =========================================================================
+    // UX-2D.2: Konsekventa knappstorlekar, Fluent UI-ikoner och knapphierarki
+    // =========================================================================
+
+    [Fact]
+    public async Task WeeklyMenuPage_WeekNavigationButtons_ShouldUseBtnMdAndFluentIcons_AndWorkCorrectly()
+    {
+        var localToday = new DateOnly(2026, 11, 2); // Måndag v.45, 2026
+        var (dbFactory, _, _, _) = await SetupServicesAsync(localToday);
+        using var _ = dbFactory;
+
+        var cut = RenderComponent<WeeklyMenuPage>();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("Vecka 45, 2026"));
+
+        // 1. Kontrollera knapparna för Föregående och Nästa vecka
+        var prevBtn = cut.Find("button.week-prev-btn");
+        var nextBtn = cut.Find("button.week-next-btn");
+
+        prevBtn.ClassList.Should().Contain("btn-secondary-custom");
+        prevBtn.ClassList.Should().Contain("btn-md", "Veckonavigeringen ska använda standardstorleken .btn-md");
+        prevBtn.TextContent.Should().Contain("Föregående vecka");
+        prevBtn.TextContent.Should().NotContain("←", "Textpilar ska inte användas");
+        prevBtn.QuerySelector("svg").Should().NotBeNull("Föregående vecka ska innehålla en FluentIcon (svg)");
+
+        nextBtn.ClassList.Should().Contain("btn-secondary-custom");
+        nextBtn.ClassList.Should().Contain("btn-md", "Veckonavigeringen ska använda standardstorleken .btn-md");
+        nextBtn.TextContent.Should().Contain("Nästa vecka");
+        nextBtn.TextContent.Should().NotContain("→", "Textpilar ska inte användas");
+        nextBtn.QuerySelector("svg").Should().NotBeNull("Nästa vecka ska innehålla en FluentIcon (svg)");
+
+        // 2. Klicka nästa vecka -> v.46 visas, 'Denna vecka'-knapp dyker upp
+        nextBtn.Click();
+        cut.WaitForAssertion(() =>
+        {
+            cut.Markup.Should().Contain("Vecka 46, 2026");
+            var todayBtn = cut.Find("button.week-today-btn");
+            todayBtn.ClassList.Should().Contain("btn-secondary-custom");
+            todayBtn.ClassList.Should().Contain("btn-md", "'Denna vecka' ska också använda standardstorleken .btn-md");
+            todayBtn.TextContent.Should().Contain("Denna vecka");
+        });
+
+        // 3. Klicka 'Denna vecka' -> tillbaka till v.45
+        cut.Find("button.week-today-btn").Click();
+        cut.WaitForAssertion(() =>
+        {
+            cut.Markup.Should().Contain("Vecka 45, 2026");
+            cut.FindAll("button.week-today-btn").Should().BeEmpty();
+        });
+    }
+
+    [Fact]
+    public async Task WeeklyMenuPage_ButtonHierarchy_GenerateShouldBeSecondary_ConfirmShouldBePrimary()
+    {
+        var localToday = new DateOnly(2026, 11, 2);
+        var (dbFactory, _, _, _) = await SetupServicesAsync(localToday);
+        using var _ = dbFactory;
+
+        var cut = RenderComponent<WeeklyMenuPage>();
+        cut.WaitForAssertion(() => cut.FindAll("button.generate-week-btn").Should().ContainSingle());
+
+        // 1. 'Generera veckomeny' ska vara mörkgrå sekundärknapp (UX-2D.2 Del C)
+        var generateBtn = cut.Find("button.generate-week-btn");
+        generateBtn.ClassList.Should().Contain("btn-secondary-custom", "Generera veckomeny är ett verktyg och ska vara sekundärt");
+        generateBtn.ClassList.Should().NotContain("btn-primary-custom", "Generera veckomeny ska inte konkurrera med primär sparhandling");
+
+        // 2. 'Spika veckomenyn' ska vara korallfärgad primärknapp
+        var confirmBtn = cut.Find("button.confirm-week-btn");
+        confirmBtn.ClassList.Should().Contain("btn-primary-custom", "Spika veckomenyn är den primära slutförandehandlingen");
+        confirmBtn.TextContent.Should().Contain("Spika veckomenyn");
+
+        // 3. Spika menyn och verifiera att 'Spara ändringar i spikad meny' förblir korallfärgad primärknapp
+        confirmBtn.Click();
+        cut.WaitForAssertion(() =>
+        {
+            var saveConfirmedBtn = cut.Find("button.confirm-week-btn");
+            saveConfirmedBtn.ClassList.Should().Contain("btn-primary-custom", "Spara ändringar i spikad meny ska förbli primärknapp");
+            saveConfirmedBtn.TextContent.Should().Contain("Spara ändringar i spikad meny");
+        });
+    }
 }

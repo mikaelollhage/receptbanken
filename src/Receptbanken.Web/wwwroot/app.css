@@ -1413,11 +1413,13 @@ fluent-number-field::part(control) {
 .btn-primary-custom {
   background-color: var(--rb-accent);
   color: #fff;
-  border: none;
+  border: 1px solid transparent;
   padding: 10px 20px;
   border-radius: var(--rb-radius-md);
   font-weight: 600;
   font-size: 14px;
+  line-height: 1.42857;
+  min-height: 42px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -1446,6 +1448,8 @@ fluent-number-field::part(control) {
   border-radius: var(--rb-radius-md);
   font-weight: 500;
   font-size: 14px;
+  line-height: 1.42857;
+  min-height: 42px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -1494,6 +1498,8 @@ fluent-number-field::part(control) {
 .btn-md {
   padding: 10px 18px;
   font-size: 14px;
+  line-height: 1.42857;
+  min-height: 42px;
 }
 
 .btn-lg {
@@ -2670,6 +2676,8 @@ body.weekly-touch-reordering .weekly-drag-handle {
   .weekly-nav-primary-row .week-next-btn {
     width: 100%;
     justify-content: center;
+    padding: 10px 8px;
+    font-size: 13px;
   }
 
   .weekly-nav-today-row {
@@ -2715,9 +2723,6 @@ body.weekly-touch-reordering .weekly-drag-handle {
   }
 }
 
-/* ============================================================
-   Shopping List Page (/inkopslista) – Mobile-First UX (Etapp 3A)
-   ============================================================ */
 .shopping-page-container {
   max-width: 780px;
   margin: 0 auto;
@@ -3337,10 +3342,6 @@ body.shopping-touch-reordering * {
   }
 }
 
-/* ==========================================
-   ETAPP 3B.2: Veckomeny -> Inköpslista
-   ========================================== */
-
 .weekly-day-servings-control {
   display: inline-flex;
   align-items: center;
@@ -3364,7 +3365,6 @@ body.shopping-touch-reordering * {
   min-width: auto;
 }
 
-/* Förhandsgranskningsdialog (Etapp 3B.2 & 3B.2A) */
 .weekly-shopping-preview-backdrop {
   align-items: center;
   justify-content: center;
