@@ -58,9 +58,17 @@ public class VoiceShoppingListParserTests
     [InlineData("2 st ägg", 2, null, "st", "ägg", null)]
     [InlineData("1 burk krossade tomater (à 400 g)", 1, null, "burk", "krossade tomater", "à 400 g")]
     [InlineData("2 msk smör, smält", 2, null, "msk", "smör", "smält")]
+    [InlineData("en tomat", 1.0, null, null, "tomat", null)]
+    [InlineData("ett äpple", 1.0, null, null, "äpple", null)]
+    [InlineData("två gurkor", 2.0, null, null, "gurkor", null)]
+    [InlineData("tre bananer", 3.0, null, null, "bananer", null)]
+    [InlineData("fyra röda lökar", 4.0, null, null, "röda lökar", null)]
+    [InlineData("fem dl mjölk", 5.0, null, "dl", "mjölk", null)]
+    [InlineData("två liter mellanmjölk", 2.0, null, "l", "mellanmjölk", null)]
+    [InlineData("tre paket kaffe", 3.0, null, "paket", "kaffe", null)]
+    [InlineData("tio ägg", 10.0, null, null, "ägg", null)]
     [InlineData("en mjölk", 1.0, null, null, "mjölk", null)]
     [InlineData("en ketchup", 1.0, null, null, "ketchup", null)]
-    [InlineData("ett äpple", 1.0, null, null, "äpple", null)]
     [InlineData("ett paket ris", 1.0, null, "paket", "ris", null)]
     [InlineData("en nypa salt", 1.0, null, "nypa", "salt", null)]
     public void ParseItem_VariousQuantitiesAndUnits_ShouldExtractExpectedFields(
@@ -91,6 +99,11 @@ public class VoiceShoppingListParserTests
     [InlineData("ettårig ost", "ettårig ost")]
     [InlineData("ett halvt kilo potatis", "ett halvt kilo potatis")]
     [InlineData("en och en halv liter mjölk", "en och en halv liter mjölk")]
+    [InlineData("en halv liter", "en halv liter")]
+    [InlineData("en halv liter mjölk", "en halv liter mjölk")]
+    [InlineData("två och en halv liter mjölk", "två och en halv liter mjölk")]
+    [InlineData("två halva avokador", "två halva avokador")]
+    [InlineData("Sex on the Beach", "Sex on the Beach")]
     public void ParseItem_RegressionPhrases_ShouldNotExtractFalseCount(string input, string expectedName)
     {
         var result = _parser.ParseItem(input);
@@ -99,6 +112,37 @@ public class VoiceShoppingListParserTests
         result.Quantity.Should().BeNull();
         result.Unit.Should().BeNull();
         result.Name.Should().Be(expectedName);
+    }
+
+    [Fact]
+    public void ParsePreview_JarvisCommandItems_ShouldParseAllQuantitiesCorrectly()
+    {
+        // Motiverande exempel från verkligt Jarvis-kommando:
+        // "Skriv upp en tomat, två gurkor och sallad på inköpslistan."
+        var request = new VoiceShoppingListRequest
+        {
+            Items = ["en tomat", "två gurkor", "sallad"]
+        };
+
+        var preview = _parser.ParsePreview(request);
+
+        preview.ValidCount.Should().Be(3);
+        preview.ErrorCount.Should().Be(0);
+
+        preview.Items[0].Success.Should().BeTrue();
+        preview.Items[0].Name.Should().Be("tomat");
+        preview.Items[0].Quantity.Should().Be(1m);
+        preview.Items[0].DisplayText.Should().Be("1 tomat");
+
+        preview.Items[1].Success.Should().BeTrue();
+        preview.Items[1].Name.Should().Be("gurkor");
+        preview.Items[1].Quantity.Should().Be(2m);
+        preview.Items[1].DisplayText.Should().Be("2 gurkor");
+
+        preview.Items[2].Success.Should().BeTrue();
+        preview.Items[2].Name.Should().Be("sallad");
+        preview.Items[2].Quantity.Should().BeNull();
+        preview.Items[2].DisplayText.Should().Be("sallad");
     }
 
     [Theory]

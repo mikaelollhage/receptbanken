@@ -42,6 +42,31 @@ public class SwedishIngredientParser
         "klick", "klickar", "stänk", "skvätt", "droppe", "droppar"
     };
 
+    private static readonly Dictionary<string, decimal> SwedishWordNumbers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["en"] = 1m,
+        ["ett"] = 1m,
+        ["två"] = 2m,
+        ["tre"] = 3m,
+        ["fyra"] = 4m,
+        ["fem"] = 5m,
+        ["sex"] = 6m,
+        ["sju"] = 7m,
+        ["åtta"] = 8m,
+        ["nio"] = 9m,
+        ["tio"] = 10m,
+        ["elva"] = 11m,
+        ["tolv"] = 12m,
+        ["tretton"] = 13m,
+        ["fjorton"] = 14m,
+        ["femton"] = 15m,
+        ["sexton"] = 16m,
+        ["sjutton"] = 17m,
+        ["arton"] = 18m,
+        ["nitton"] = 19m,
+        ["tjugo"] = 20m
+    };
+
     private static readonly HashSet<string> WordNumberExcludedNextTokens = new(StringComparer.OrdinalIgnoreCase)
     {
         "och", "eller", "till",
@@ -51,7 +76,9 @@ public class SwedishIngredientParser
         "fjärdedel", "fjärdedels",
         "femtedel", "femtedels",
         "sjättedel", "sjättedels",
-        "åttondel", "åttondels"
+        "åttondel", "åttondels",
+        "tiondel", "tiondels",
+        "on"
     };
 
     public Ingredient Parse(string rawLine, int orderIndex = 1, string? groupHeader = null)
@@ -219,18 +246,18 @@ public class SwedishIngredientParser
             return rangeMatch.Groups[3].Value.Trim();
         }
 
-        // Leading Swedish word numbers "en" / "ett" (e.g. "En skvätt balsamvinäger", "Ett paket jäst", "En mjölk", "Ett äpple")
-        var wordNumberMatch = Regex.Match(input, @"^(?:en|ett)\s+(.+)$", RegexOptions.IgnoreCase);
-        if (wordNumberMatch.Success)
+        // Leading Swedish word numbers (e.g. "en", "ett", "två", "tre", ... "tio")
+        var wordNumberMatch = Regex.Match(input, @"^([a-zA-ZåäöÅÄÖ]+)\s+(.+)$");
+        if (wordNumberMatch.Success && SwedishWordNumbers.TryGetValue(wordNumberMatch.Groups[1].Value, out var wordQty))
         {
-            var candidateRest = wordNumberMatch.Groups[1].Value.Trim();
+            var candidateRest = wordNumberMatch.Groups[2].Value.Trim();
             var nextTokenMatch = Regex.Match(candidateRest, @"^([a-zA-ZåäöÅÄÖ]+)\.?(?:\s+|(?=\()|$)(.*)$");
             if (nextTokenMatch.Success)
             {
                 var nextToken = nextTokenMatch.Groups[1].Value;
-                if (!WordNumberExcludedNextTokens.Contains(nextToken))
+                if (!WordNumberExcludedNextTokens.Contains(nextToken) && !SwedishWordNumbers.ContainsKey(nextToken))
                 {
-                    quantity = 1m;
+                    quantity = wordQty;
                     return candidateRest;
                 }
             }

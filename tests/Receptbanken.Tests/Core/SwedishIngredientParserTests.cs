@@ -103,12 +103,78 @@ public class SwedishIngredientParserTests
     }
 
     [Theory]
+    [InlineData("en tomat", 1.0, null, "tomat")]
+    [InlineData("ett äpple", 1.0, null, "äpple")]
+    [InlineData("två gurkor", 2.0, null, "gurkor")]
+    [InlineData("tre bananer", 3.0, null, "bananer")]
+    [InlineData("fyra röda lökar", 4.0, null, "röda lökar")]
+    [InlineData("fem dl mjölk", 5.0, "dl", "mjölk")]
+    [InlineData("sex citroner", 6.0, null, "citroner")]
+    [InlineData("sju morötter", 7.0, null, "morötter")]
+    [InlineData("åtta potatisar", 8.0, null, "potatisar")]
+    [InlineData("nio plommon", 9.0, null, "plommon")]
+    [InlineData("tio ägg", 10.0, null, "ägg")]
+    [InlineData("elva päron", 11.0, null, "päron")]
+    [InlineData("tolv ägg", 12.0, null, "ägg")]
+    [InlineData("tjugo servetter", 20.0, null, "servetter")]
     [InlineData("en mjölk", 1.0, null, "mjölk")]
     [InlineData("en ketchup", 1.0, null, "ketchup")]
-    [InlineData("ett äpple", 1.0, null, "äpple")]
     [InlineData("ett paket ris", 1.0, "paket", "ris")]
     [InlineData("en nypa salt", 1.0, "nypa", "salt")]
-    public void Parse_SwedishWordNumbers_StandaloneEnEtt_ShouldExtractQuantityOne(
+    public void Parse_SwedishWordNumbers_OneToTenAndBeyond_ShouldExtractQuantityAndItem(
+        string rawLine, double expectedQuantity, string? expectedUnit, string expectedName)
+    {
+        var result = _parser.Parse(rawLine);
+
+        result.Quantity.Should().Be((decimal)expectedQuantity);
+        result.Unit.Should().Be(expectedUnit);
+        result.Name.Should().Be(expectedName);
+    }
+
+    [Theory]
+    [InlineData("två liter mellanmjölk", 2.0, "l", "mellanmjölk")]
+    [InlineData("tre paket kaffe", 3.0, "paket", "kaffe")]
+    [InlineData("två burkar krossade tomater", 2.0, "burkar", "krossade tomater")]
+    [InlineData("tre msk olivolja", 3.0, "msk", "olivolja")]
+    [InlineData("fyra klyftor vitlök", 4.0, "klyftor", "vitlök")]
+    [InlineData("två st ägg", 2.0, "st", "ägg")]
+    [InlineData("fem stycken äpplen", 5.0, "st", "äpplen")]
+    public void Parse_SwedishWordNumbers_WithUnits_ShouldNormalizeUnitsCorrectly(
+        string rawLine, double expectedQuantity, string expectedUnit, string expectedName)
+    {
+        var result = _parser.Parse(rawLine);
+
+        result.Quantity.Should().Be((decimal)expectedQuantity);
+        result.Unit.Should().Be(expectedUnit);
+        result.Name.Should().Be(expectedName);
+    }
+
+    [Fact]
+    public void Parse_SwedishWordNumbers_WithPreparation_ShouldExtractPreparationCorrectly()
+    {
+        var result = _parser.Parse("fyra röda lökar, finhackade");
+
+        result.Quantity.Should().Be(4m);
+        result.Unit.Should().BeNull();
+        result.Name.Should().Be("röda lökar");
+        result.Preparation.Should().Be("finhackade");
+    }
+
+    [Fact]
+    public void Parse_SwedishWordNumbers_WithComment_ShouldExtractCommentCorrectly()
+    {
+        var result = _parser.Parse("tre paket kaffe (à 500 g)");
+
+        result.Quantity.Should().Be(3m);
+        result.Unit.Should().Be("paket");
+        result.Name.Should().Be("kaffe");
+        result.Comment.Should().Be("à 500 g");
+    }
+
+    [Theory]
+    [InlineData("cirka två gurkor", 2.0, null, "gurkor")]
+    [InlineData("ca tre äpplen", 3.0, null, "äpplen")]
+    public void Parse_SwedishWordNumbers_WithCirkaPrefix_ShouldExtractQuantity(
         string rawLine, double expectedQuantity, string? expectedUnit, string expectedName)
     {
         var result = _parser.Parse(rawLine);
@@ -122,8 +188,20 @@ public class SwedishIngredientParserTests
     [InlineData("enbär", null, null, "enbär")]
     [InlineData("enkel grädde", null, null, "enkel grädde")]
     [InlineData("ettårig ost", null, null, "ettårig ost")]
+    [InlineData("tvättmedel", null, null, "tvättmedel")]
+    [InlineData("tvåpack hushållspapper", null, null, "tvåpack hushållspapper")]
+    [InlineData("en halv liter", null, null, "en halv liter")]
+    [InlineData("en halv liter mjölk", null, null, "en halv liter mjölk")]
+    [InlineData("ett halvt kilo", null, null, "ett halvt kilo")]
     [InlineData("ett halvt kilo potatis", null, null, "ett halvt kilo potatis")]
+    [InlineData("en och en halv liter", null, null, "en och en halv liter")]
     [InlineData("en och en halv liter mjölk", null, null, "en och en halv liter mjölk")]
+    [InlineData("två och en halv liter", null, null, "två och en halv liter")]
+    [InlineData("två halva avokador", null, null, "två halva avokador")]
+    [InlineData("Sex on the Beach", null, null, "Sex on the Beach")]
+    [InlineData("två till tre bananer", null, null, "två till tre bananer")]
+    [InlineData("tre eller fyra tomater", null, null, "tre eller fyra tomater")]
+    [InlineData("två tre gurkor", null, null, "två tre gurkor")]
     public void Parse_SwedishWordNumbers_NonCountWordsAndFractions_ShouldNotExtractFalseCount(
         string rawLine, double? expectedQuantity, string? expectedUnit, string expectedName)
     {
