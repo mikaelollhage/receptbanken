@@ -26,10 +26,13 @@ public class ConfirmDialogComponentTests : TestContext
 
         var confirmBtn = cut.FindAll("button").First(b => b.TextContent.Contains("Ja, radera"));
         confirmBtn.ClassList.Should().Contain("btn-danger-custom");
+        confirmBtn.ClassList.Should().Contain("btn-md");
         confirmBtn.ClassList.Should().NotContain("btn-primary-custom");
+        (confirmBtn.GetAttribute("style") ?? string.Empty).Should().NotContain("padding");
 
         var cancelBtn = cut.FindAll("button").First(b => b.TextContent.Contains("Avbryt"));
         cancelBtn.ClassList.Should().Contain("btn-secondary-custom");
+        cancelBtn.ClassList.Should().Contain("btn-md");
     }
 
     [Fact]

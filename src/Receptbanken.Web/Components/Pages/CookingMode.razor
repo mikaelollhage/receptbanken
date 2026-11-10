@@ -131,8 +131,7 @@ else
                     <!-- Step Navigation Controls -->
                     <div class="cooking-step-nav">
                         <button type="button"
-                                class="btn-secondary-custom"
-                                style="padding: 14px 24px; font-size: 16px;"
+                                class="btn-secondary-custom btn-lg"
                                 disabled="@(currentStepIndex == 0)"
                                 @onclick="PreviousStep">
                             ← Föregående steg
@@ -141,8 +140,7 @@ else
                         @if (currentStepIndex < steps.Count - 1)
                         {
                             <button type="button"
-                                    class="btn-primary-custom"
-                                    style="padding: 14px 28px; font-size: 16px;"
+                                    class="btn-primary-custom btn-lg"
                                     @onclick="NextStep">
                                 Nästa steg →
                             </button>
@@ -150,8 +148,7 @@ else
                         else
                         {
                             <a href="@($"/recept/{recipe.Id}")"
-                               class="btn-primary-custom"
-                               style="padding: 14px 28px; font-size: 16px; background: #16a34a;">
+                               class="btn-primary-custom btn-lg">
                                 🎉 Klart! Tillbaka till receptet
                             </a>
                         }

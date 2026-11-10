@@ -1569,8 +1569,11 @@ public class WeeklyMenuComponentTests : TestContext
         PickCard(cut, "Paj");
         cut.WaitForAssertion(() => cut.Find(".weekly-status-badge.status-unsaved").Should().NotBeNull());
 
-        // Återställ sparad version -> tisdag är åter Soppa
+        // Återställ sparad version -> bekräftelsedialog visas, bekräfta återställning
         cut.Find("button.discard-changes-btn").Click();
+        cut.WaitForAssertion(() => cut.FindAll(".modal-dialog-custom").Should().ContainSingle());
+        var confirmRevertBtn = cut.FindAll("button").First(b => b.TextContent.Contains("Ja, återställ"));
+        confirmRevertBtn.Click();
         cut.WaitForAssertion(() =>
         {
             DayTitle(cut, 1).Should().Be("Soppa");
@@ -1588,6 +1591,61 @@ public class WeeklyMenuComponentTests : TestContext
         saved.Days.Single(d => d.DayIndex == 1).Recipe!.Title.Should().Be("Paj");
         saved.Days.Single(d => d.DayIndex == 0).Recipe!.Title.Should().Be("Pasta");
         saved.Days.Single(d => d.DayIndex == 0).Servings.Should().Be(6);
+    }
+
+    [Fact]
+    public async Task DiscardChanges_WhenCancelled_ShouldKeepUnsavedChangesAndNotRevert()
+    {
+        var (cut, _, _, _) = await RenderPageWithPickerDataAsync();
+
+        OpenPicker(cut, 1);
+        PickCard(cut, "Paj");
+        cut.WaitForAssertion(() => cut.Find(".weekly-status-badge.status-unsaved").Should().NotBeNull());
+
+        // Klicka på "Återställ sparad version"
+        cut.Find("button.discard-changes-btn").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var dialog = cut.Find(".modal-dialog-custom");
+            dialog.Should().NotBeNull();
+            dialog.TextContent.Should().Contain("Återställ sparad version?");
+            dialog.TextContent.Should().Contain("Dina osparade ändringar försvinner");
+        });
+
+        // Bekräftelseknappen ska vara destruktiv (Danger)
+        var confirmBtn = cut.FindAll("button").First(b => b.TextContent.Contains("Ja, återställ"));
+        confirmBtn.ClassList.Should().Contain("btn-danger-custom");
+
+        // Klicka på Avbryt
+        var cancelBtn = cut.FindAll("button").First(b => b.TextContent.Contains("Avbryt"));
+        cancelBtn.Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.FindAll(".modal-dialog-custom").Should().BeEmpty("dialogen ska stängas vid avbryt");
+            // Ändringen ska finnas kvar och fortfarande vara markerad som osparad
+            DayTitle(cut, 1).Should().Be("Paj");
+            cut.FindAll(".weekly-status-badge.status-unsaved").Should().ContainSingle();
+        });
+    }
+
+    [Fact]
+    public async Task WeeklyMenu_ConfirmButtons_ShouldUsePrimaryCustomWithoutGreenInlineStyle()
+    {
+        var (cut, _, _, _) = await RenderPageWithPickerDataAsync();
+
+        var topBtn = cut.Find("button.confirm-week-btn");
+        topBtn.ClassList.Should().Contain("btn-primary-custom");
+        var topStyle = topBtn.GetAttribute("style") ?? string.Empty;
+        topStyle.Should().NotContain("var(--rb-success)");
+        topStyle.Should().NotContain("background-color");
+
+        var bottomBtn = cut.Find("button.confirm-week-bottom-btn");
+        bottomBtn.ClassList.Should().Contain("btn-primary-custom");
+        var bottomStyle = bottomBtn.GetAttribute("style") ?? string.Empty;
+        bottomStyle.Should().NotContain("var(--rb-success)");
+        bottomStyle.Should().NotContain("background-color");
     }
 
     // --- Isolerade tester av dagkortet: callbackkontrakt, status och fokus ---

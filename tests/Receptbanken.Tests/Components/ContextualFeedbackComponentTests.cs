@@ -599,7 +599,14 @@ public class ContextualFeedbackComponentTests : TestContext
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = RenderComponent<Categories>();
-        cut.WaitForAssertion(() => cut.Markup.Should().Contain("Soppa"));
+        cut.WaitForAssertion(() =>
+        {
+            cut.Markup.Should().Contain("Soppa");
+            var editBtn = cut.Find("button.btn-secondary-custom.btn-sm");
+            editBtn.TextContent.Should().Contain("Redigera");
+            var deleteBtn = cut.Find("button.btn-danger-custom.btn-sm");
+            deleteBtn.TextContent.Should().Contain("Radera");
+        });
 
         // Enter duplicate name "soppa"
         var textField = cut.Find("fluent-text-field");

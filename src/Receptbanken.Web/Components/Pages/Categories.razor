@@ -87,10 +87,10 @@
                             <span style="font-size: 13px; color: var(--rb-text-muted);">(@cat.RecipeCount recept)</span>
                         </div>
                         <div style="display: flex; gap: 8px;">
-                            <button type="button" class="btn-secondary-custom" style="padding: 4px 10px; font-size: 12px;" @onclick="@(() => StartEdit(cat))">
+                            <button type="button" class="btn-secondary-custom btn-sm" @onclick="@(() => StartEdit(cat))">
                                 Redigera
                             </button>
-                            <button type="button" class="btn-danger-custom" style="padding: 4px 10px; font-size: 12px;" @onclick="@(() => PromptDeleteCategory(cat))">
+                            <button type="button" class="btn-danger-custom btn-sm" @onclick="@(() => PromptDeleteCategory(cat))">
                                 Radera
                             </button>
                         </div>

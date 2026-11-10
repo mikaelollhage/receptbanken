@@ -164,7 +164,7 @@
             <button type="button"
                     class="btn-secondary-custom discard-changes-btn"
                     disabled="@(isLoading || isSaving)"
-                    @onclick="RevertUnsavedChangesAsync">
+                    @onclick="RequestRevertUnsavedChanges">
                 Återställ sparad version
             </button>
         }
@@ -182,7 +182,6 @@
 
             <button type="button"
                     class="btn-primary-custom confirm-week-btn"
-                    style="background-color: var(--rb-success);"
                     disabled="@(isLoading || isSaving)"
                     @onclick="@(() => ConfirmWeeklyMenuAsync(FeedbackPlacement.Top))">
                 @if (currentMenu.Status == WeeklyMenuStatus.Confirmed)
@@ -257,13 +256,22 @@ else
         }
         <button type="button"
                 class="btn-primary-custom confirm-week-bottom-btn"
-                style="background-color: var(--rb-success);"
                 disabled="@(isLoading || isSaving)"
                 @onclick="@(() => ConfirmWeeklyMenuAsync(FeedbackPlacement.Bottom))">
             @(currentMenu.Status == WeeklyMenuStatus.Confirmed ? "📌 Spara ändringar i spikad meny" : "📌 Spika veckomenyn")
         </button>
     </div>
 }
+
+<!-- Confirmation Dialog before discarding unsaved edits via "Återställ sparad version" (UX-2C) -->
+<ConfirmDialog IsVisible="showRevertChangesConfirm"
+               Title="Återställ sparad version?"
+               Message="Du har osparade ändringar i veckomenyn. Vill du ångra alla ändringar och återgå till den senast sparade versionen? Dina osparade ändringar försvinner."
+               ConfirmText="Ja, återställ"
+               CancelText="Avbryt"
+               Variant="ConfirmDialogVariant.Danger"
+               OnConfirm="ConfirmRevertChangesAsync"
+               OnCancel="@(() => showRevertChangesConfirm = false)" />
 
 <!-- Confirmation Dialog before overwriting modified draft / existing proposals -->
 <ConfirmDialog IsVisible="showRegenerateConfirm"
@@ -322,6 +330,7 @@ else
     private bool showRegenerateConfirm = false;
     private bool showUnsavedNavigationConfirm = false;
     private bool showSaveBeforeShoppingConfirm = false;
+    private bool showRevertChangesConfirm = false;
     private bool showShoppingPreview = false;
     private DateOnly? pendingWeekDate;
     private string? pendingInternalNavigationUrl;
@@ -977,6 +986,17 @@ else
         {
             isSaving = false;
         }
+    }
+
+    private void RequestRevertUnsavedChanges()
+    {
+        showRevertChangesConfirm = true;
+    }
+
+    private async Task ConfirmRevertChangesAsync()
+    {
+        showRevertChangesConfirm = false;
+        await RevertUnsavedChangesAsync();
     }
 
     private async Task RevertUnsavedChangesAsync()

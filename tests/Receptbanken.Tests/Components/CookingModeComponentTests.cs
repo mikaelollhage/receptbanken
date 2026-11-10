@@ -54,10 +54,26 @@ public class CookingModeComponentTests : TestContext
 
         // Click "Nästa steg →"
         var nextBtn = cut.FindAll("button").First(b => b.TextContent.Contains("Nästa steg"));
+        nextBtn.ClassList.Should().Contain("btn-primary-custom");
+        nextBtn.ClassList.Should().Contain("btn-lg");
         nextBtn.Click();
 
         cut.Markup.Should().Contain("Steg 2 av 2");
         cut.Markup.Should().Contain("Rulla i pärlsocker och ställ i kylen.");
+
+        // On the final step, verify completion button has primary-custom and btn-lg without green inline background
+        var completeLink = cut.FindAll("a").First(a => a.TextContent.Contains("Klart! Tillbaka till receptet"));
+        completeLink.ClassList.Should().Contain("btn-primary-custom");
+        completeLink.ClassList.Should().Contain("btn-lg");
+        var completeStyle = completeLink.GetAttribute("style") ?? string.Empty;
+        completeStyle.Should().NotContain("#16a34a");
+        completeStyle.Should().NotContain("background");
+        completeLink.GetAttribute("href").Should().Be($"/recept/{created.Id}");
+
+        // Previous step button has btn-secondary-custom and btn-lg
+        var prevBtn = cut.FindAll("button").First(b => b.TextContent.Contains("Föregående steg"));
+        prevBtn.ClassList.Should().Contain("btn-secondary-custom");
+        prevBtn.ClassList.Should().Contain("btn-lg");
 
         // Toggle ingredients drawer and verify scaled quantity (4 -> 8 servings => 200 g smör)
         var toggleIngBtn = cut.FindAll("button").First(b => b.TextContent.Contains("Visa ingredienser"));
