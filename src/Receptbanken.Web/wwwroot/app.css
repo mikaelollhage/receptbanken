@@ -480,19 +480,6 @@ a:hover {
   }
 }
 
-.app-header {
-  height: 64px;
-  background-color: var(--rb-bg-surface);
-  border-bottom: 1px solid var(--rb-border);
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0 32px;
-  position: sticky;
-  top: 0;
-  z-index: 90;
-}
-
 .app-content {
   padding: 32px;
   flex: 1;
@@ -1619,11 +1606,6 @@ fluent-number-field::part(control) {
 
   .app-content {
     padding: 16px;
-  }
-
-  .app-header {
-    padding: 0 16px;
-    height: 56px;
   }
 
   .page-title {
@@ -3119,8 +3101,7 @@ body.shopping-touch-reordering * {
 }
 
 /* Voluntary Distraction-Free Shopping Mode (Handlingsläge) */
-.app-container:has(.shopping-page-container.is-shopping-mode) .app-sidebar,
-.app-container:has(.shopping-page-container.is-shopping-mode) .app-header {
+.app-container:has(.shopping-page-container.is-shopping-mode) .app-sidebar {
   display: none !important;
 }
 

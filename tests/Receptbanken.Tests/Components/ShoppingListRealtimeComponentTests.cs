@@ -387,17 +387,18 @@ public class ShoppingListRealtimeComponentTests
 
         var nav = ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
 
-        // 1. On the home page ("/"), MainLayout renders the global "Nytt recept" header
+        // 1. Under UX-2D.1 har den globala .app-header och "Nytt recept" i MainLayout tagits bort
         nav.NavigateTo("http://localhost/");
         var layoutOnHome = ctx.RenderComponent<Receptbanken.Web.Components.Layout.MainLayout>();
-        layoutOnHome.FindAll(".app-header").Should().ContainSingle();
-        layoutOnHome.Find(".app-header").TextContent.Should().Contain("Nytt recept");
+        layoutOnHome.FindAll(".app-header").Should().BeEmpty("MainLayout ska inte ha någon global .app-header");
+        layoutOnHome.FindAll("a[href='/recept/ny']").Should().BeEmpty("Global 'Nytt recept'-knapp ska inte finnas i MainLayout");
 
-        // 2. When navigating to "/inkopslista", MainLayout hides ".app-header" and "Nytt recept" even in normal mode
+        // 2. Även på /inkopslista förblir MainLayout ren utan global header
         nav.NavigateTo("http://localhost/inkopslista");
         layoutOnHome.WaitForAssertion(() =>
         {
-            layoutOnHome.FindAll(".app-header").Should().BeEmpty("Nytt recept ska döljas på inköpslistesidan även i normalläge");
+            layoutOnHome.FindAll(".app-header").Should().BeEmpty();
+            layoutOnHome.FindAll("a[href='/recept/ny']").Should().BeEmpty();
         });
 
         // 3. Render ShoppingPlaceholder with unchecked and checked items

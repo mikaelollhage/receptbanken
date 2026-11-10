@@ -31,17 +31,6 @@
             </div>
         }
 
-        @if (!IsShoppingListPage())
-        {
-            <header class="app-header">
-                <div style="display: flex; align-items: center; gap: 12px;">
-                    <a href="/recept/ny" class="btn-primary-custom" style="padding: 6px 14px; font-size: 13px;">
-                        <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="Color.Fill" /> Nytt recept
-                    </a>
-                </div>
-            </header>
-        }
-
         <main class="app-content">
             @Body
         </main>
@@ -78,13 +67,6 @@
     private void OnNotificationChanged()
     {
         InvokeAsync(StateHasChanged);
-    }
-
-    private bool IsShoppingListPage()
-    {
-        var relativePath = Navigation.ToBaseRelativePath(Navigation.Uri);
-        var pathOnly = relativePath.Split('?', '#')[0].Trim('/');
-        return string.Equals(pathOnly, "inkopslista", StringComparison.OrdinalIgnoreCase);
     }
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)

@@ -12,7 +12,10 @@
         <h1 class="page-title">Receptöversikt</h1>
         <p class="page-subtitle">Hitta inspiration och bläddra bland dina sparade favoriter.</p>
     </div>
-    <div style="display: flex; gap: 12px;">
+    <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+        <a href="/recept/ny" class="btn-primary-custom" id="home-create-recipe-btn">
+            <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="Color.Fill" /> Nytt recept
+        </a>
         <a href="/importera" class="btn-secondary-custom">
             <FluentIcon Value="@(new Icons.Regular.Size16.ArrowDownload())" Color="Color.Neutral" /> Importera från länk
         </a>
@@ -71,7 +74,7 @@ else if (filteredRecipes.Count == 0)
                 ? "Du har inte lagt till några recept än. Skapa ditt första recept eller importera från en webblänk!" 
                 : "Inga recept matchade din sökning eller det valda kategorifiltret.")
         </p>
-        <div style="display: flex; justify-content: center; gap: 12px;">
+        <div style="display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">
             <a href="/recept/ny" class="btn-primary-custom">Skapa recept</a>
             <a href="/importera" class="btn-secondary-custom">Importera från länk</a>
         </div>
