@@ -489,3 +489,6 @@ $RECYCLE.BIN/
 *.db
 *.db-shm
 *.db-wal
+
+# VS Code local cache
+.vs/
