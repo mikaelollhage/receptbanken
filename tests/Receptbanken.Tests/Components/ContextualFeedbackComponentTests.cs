@@ -678,10 +678,6 @@ public class ContextualFeedbackComponentTests : TestContext
         });
     }
 
-    // =========================================================================
-    // ETAPP 2.1B – DEL H1: Portionsvalidering (0, negativt, 1, nytt/redigera/import)
-    // =========================================================================
-
     [Fact]
     public async Task RecipeEdit_ServingsValidation_ShouldDefaultTo1_RejectZeroAndNegativeWithoutAutoClamping_AndNotSaveInvalidRecipe()
     {
@@ -816,10 +812,6 @@ public class ContextualFeedbackComponentTests : TestContext
         await actUpdate.Should().ThrowAsync<InvalidOperationException>().WithMessage("Antal portioner måste vara minst 1.");
     }
 
-    // =========================================================================
-    // ETAPP 2.1B – DEL H3 & H4: Veckonavigering & Dagens dag-markering
-    // =========================================================================
-
     [Fact]
     public async Task WeeklyMenuPage_NavigationAndTodayHighlight_ShouldKeepStableButtonPositions_AndHighlightOnlyToday()
     {
@@ -902,10 +894,6 @@ public class ContextualFeedbackComponentTests : TestContext
             cut.FindAll(".weekly-day-card.is-today").Should().ContainSingle();
         });
     }
-
-    // =========================================================================
-    // ETAPP 2.1B – DEL H5: Säkerhetskopiering (en tydlig nedladdningsknapp)
-    // =========================================================================
 
     [Fact]
     public void BackupPlaceholder_ShouldRenderSinglePrimaryDownloadButton_WithoutDuplicateDirectLink()
