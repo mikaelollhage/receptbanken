@@ -69,6 +69,18 @@
 
             <ContextualFeedback State="previewFeedback" CssClass="weekly-preview-feedback" />
 
+            @if (preview is { HasSavedMenu: true, Status: WeeklyMenuStatus.Draft })
+            {
+                <div id="weekly-preview-draft-hint" class="weekly-preview-draft-banner" role="status">
+                    <span class="weekly-preview-draft-icon" aria-hidden="true">📝</span>
+                    <div class="weekly-preview-draft-text">
+                        <strong>Veckomenyn är ett utkast</strong>
+                        <p>Den här veckomenyn är fortfarande ett utkast. Spika den under Veckomeny innan du lägger till ingredienser i inköpslistan.</p>
+                        <a href="/veckomeny" class="weekly-preview-draft-link">Gå till Veckomeny →</a>
+                    </div>
+                </div>
+            }
+
             <div class="weekly-shopping-preview-body">
                 @if (isLoadingPreview)
                 {
@@ -224,7 +236,8 @@
                 </button>
                 <button type="button"
                         class="btn-primary-custom weekly-preview-confirm-btn"
-                        disabled="@(isSubmitting || isLoadingPreview || preview == null || !preview.HasSavedMenu || SelectedCount == 0)"
+                        disabled="@(isSubmitting || isLoadingPreview || preview == null || !preview.HasSavedMenu || preview.Status != WeeklyMenuStatus.Confirmed || SelectedCount == 0)"
+                        aria-describedby="@(preview is { HasSavedMenu: true, Status: WeeklyMenuStatus.Draft } ? "weekly-preview-draft-hint" : null)"
                         @onclick="HandleConfirmClickedAsync">
                     @if (isSubmitting)
                     {
@@ -598,7 +611,7 @@
 
     private async Task HandleConfirmClickedAsync()
     {
-        if (isSubmitting || isLoadingPreview || preview == null || !preview.HasSavedMenu || SelectedCount == 0)
+        if (isSubmitting || isLoadingPreview || preview == null || !preview.HasSavedMenu || preview.Status != WeeklyMenuStatus.Confirmed || SelectedCount == 0)
             return;
 
         isSubmitting = true;
@@ -630,6 +643,14 @@
                 preview = result.UpdatedPreview;
                 ApplyDefaultSelection(preview);
                 previewFeedback.ShowError(result.Message ?? "Veckomenyn hittades inte längre i databasen.");
+                return;
+            }
+
+            if (result.Status == WeeklyMenuConfirmStatus.MenuNotConfirmed)
+            {
+                preview = result.UpdatedPreview;
+                ApplyDefaultSelection(preview);
+                previewFeedback.ShowWarning(result.Message ?? "Endast spikade veckomenyer kan användas som underlag för inköpslistan. Spika menyn först.");
                 return;
             }
 

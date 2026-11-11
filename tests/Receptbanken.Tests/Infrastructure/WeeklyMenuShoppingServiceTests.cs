@@ -262,7 +262,7 @@ public class WeeklyMenuShoppingServiceTests : IDisposable
 
         var menu = await _weeklyMenuService.GetOrCreateWeekMenuAsync(weekDate);
         menu.Days[0].RecipeId = recipe.Id;
-        await _weeklyMenuService.SaveDraftAsync(menu);
+        await _weeklyMenuService.ConfirmMenuAsync(menu);
 
         // Öppna förhandsgranskning utan att bekräfta
         var preview = await _shoppingService.BuildWeeklyMenuPreviewAsync(weekDate);
@@ -293,7 +293,7 @@ public class WeeklyMenuShoppingServiceTests : IDisposable
 
         var menu = await _weeklyMenuService.GetOrCreateWeekMenuAsync(weekDate);
         menu.Days[0].RecipeId = recipe.Id;
-        await _weeklyMenuService.SaveDraftAsync(menu);
+        await _weeklyMenuService.ConfirmMenuAsync(menu);
 
         var preview = await _shoppingService.BuildWeeklyMenuPreviewAsync(weekDate);
         preview.Items.Should().HaveCount(2);
@@ -346,7 +346,7 @@ public class WeeklyMenuShoppingServiceTests : IDisposable
 
         var menu = await _weeklyMenuService.GetOrCreateWeekMenuAsync(weekDate);
         menu.Days[0].RecipeId = recipe.Id;
-        await _weeklyMenuService.SaveDraftAsync(menu);
+        await _weeklyMenuService.ConfirmMenuAsync(menu);
 
         var preview = await _shoppingService.BuildWeeklyMenuPreviewAsync(weekDate);
 
@@ -393,7 +393,7 @@ public class WeeklyMenuShoppingServiceTests : IDisposable
 
         var menu = await _weeklyMenuService.GetOrCreateWeekMenuAsync(weekDate);
         menu.Days[0].RecipeId = recipe.Id;
-        await _weeklyMenuService.SaveDraftAsync(menu);
+        await _weeklyMenuService.ConfirmMenuAsync(menu);
 
         // Första körningen
         var preview1 = await _shoppingService.BuildWeeklyMenuPreviewAsync(weekDate);
@@ -436,7 +436,7 @@ public class WeeklyMenuShoppingServiceTests : IDisposable
 
         var menu = await _weeklyMenuService.GetOrCreateWeekMenuAsync(weekDate);
         menu.Days[0].RecipeId = recipe.Id;
-        await _weeklyMenuService.SaveDraftAsync(menu);
+        await _weeklyMenuService.ConfirmMenuAsync(menu);
 
         // 1. Lägg bara till nötfärs (avmarkera salsa)
         var preview1 = await _shoppingService.BuildWeeklyMenuPreviewAsync(weekDate);
@@ -485,14 +485,14 @@ public class WeeklyMenuShoppingServiceTests : IDisposable
         var menu = await _weeklyMenuService.GetOrCreateWeekMenuAsync(weekDate);
         menu.Days[0].RecipeId = recipe.Id;
         menu.Days[0].Servings = 4; // 2 dl grädde
-        await _weeklyMenuService.SaveDraftAsync(menu);
+        await _weeklyMenuService.ConfirmMenuAsync(menu);
 
         var preview1 = await _shoppingService.BuildWeeklyMenuPreviewAsync(weekDate);
         await _shoppingService.ConfirmWeeklyMenuAdditionsAsync(weekDate, preview1.PreviewStamp, [preview1.Items[0].PreviewItemKey]);
 
         // Öka portionerna från 4 -> 6 (behovet blir 3 dl, redan tillagt är 2 dl -> föreslå bara 1 dl mellanskillnad!)
         menu.Days[0].Servings = 6;
-        await _weeklyMenuService.SaveDraftAsync(menu);
+        await _weeklyMenuService.ConfirmMenuAsync(menu);
 
         var previewIncrease = await _shoppingService.BuildWeeklyMenuPreviewAsync(weekDate);
         previewIncrease.Items.Should().ContainSingle();
@@ -509,7 +509,7 @@ public class WeeklyMenuShoppingServiceTests : IDisposable
 
         // Minska nu portionerna från 6 -> 2 (behovet är 1 dl, redan tillagt är 3 dl -> dra aldrig ifrån i inköpslistan!)
         menu.Days[0].Servings = 2;
-        await _weeklyMenuService.SaveDraftAsync(menu);
+        await _weeklyMenuService.ConfirmMenuAsync(menu);
 
         var previewDecrease = await _shoppingService.BuildWeeklyMenuPreviewAsync(weekDate);
         previewDecrease.Items[0].IsAlreadyAdded.Should().BeTrue();
@@ -543,14 +543,14 @@ public class WeeklyMenuShoppingServiceTests : IDisposable
 
         var menu = await _weeklyMenuService.GetOrCreateWeekMenuAsync(weekDate);
         menu.Days[0].RecipeId = r1.Id;
-        await _weeklyMenuService.SaveDraftAsync(menu);
+        await _weeklyMenuService.ConfirmMenuAsync(menu);
 
         var p1 = await _shoppingService.BuildWeeklyMenuPreviewAsync(weekDate);
         await _shoppingService.ConfirmWeeklyMenuAdditionsAsync(weekDate, p1.PreviewStamp, [p1.Items[0].PreviewItemKey]);
 
         // Byt ut måndagens recept mot Köttbullar
         menu.Days[0].RecipeId = r2.Id;
-        await _weeklyMenuService.SaveDraftAsync(menu);
+        await _weeklyMenuService.ConfirmMenuAsync(menu);
 
         var p2 = await _shoppingService.BuildWeeklyMenuPreviewAsync(weekDate);
         p2.HasReplacedOrClearedMealsWithPriorAdditions.Should().BeTrue();
@@ -633,7 +633,7 @@ public class WeeklyMenuShoppingServiceTests : IDisposable
         var menu = await _weeklyMenuService.GetOrCreateWeekMenuAsync(weekDate);
         menu.Days[0].RecipeId = recipe.Id;
         menu.Days[0].Servings = 2;
-        await _weeklyMenuService.SaveDraftAsync(menu);
+        await _weeklyMenuService.ConfirmMenuAsync(menu);
 
         // 1. Lägg till från veckomeny
         var p1 = await _shoppingService.BuildWeeklyMenuPreviewAsync(weekDate);
@@ -692,7 +692,7 @@ public class WeeklyMenuShoppingServiceTests : IDisposable
 
         var menu = await _weeklyMenuService.GetOrCreateWeekMenuAsync(weekDate);
         menu.Days[0].RecipeId = recipe.Id;
-        await _weeklyMenuService.SaveDraftAsync(menu);
+        await _weeklyMenuService.ConfirmMenuAsync(menu);
 
         var phoneAService = new ShoppingListService(_dbFactory, _aggregator, _parser, _notifier);
         var phoneBService = new ShoppingListService(_dbFactory, _aggregator, _parser, _notifier);
@@ -723,7 +723,7 @@ public class WeeklyMenuShoppingServiceTests : IDisposable
         // Om veckomenyn ändras efter att en förhandsgranskning hämtats avvisas det inaktuella stampet (K4 #26)
         var stalePreview = await phoneAService.BuildWeeklyMenuPreviewAsync(weekDate);
         menu.Days[0].Servings = 8;
-        await _weeklyMenuService.SaveDraftAsync(menu);
+        await _weeklyMenuService.ConfirmMenuAsync(menu);
 
         var staleResult = await phoneAService.ConfirmWeeklyMenuAdditionsAsync(weekDate, stalePreview.PreviewStamp, [stalePreview.Items[0].PreviewItemKey]);
         staleResult.Status.Should().Be(WeeklyMenuConfirmStatus.Conflict);
@@ -746,7 +746,7 @@ public class WeeklyMenuShoppingServiceTests : IDisposable
 
         var menu = await _weeklyMenuService.GetOrCreateWeekMenuAsync(weekDate);
         menu.Days[0].RecipeId = recipe.Id;
-        await _weeklyMenuService.SaveDraftAsync(menu);
+        await _weeklyMenuService.ConfirmMenuAsync(menu);
 
         int notificationCount = 0;
         Action<long> handler = _ => notificationCount++;

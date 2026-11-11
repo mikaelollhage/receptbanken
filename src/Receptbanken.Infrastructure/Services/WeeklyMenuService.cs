@@ -129,6 +129,49 @@ public class WeeklyMenuService
         SaveMenuAsync(menu, WeeklyMenuStatus.Confirmed, cancellationToken);
 
     /// <summary>
+    /// Rensar en veckomeny: tömmer alla 7 dagar på planerade recept och portioner, sätter status till Draft,
+    /// nollställer ConfirmedAt och bevarar dagarnas grundstruktur, valda kategorier och bidragshistorik.
+    /// </summary>
+    public async Task<WeeklyMenu> ClearMenuAsync(DateOnly dateInWeek, CancellationToken cancellationToken = default)
+    {
+        var week = CalendarWeek.FromDate(dateInWeek);
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var existing = await context.WeeklyMenus
+            .Include(m => m.PantryItems)
+            .Include(m => m.Days)
+                .ThenInclude(d => d.SelectedCategories)
+            .FirstOrDefaultAsync(
+                m => m.WeekStartDate == week.WeekStartDate || (m.IsoYear == week.IsoYear && m.IsoWeek == week.IsoWeek),
+                cancellationToken);
+
+        if (existing == null)
+        {
+            var categories = await context.Categories.AsNoTracking().ToListAsync(cancellationToken);
+            return CreateDefaultDraftMenu(week, categories);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        existing.Status = WeeklyMenuStatus.Draft;
+        existing.ConfirmedAt = null;
+        existing.UpdatedAt = now;
+
+        foreach (var day in existing.Days)
+        {
+            day.RecipeId = null;
+            day.Recipe = null;
+            day.Servings = null;
+            day.StatusMessage = null;
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        var reloaded = await LoadMenuByWeekStartAsync(context, week.WeekStartDate, cancellationToken);
+        EnsureCompleteDetachedMenu(reloaded!, week);
+        return reloaded!;
+    }
+
+    /// <summary>
     /// Persists a weekly menu (inserting or updating in-place for the calendar week) with the specified status.
     /// Guarantees a single menu per calendar week and prevents history double-counting.
     /// </summary>
@@ -138,6 +181,11 @@ public class WeeklyMenuService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(menu);
+
+        if (status == WeeklyMenuStatus.Confirmed && !menu.Days.Any(d => d.RecipeId.HasValue))
+        {
+            throw new InvalidOperationException("En helt tom veckomeny kan inte spikas. Välj minst en maträtt innan du spikar menyn.");
+        }
 
         var week = CalendarWeek.FromDate(menu.WeekStartDate);
         WeeklyMenuGenerator.EnsureSevenDaysInitialized(menu);

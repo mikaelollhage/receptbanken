@@ -929,6 +929,17 @@ public class ShoppingListService
                     Message: $"Ingen sparad veckomeny hittades för vecka {week.IsoWeek}, {week.IsoYear}.");
             }
 
+            if (currentPreview.Status != WeeklyMenuStatus.Confirmed)
+            {
+                return new WeeklyMenuShoppingConfirmResult(
+                    WeeklyMenuConfirmStatus.MenuNotConfirmed,
+                    AddedItemsCount: 0,
+                    AlreadyAddedCount: currentPreview.AlreadyAddedCount,
+                    ConflictCount: 0,
+                    UpdatedPreview: currentPreview,
+                    Message: "Endast spikade veckomenyer kan användas som underlag för inköpslistan. Spika menyn först.");
+            }
+
             if (!string.Equals(expectedPreviewStamp, currentPreview.PreviewStamp, StringComparison.Ordinal))
             {
                 return new WeeklyMenuShoppingConfirmResult(

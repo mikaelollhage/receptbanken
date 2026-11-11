@@ -311,9 +311,9 @@ public class HomePageAndMealPlanTests : TestContext
         var (dbFactory, menuService, _, _, _, _) = await SetupContextAsync(localToday);
         using var _ = dbFactory;
 
-        // Skapa och spara en tom meny utan recept
+        // Skapa och spara en tom meny utan recept som utkast
         var menu = await menuService.GetOrCreateWeekMenuAsync(localToday);
-        await menuService.ConfirmMenuAsync(menu);
+        await menuService.SaveDraftAsync(menu);
 
         var cut = RenderComponent<Home>();
 

@@ -957,7 +957,7 @@ public class WeeklyMenuComponentTests : TestContext
         menu.Days[0].RecipeId = recipe.Id;
         menu.Days[0].Recipe = recipe;
         menu.Days[0].Servings = 4;
-        await weeklyMenuService.SaveDraftAsync(menu);
+        await weeklyMenuService.ConfirmMenuAsync(menu);
 
         var cut = RenderComponent<WeeklyMenuPage>();
 
@@ -1154,7 +1154,7 @@ public class WeeklyMenuComponentTests : TestContext
         var menu = await weeklyMenuService.GetOrCreateWeekMenuAsync(localToday);
         menu.Days[0].RecipeId = mondayRecipe.Id;
         menu.Days[0].Servings = 4;
-        await weeklyMenuService.SaveDraftAsync(menu);
+        await weeklyMenuService.ConfirmMenuAsync(menu);
 
         // Steg 1: Lägg till måndagens varor (kycklingfilé + grädde)
         var initialPreview = await shoppingService.BuildWeeklyMenuPreviewAsync(localToday);
@@ -1202,7 +1202,7 @@ public class WeeklyMenuComponentTests : TestContext
 
         menu.Days[2].RecipeId = wednesdayRecipe.Id;
         menu.Days[2].Servings = 4;
-        await weeklyMenuService.SaveDraftAsync(menu);
+        await weeklyMenuService.ConfirmMenuAsync(menu);
 
         var wedPreview = await shoppingService.BuildWeeklyMenuPreviewAsync(localToday);
         await shoppingService.ConfirmWeeklyMenuAdditionsAsync(
@@ -1219,7 +1219,7 @@ public class WeeklyMenuComponentTests : TestContext
         menu.Days[0].Servings = 6;
         menu.Days[1].RecipeId = tuesdayRecipe.Id;
         menu.Days[1].Servings = 4;
-        await weeklyMenuService.SaveDraftAsync(menu);
+        await weeklyMenuService.ConfirmMenuAsync(menu);
 
         // Ladda om sidan och öppna förhandsgranskningen
         var cut2 = RenderComponent<WeeklyMenuPage>();
@@ -1783,8 +1783,13 @@ public class WeeklyMenuComponentTests : TestContext
     public async Task WeeklyMenuPage_ButtonHierarchy_GenerateShouldBeSecondary_ConfirmShouldBePrimary()
     {
         var localToday = new DateOnly(2026, 11, 2);
-        var (dbFactory, _, _, _) = await SetupServicesAsync(localToday);
+        var (dbFactory, recipeService, _, weeklyMenuService) = await SetupServicesAsync(localToday);
         using var _ = dbFactory;
+
+        var recipe = await recipeService.CreateRecipeAsync(new Recipe { Title = "Testmiddag", Servings = 4 }, []);
+        var menu = await weeklyMenuService.GetOrCreateWeekMenuAsync(localToday);
+        menu.Days[0].RecipeId = recipe.Id;
+        await weeklyMenuService.SaveDraftAsync(menu);
 
         var cut = RenderComponent<WeeklyMenuPage>();
         cut.WaitForAssertion(() => cut.FindAll("button.generate-week-btn").Should().ContainSingle());

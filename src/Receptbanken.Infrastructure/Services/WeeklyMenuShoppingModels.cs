@@ -8,7 +8,8 @@ public enum WeeklyMenuConfirmStatus
     Success = 0,
     NoSelection = 1,
     Conflict = 2,
-    MenuNotFound = 3
+    MenuNotFound = 3,
+    MenuNotConfirmed = 4
 }
 
 public sealed record WeeklyMenuPlannedMealDto(

@@ -44,7 +44,7 @@ public class WeeklyMenuShoppingOverlapTests : IDisposable
         var menu = await _menus.GetOrCreateWeekMenuAsync(Week);
         menu.Days[0].RecipeId = recipe.Id;
         menu.Days[0].Servings = servings;
-        await _menus.SaveDraftAsync(menu);
+        await _menus.ConfirmMenuAsync(menu);
         return await _shopping.BuildWeeklyMenuPreviewAsync(Week);
     }
 

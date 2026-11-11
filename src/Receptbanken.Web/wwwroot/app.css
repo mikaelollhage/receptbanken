@@ -4073,6 +4073,68 @@ body.shopping-touch-reordering * {
   line-height: 1.35;
 }
 
+/* UX-3D: Action hints and draft banners for weekly menu and shopping preview */
+.weekly-action-with-hint,
+.weekly-bottom-action-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.weekly-action-hint {
+  font-size: 11px;
+  color: var(--rb-text-secondary);
+  line-height: 1.3;
+  max-width: 240px;
+}
+
+@media (max-width: 768px) {
+  .weekly-action-hint {
+    max-width: 100%;
+  }
+}
+
+.weekly-preview-draft-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  background-color: rgba(242, 166, 90, 0.12);
+  border: 1px solid rgba(242, 166, 90, 0.35);
+  border-radius: var(--rb-radius-md);
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.weekly-preview-draft-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.weekly-preview-draft-text {
+  flex: 1;
+  font-size: 13px;
+  color: var(--rb-text-primary);
+}
+
+.weekly-preview-draft-text p {
+  margin: 2px 0 6px 0;
+  color: var(--rb-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.weekly-preview-draft-link {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rb-accent-gold);
+  text-decoration: underline;
+}
+
+.weekly-preview-draft-link:hover {
+  color: var(--rb-accent-coral);
+}
+
 /* Bakgrundslås när RecipePickerModal är öppen */
 html.rb-modal-open,
 body.rb-modal-open {
