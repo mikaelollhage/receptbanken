@@ -1,61 +1,18 @@
 @page "/"
-@inject RecipeService RecipeService
-@inject CategoryService CategoryService
-@inject NavigationManager Navigation
+@implements IDisposable
+@using System.Globalization
+@using Receptbanken.Infrastructure.Services
 @inject IServiceProvider ServiceProvider
 @inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
 
-<PageTitle>Alla recept — Receptbanken</PageTitle>
+<PageTitle>Dagens middag — Receptbanken</PageTitle>
 
-<div class="page-header">
+<div class="page-header home-page-header">
     <div>
-        <h1 class="page-title">Receptöversikt</h1>
-        <p class="page-subtitle">Hitta inspiration och bläddra bland dina sparade favoriter.</p>
+        <h1 class="page-title">Dagens middag</h1>
+        <p class="page-subtitle">@GetFormattedDateSubtitle()</p>
     </div>
-    <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-        <a href="/recept/ny" class="btn-primary-custom" id="home-create-recipe-btn">
-            <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="Color.Fill" /> Nytt recept
-        </a>
-        <a href="/importera" class="btn-secondary-custom">
-            <FluentIcon Value="@(new Icons.Regular.Size16.ArrowDownload())" Color="Color.Neutral" /> Importera från länk
-        </a>
-    </div>
-</div>
-
-<ContextualFeedback State="homeFeedback" CssClass="home-feedback" />
-
-<TodaysDinnerCard Dinner="todaysDinner" />
-
-<div class="filter-bar">
-    <div class="filter-row">
-        <div style="flex: 1; min-width: 260px;">
-            <FluentSearch @bind-Value="searchQuery" @bind-Value:after="FilterRecipes"
-                          Placeholder="Sök bland recept, ingredienser eller kategorier..."
-                          Style="width: 100%;" />
-        </div>
-        <div class="filter-sort-wrapper">
-            <FluentSelect TOption="string" @bind-Value="selectedSort" @bind-Value:after="SortRecipes" Style="width: 100%;">
-                <FluentOption Value="newest">Senast skapade</FluentOption>
-                <FluentOption Value="favorites">Favoriter först</FluentOption>
-                <FluentOption Value="time">Snabbast tillagning</FluentOption>
-                <FluentOption Value="title">Bokstavsordning (A-Ö)</FluentOption>
-            </FluentSelect>
-        </div>
-    </div>
-
-    @if (categories.Count > 0)
-    {
-        <div class="category-scroll-container">
-            <CategoryBadge Name="Alla kategorier" IsActive="@(!selectedCategoryId.HasValue)"
-                           OnClick="@(() => SelectCategory(null))" />
-            @foreach (var cat in categories)
-            {
-                <CategoryBadge Name="@cat.Name" ColorHex="@cat.ColorHex" Count="@cat.RecipeCount"
-                               IsActive="@(selectedCategoryId == cat.Id)"
-                               OnClick="@(() => SelectCategory(cat.Id))" />
-            }
-        </div>
-    }
 </div>
 
 @if (isLoading)
@@ -64,58 +21,138 @@
         <FluentProgressRing />
     </div>
 }
-else if (filteredRecipes.Count == 0)
+else if (mealPlan != null)
 {
-    <div class="empty-state">
-        <div class="empty-state-icon">🍽️</div>
-        <h3 class="empty-state-title">Inga recept hittades</h3>
-        <p class="empty-state-desc">
-            @(string.IsNullOrWhiteSpace(searchQuery) && !selectedCategoryId.HasValue 
-                ? "Du har inte lagt till några recept än. Skapa ditt första recept eller importera från en webblänk!" 
-                : "Inga recept matchade din sökning eller det valda kategorifiltret.")
-        </p>
-        <div style="display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">
-            <a href="/recept/ny" class="btn-primary-custom">Skapa recept</a>
-            <a href="/importera" class="btn-secondary-custom">Importera från länk</a>
+    @if (mealPlan.TodayMeal.HasRecipe)
+    {
+        <!-- Primärt område: Dagens rätt -->
+        <TodaysDinnerCard Meal="mealPlan.TodayMeal" ShowDiscreetLink="false" />
+    }
+    else if (mealPlan.TodayMeal.HasSavedMenu)
+    {
+        <!-- Tomt läge B: Veckomeny finns men ingen rätt vald för idag -->
+        <div class="empty-state home-empty-state" role="status">
+            <div class="empty-state-icon">🥗</div>
+            <h2 class="empty-state-title">Ingen middag planerad för idag</h2>
+            <p class="empty-state-desc">
+                Välj en rätt i veckomenyn eller hitta inspiration bland dina recept.
+            </p>
+            <div class="home-empty-actions">
+                <a href="/veckomeny" class="btn-primary-custom" id="home-empty-choose-menu-btn">
+                    Välj rätt i veckomenyn
+                </a>
+                <a href="/recept" class="btn-secondary-custom" id="home-empty-browse-recipes-btn">
+                    Bläddra bland recept
+                </a>
+            </div>
         </div>
-    </div>
-}
-else
-{
-    <div class="recipe-grid">
-        @foreach (var recipe in filteredRecipes)
-        {
-            <RecipeCard Recipe="recipe" OnFavoriteToggled="HandleFavoriteToggled" />
-        }
-    </div>
+    }
+    else
+    {
+        <!-- Tomt läge A: Ingen veckomeny för aktuell vecka -->
+        <div class="empty-state home-empty-state" role="status">
+            <div class="empty-state-icon">📅</div>
+            <h2 class="empty-state-title">Dags att planera veckan?</h2>
+            <p class="empty-state-desc">
+                Det finns ingen veckomeny sparad för den här veckan.
+            </p>
+            <div class="home-empty-actions">
+                <a href="/veckomeny" class="btn-primary-custom" id="home-empty-plan-week-btn">
+                    Öppna veckomenyn
+                </a>
+                <a href="/recept" class="btn-secondary-custom" id="home-empty-browse-recipes-btn">
+                    Bläddra bland recept
+                </a>
+            </div>
+        </div>
+    }
+
+    <!-- Sekundärt område: Morgondagens rätt (kompakt remsa/kort) -->
+    @if (mealPlan.TomorrowMeal.HasRecipe)
+    {
+        var tomorrowRecipe = mealPlan.TomorrowMeal.Recipe!;
+        var tomorrowServings = mealPlan.TomorrowMeal.Servings > 0 ? mealPlan.TomorrowMeal.Servings : tomorrowRecipe.Servings;
+        var tomorrowDayName = CalendarWeek.GetSwedishDayName(mealPlan.TomorrowMeal.Date);
+        var tomorrowDateFormatted = mealPlan.TomorrowMeal.Date.ToString("d MMMM", SwedishCulture);
+
+        <section class="home-tomorrow-card" aria-label="Morgondagens måltid">
+            <div class="home-tomorrow-header">
+                <span class="home-tomorrow-badge">🌅 I MORGON</span>
+                <span class="home-tomorrow-date">@tomorrowDayName @tomorrowDateFormatted</span>
+                @if (mealPlan.TomorrowMeal.IsDraft)
+                {
+                    <span class="weekly-status-badge status-draft" style="font-size: 11px; padding: 2px 8px;">Utkast</span>
+                }
+            </div>
+            <div class="home-tomorrow-body">
+                <div class="home-tomorrow-info">
+                    <a href="@($"/recept/{tomorrowRecipe.Id}")" class="home-tomorrow-title-link">
+                        @tomorrowRecipe.Title
+                    </a>
+                    <div class="home-tomorrow-meta">
+                        @if (tomorrowRecipe.TotalTimeMinutes.HasValue)
+                        {
+                            <span>⏱️ @tomorrowRecipe.TotalTimeMinutes min</span>
+                            <span class="todays-dinner-dot">·</span>
+                        }
+                        <span>👥 @tomorrowServings @tomorrowRecipe.ServingsUnit</span>
+                    </div>
+                </div>
+                <a href="@($"/recept/{tomorrowRecipe.Id}")" class="btn-secondary-custom btn-sm home-tomorrow-btn">
+                    Visa recept →
+                </a>
+            </div>
+        </section>
+    }
+
+    <!-- Tertiärt område: Genvägar -->
+    <section class="home-shortcuts-section" aria-label="Snabbval">
+        <h3 class="home-shortcuts-heading">Snabbval i vardagen</h3>
+        <div class="home-shortcuts-grid">
+            <a href="/veckomeny" class="home-shortcut-card" id="home-shortcut-weekly-menu">
+                <span class="home-shortcut-icon" aria-hidden="true">📅</span>
+                <div class="home-shortcut-text">
+                    <span class="home-shortcut-title">Veckomeny</span>
+                    <span class="home-shortcut-desc">Planera och spika veckans måltider</span>
+                </div>
+                <span class="home-shortcut-arrow" aria-hidden="true">→</span>
+            </a>
+            <a href="/inkopslista" class="home-shortcut-card" id="home-shortcut-shopping-list">
+                <span class="home-shortcut-icon" aria-hidden="true">🛒</span>
+                <div class="home-shortcut-text">
+                    <span class="home-shortcut-title">Inköpslista</span>
+                    <span class="home-shortcut-desc">Hantera och bocka av dina inköp</span>
+                </div>
+                <span class="home-shortcut-arrow" aria-hidden="true">→</span>
+            </a>
+            <a href="/recept" class="home-shortcut-card" id="home-shortcut-recipes">
+                <span class="home-shortcut-icon" aria-hidden="true">🍳</span>
+                <div class="home-shortcut-text">
+                    <span class="home-shortcut-title">Recept</span>
+                    <span class="home-shortcut-desc">Sök, filtrera och hitta nya favoriter</span>
+                </div>
+                <span class="home-shortcut-arrow" aria-hidden="true">→</span>
+            </a>
+        </div>
+    </section>
 }
 
 @code {
-    [Parameter, SupplyParameterFromQuery(Name = "deleted")] public bool Deleted { get; set; }
+    private static readonly CultureInfo SwedishCulture = CultureInfo.GetCultureInfo("sv-SE");
 
-    private List<Recipe> allRecipes = new();
-    private List<Recipe> filteredRecipes = new();
-    private List<CategoryWithCountDto> categories = new();
-    private TodaysDinnerDto? todaysDinner;
-    private string searchQuery = string.Empty;
-    private int? selectedCategoryId = null;
-    private string selectedSort = "newest";
+    private HomeMealPlanDto? mealPlan;
+    private DateOnly currentLocalToday;
     private bool isLoading = true;
-    private bool deletedAcknowledged = false;
-    private readonly FeedbackState homeFeedback = new();
+    private CancellationTokenSource? _midnightWatcherCts;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadData();
-    }
+        var localDateProvider = ServiceProvider.GetService<ILocalDateProvider>() ?? new SwedishLocalDateProvider();
+        currentLocalToday = localDateProvider.GetLocalToday();
+        await LoadDataAsync();
 
-    protected override void OnParametersSet()
-    {
-        if (Deleted && !deletedAcknowledged)
-        {
-            deletedAcknowledged = true;
-            homeFeedback.ShowSuccess("Receptet har raderats.");
-        }
+        _midnightWatcherCts = new CancellationTokenSource();
+        _ = StartMidnightWatcherAsync(_midnightWatcherCts.Token);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -133,82 +170,69 @@ else
 
                     if (currentLocal != clientDate)
                     {
-                        var weeklyMenuService = ServiceProvider.GetService<WeeklyMenuService>();
-                        if (weeklyMenuService != null)
-                        {
-                            todaysDinner = await weeklyMenuService.GetTodaysDinnerAsync(clientDate);
-                            StateHasChanged();
-                        }
+                        currentLocalToday = clientDate;
+                        await LoadDataAsync();
+                        StateHasChanged();
                     }
                 }
             }
             catch
             {
-                // Ignore if JS interop is not available (e.g. prerendering or test environment)
+                // Ignore when prerendering or in bUnit testing
             }
         }
     }
 
-    private async Task LoadData()
+    private async Task LoadDataAsync()
     {
         isLoading = true;
-        categories = await CategoryService.GetCategoriesAsync();
-        allRecipes = await RecipeService.GetRecipesAsync();
-
         var weeklyMenuService = ServiceProvider.GetService<WeeklyMenuService>();
-        var localDateProvider = ServiceProvider.GetService<ILocalDateProvider>() ?? new SwedishLocalDateProvider();
         if (weeklyMenuService != null)
         {
-            todaysDinner = await weeklyMenuService.GetTodaysDinnerAsync(localDateProvider.GetLocalToday());
+            mealPlan = await weeklyMenuService.GetHomeMealPlanAsync(currentLocalToday);
         }
-
-        FilterRecipes();
         isLoading = false;
     }
 
-    private void SelectCategory(int? categoryId)
+    private string GetFormattedDateSubtitle()
     {
-        selectedCategoryId = categoryId;
-        FilterRecipes();
+        var dayName = CalendarWeek.GetSwedishDayName(currentLocalToday);
+        var monthDate = currentLocalToday.ToString("d MMMM", SwedishCulture);
+        var week = CalendarWeek.FromDate(currentLocalToday);
+        return $"{dayName} {monthDate} · Vecka {week.IsoWeek}";
     }
 
-    private void FilterRecipes()
+    private async Task StartMidnightWatcherAsync(CancellationToken token)
     {
-        var query = allRecipes.AsEnumerable();
-
-        if (selectedCategoryId.HasValue && selectedCategoryId.Value > 0)
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        while (!token.IsCancellationRequested)
         {
-            query = query.Where(r => r.RecipeCategories.Any(rc => rc.CategoryId == selectedCategoryId.Value));
+            try
+            {
+                await timer.WaitForNextTickAsync(token);
+                var localDateProvider = ServiceProvider.GetService<ILocalDateProvider>() ?? new SwedishLocalDateProvider();
+                var latestToday = localDateProvider.GetLocalToday();
+                if (latestToday != currentLocalToday)
+                {
+                    currentLocalToday = latestToday;
+                    await LoadDataAsync();
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch
+            {
+                // Defensive
+            }
         }
-
-        if (!string.IsNullOrWhiteSpace(searchQuery))
-        {
-            var term = searchQuery.Trim().ToLower();
-            query = query.Where(r =>
-                r.Title.ToLower().Contains(term) ||
-                (r.Description != null && r.Description.ToLower().Contains(term)) ||
-                r.Ingredients.Any(i => i.Name.ToLower().Contains(term) || i.RawText.ToLower().Contains(term)) ||
-                r.RecipeCategories.Any(rc => rc.Category.Name.ToLower().Contains(term)));
-        }
-
-        filteredRecipes = query.ToList();
-        SortRecipes();
     }
 
-    private void SortRecipes()
+    public void Dispose()
     {
-        filteredRecipes = selectedSort switch
-        {
-            "favorites" => filteredRecipes.OrderByDescending(r => r.IsFavorite).ThenByDescending(r => r.CreatedAt).ToList(),
-            "time" => filteredRecipes.OrderBy(r => r.TotalTimeMinutes ?? int.MaxValue).ThenBy(r => r.Title).ToList(),
-            "title" => filteredRecipes.OrderBy(r => r.Title).ToList(),
-            _ => filteredRecipes.OrderByDescending(r => r.CreatedAt).ToList(),
-        };
-    }
-
-    private async Task HandleFavoriteToggled(Recipe recipe)
-    {
-        // Re-evaluate counts if needed
-        categories = await CategoryService.GetCategoriesAsync();
+        _midnightWatcherCts?.Cancel();
+        _midnightWatcherCts?.Dispose();
     }
 }

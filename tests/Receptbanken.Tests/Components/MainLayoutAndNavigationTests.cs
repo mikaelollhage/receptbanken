@@ -90,12 +90,12 @@ public class MainLayoutAndNavigationTests : TestContext
     }
 
     [Fact]
-    public void Home_WhenRecipesExist_ShouldRenderLocalNewRecipeButton_InPageHeader()
+    public void RecipeListPage_WhenRecipesExist_ShouldRenderLocalNewRecipeButton_InPageHeader()
     {
         var (dbFactory, _) = SetupTestContext(seedRecipes: true);
         using var _ = dbFactory;
 
-        var cut = RenderComponent<Home>();
+        var cut = RenderComponent<RecipeListPage>();
 
         cut.WaitForAssertion(() =>
         {
@@ -113,12 +113,12 @@ public class MainLayoutAndNavigationTests : TestContext
     }
 
     [Fact]
-    public void Home_WhenEmptyState_ShouldRenderBothHeaderNewRecipeButton_AndEmptyStateActionButtons()
+    public void RecipeListPage_WhenEmptyState_ShouldRenderBothHeaderNewRecipeButton_AndEmptyStateActionButtons()
     {
         var (dbFactory, _) = SetupTestContext(seedRecipes: false);
         using var _ = dbFactory;
 
-        var cut = RenderComponent<Home>();
+        var cut = RenderComponent<RecipeListPage>();
 
         cut.WaitForAssertion(() =>
         {
@@ -141,6 +141,28 @@ public class MainLayoutAndNavigationTests : TestContext
             emptyStateImportBtn.Should().NotBeNull();
             emptyStateImportBtn!.TextContent.Should().Contain("Importera från länk");
             emptyStateImportBtn.ClassList.Should().Contain("btn-secondary-custom");
+        });
+    }
+
+    [Fact]
+    public void Home_WhenNoWeeklyMenu_ShouldRenderPlanWeekEmptyState_AndShortcuts()
+    {
+        var (dbFactory, _) = SetupTestContext(seedRecipes: false);
+        using var _ = dbFactory;
+
+        var cut = RenderComponent<Home>();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.Find(".page-title").TextContent.Should().Be("Dagens middag");
+            cut.Find(".home-empty-state").TextContent.Should().Contain("Dags att planera veckan?");
+            cut.Find("#home-empty-plan-week-btn").GetAttribute("href").Should().Be("/veckomeny");
+            cut.Find("#home-empty-browse-recipes-btn").GetAttribute("href").Should().Be("/recept");
+
+            // Snabbval
+            cut.Find("#home-shortcut-weekly-menu").GetAttribute("href").Should().Be("/veckomeny");
+            cut.Find("#home-shortcut-shopping-list").GetAttribute("href").Should().Be("/inkopslista");
+            cut.Find("#home-shortcut-recipes").GetAttribute("href").Should().Be("/recept");
         });
     }
 }

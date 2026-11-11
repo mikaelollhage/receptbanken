@@ -1,14 +1,24 @@
-@if (Dinner != null && Dinner.HasConfirmedMenu && Dinner.Recipe != null)
+@using Receptbanken.Infrastructure.Services
+
+@if (ActiveRecipe != null)
 {
-    var recipe = Dinner.Recipe;
-    var servings = Dinner.Servings > 0 ? Dinner.Servings : recipe.Servings;
-    var dayHeader = CalendarWeek.FormatDayHeaderSwedish(Dinner.LocalDate);
+    var recipe = ActiveRecipe;
+    var servings = ActiveServings > 0 ? ActiveServings : recipe.Servings;
+    var dayHeader = CalendarWeek.FormatDayHeaderSwedish(ActiveDate);
 
     <section class="todays-dinner-card" aria-label="Dagens middag">
         <div class="todays-dinner-content">
             <div class="todays-dinner-badge-row">
                 <span class="todays-dinner-label">🍽️ DAGENS MIDDAG</span>
                 <span class="todays-dinner-date">@dayHeader</span>
+                @if (IsDraft)
+                {
+                    <span class="weekly-status-badge status-draft">📝 Planerat i utkast</span>
+                }
+                else if (IsConfirmed)
+                {
+                    <span class="weekly-status-badge status-confirmed">📌 Spikad meny</span>
+                }
             </div>
 
             <h2 class="todays-dinner-title">
@@ -18,25 +28,39 @@
             <div class="todays-dinner-meta">
                 @if (recipe.TotalTimeMinutes.HasValue)
                 {
-                    <span>@recipe.TotalTimeMinutes minuter</span>
+                    <span>⏱️ @recipe.TotalTimeMinutes minuter</span>
                     <span class="todays-dinner-dot">·</span>
                 }
-                <span>@servings @recipe.ServingsUnit</span>
+                <span>👥 @servings @recipe.ServingsUnit</span>
+                @if (recipe.RecipeCategories.Count > 0)
+                {
+                    <span class="todays-dinner-dot">·</span>
+                    <span>@string.Join(", ", recipe.RecipeCategories.Select(rc => rc.Category.Name))</span>
+                }
             </div>
 
             <div class="todays-dinner-actions">
-                <a href="@($"/recept/{recipe.Id}")" class="btn-secondary-custom todays-dinner-view-btn">
-                    Visa recept
-                </a>
                 <a href="@($"/recept/{recipe.Id}/laga?portioner={servings}")" class="btn-primary-custom todays-dinner-cook-btn">
                     👨‍🍳 Starta matlagningsläge
+                </a>
+                <a href="@($"/recept/{recipe.Id}")" class="btn-secondary-custom todays-dinner-view-btn">
+                    Visa recept
                 </a>
             </div>
 
             <div class="todays-dinner-footer">
-                <a href="@($"/veckomeny?datum={Dinner.LocalDate:yyyy-MM-dd}")" class="todays-dinner-week-link">
-                    Vecka @Dinner.CalendarWeek.IsoWeek · Visa hela veckomenyn →
-                </a>
+                @if (IsDraft)
+                {
+                    <a href="/veckomeny" class="todays-dinner-week-link">
+                        Planeringen är ett utkast · Spika menyn i veckomenyn →
+                    </a>
+                }
+                else
+                {
+                    <a href="@($"/veckomeny?datum={ActiveDate:yyyy-MM-dd}")" class="todays-dinner-week-link">
+                        Vecka @ActiveWeek.IsoWeek · Visa hela veckomenyn →
+                    </a>
+                }
             </div>
         </div>
 
@@ -48,9 +72,9 @@
         }
     </section>
 }
-else
+else if (ShowDiscreetLink)
 {
-    var weekNumber = Dinner?.CalendarWeek.IsoWeek ?? CalendarWeek.FromDate(DateOnly.FromDateTime(DateTime.Today)).IsoWeek;
+    var weekNumber = ActiveWeek.IsoWeek;
     <div class="todays-dinner-discreet">
         <a href="/veckomeny" class="todays-dinner-discreet-link">
             <span>📅 Vecka @weekNumber · Planera eller visa veckomenyn →</span>
@@ -59,7 +83,16 @@ else
 }
 
 @code {
+    [Parameter] public PlannedDayMealDto? Meal { get; set; }
     [Parameter] public TodaysDinnerDto? Dinner { get; set; }
-    private bool imageLoadFailed = false;
-}
+    [Parameter] public bool ShowDiscreetLink { get; set; } = true;
 
+    private bool imageLoadFailed = false;
+
+    private Recipe? ActiveRecipe => Meal?.Recipe ?? (Dinner != null && Dinner.HasConfirmedMenu ? Dinner.Recipe : null);
+    private int ActiveServings => Meal?.Servings ?? (Dinner?.Servings ?? 4);
+    private DateOnly ActiveDate => Meal?.Date ?? (Dinner?.LocalDate ?? DateOnly.FromDateTime(DateTime.Today));
+    private CalendarWeek ActiveWeek => Meal?.CalendarWeek ?? (Dinner?.CalendarWeek ?? CalendarWeek.FromDate(ActiveDate));
+    private bool IsDraft => Meal?.IsDraft == true;
+    private bool IsConfirmed => Meal?.IsConfirmed == true || (Dinner != null && Dinner.HasConfirmedMenu);
+}

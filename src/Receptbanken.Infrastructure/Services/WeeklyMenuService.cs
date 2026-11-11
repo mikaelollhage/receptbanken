@@ -403,6 +403,90 @@ public class WeeklyMenuService
     }
 
     /// <summary>
+    /// Retrieves the meal plan for the start page (Home) containing both today's planned dinner and tomorrow's meal,
+    /// supporting both Confirmed and Draft saved menus and handling week transitions (e.g. Sunday to Monday).
+    /// </summary>
+    public async Task<HomeMealPlanDto> GetHomeMealPlanAsync(
+        DateOnly localToday,
+        CancellationToken cancellationToken = default)
+    {
+        var today = localToday;
+        var tomorrow = localToday.AddDays(1);
+        var todayWeek = CalendarWeek.FromDate(today);
+        var tomorrowWeek = CalendarWeek.FromDate(tomorrow);
+
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var targetMondays = new List<DateOnly> { todayWeek.WeekStartDate };
+        if (tomorrowWeek.WeekStartDate != todayWeek.WeekStartDate)
+        {
+            targetMondays.Add(tomorrowWeek.WeekStartDate);
+        }
+
+        var savedMenus = await context.WeeklyMenus
+            .AsNoTracking()
+            .Where(m => targetMondays.Contains(m.WeekStartDate))
+            .Include(m => m.Days)
+                .ThenInclude(d => d.Recipe)
+                    .ThenInclude(r => r!.Instructions)
+            .Include(m => m.Days)
+                .ThenInclude(d => d.Recipe)
+                    .ThenInclude(r => r!.RecipeCategories)
+                        .ThenInclude(rc => rc.Category)
+            .ToListAsync(cancellationToken);
+
+        var todayMenu = savedMenus.FirstOrDefault(m => m.WeekStartDate == todayWeek.WeekStartDate);
+        var tomorrowMenu = tomorrowWeek.WeekStartDate == todayWeek.WeekStartDate
+            ? todayMenu
+            : savedMenus.FirstOrDefault(m => m.WeekStartDate == tomorrowWeek.WeekStartDate);
+
+        var todayMeal = ExtractDayMeal(todayWeek, today, todayMenu);
+        var tomorrowMeal = ExtractDayMeal(tomorrowWeek, tomorrow, tomorrowMenu);
+
+        return new HomeMealPlanDto
+        {
+            CalendarWeek = todayWeek,
+            Today = today,
+            Tomorrow = tomorrow,
+            TodayMeal = todayMeal,
+            TomorrowMeal = tomorrowMeal
+        };
+    }
+
+    private static PlannedDayMealDto ExtractDayMeal(CalendarWeek week, DateOnly targetDate, WeeklyMenu? menu)
+    {
+        if (menu == null)
+        {
+            return new PlannedDayMealDto
+            {
+                CalendarWeek = week,
+                Date = targetDate,
+                HasSavedMenu = false,
+                MenuStatus = null,
+                Recipe = null,
+                Servings = 4
+            };
+        }
+
+        int targetDayIndex = CalendarWeek.GetDayIndex(targetDate);
+        var dayEntry = menu.Days.FirstOrDefault(d => d.Date == targetDate)
+                       ?? menu.Days.FirstOrDefault(d => d.DayIndex == targetDayIndex);
+
+        var recipe = dayEntry?.Recipe;
+        int servings = dayEntry?.Servings ?? recipe?.Servings ?? 4;
+
+        return new PlannedDayMealDto
+        {
+            CalendarWeek = week,
+            Date = targetDate,
+            HasSavedMenu = true,
+            MenuStatus = menu.Status,
+            Recipe = recipe,
+            Servings = servings
+        };
+    }
+
+    /// <summary>
     /// Returns non-trivial ingredient names from existing recipes for autocomplete suggestions in "Ingredienser hemma".
     /// </summary>
     public async Task<List<string>> GetKnownIngredientSuggestionsAsync(CancellationToken cancellationToken = default)

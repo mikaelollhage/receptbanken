@@ -2020,6 +2020,167 @@ fluent-number-field::part(control) {
   color: var(--rb-text-primary);
 }
 
+/* Home Page / Startsida (UX-3B) */
+.home-page-header {
+  margin-bottom: 24px;
+}
+
+.home-empty-state {
+  margin-top: 12px;
+  margin-bottom: 24px;
+}
+
+.home-empty-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+
+/* Tomorrow's planned meal (Morgondagens rätt) */
+.home-tomorrow-card {
+  background-color: var(--rb-bg-card);
+  border: 1px solid var(--rb-border);
+  border-radius: var(--rb-radius-md);
+  padding: 16px 20px;
+  margin-top: 20px;
+  box-shadow: var(--rb-shadow-sm);
+}
+
+.home-tomorrow-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.home-tomorrow-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--rb-accent-gold);
+}
+
+.home-tomorrow-date {
+  font-size: 13px;
+  color: var(--rb-text-muted);
+}
+
+.home-tomorrow-body {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.home-tomorrow-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.home-tomorrow-title-link {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--rb-text-primary);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.home-tomorrow-title-link:hover {
+  color: var(--rb-accent);
+}
+
+.home-tomorrow-meta {
+  font-size: 13px;
+  color: var(--rb-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Quick shortcuts section (Genvägar) */
+.home-shortcuts-section {
+  margin-top: 32px;
+}
+
+.home-shortcuts-heading {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--rb-text-secondary);
+  margin-bottom: 14px;
+  letter-spacing: -0.2px;
+}
+
+.home-shortcuts-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.home-shortcut-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background-color: var(--rb-bg-card);
+  border: 1px solid var(--rb-border);
+  border-radius: var(--rb-radius-md);
+  text-decoration: none;
+  color: inherit;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.home-shortcut-card:hover {
+  background-color: var(--rb-bg-elevated);
+  border-color: var(--rb-accent);
+  color: inherit;
+}
+
+.home-shortcut-icon {
+  font-size: 24px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.home-shortcut-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.home-shortcut-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--rb-text-primary);
+}
+
+.home-shortcut-desc {
+  font-size: 12px;
+  color: var(--rb-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-shortcut-arrow {
+  font-size: 16px;
+  color: var(--rb-text-muted);
+  transition: transform 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.home-shortcut-card:hover .home-shortcut-arrow {
+  transform: translateX(3px);
+  color: var(--rb-accent);
+}
+
 /* ============================================================
    Weekly Menu Page (/veckomeny)
    ============================================================ */
@@ -2698,6 +2859,22 @@ body.weekly-touch-reordering .weekly-drag-handle {
   .todays-dinner-image-wrap {
     width: 100%;
     height: 180px;
+  }
+
+  .home-shortcuts-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .home-tomorrow-body {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .home-tomorrow-btn {
+    width: 100%;
+    justify-content: center;
   }
 
   .weekly-day-card {

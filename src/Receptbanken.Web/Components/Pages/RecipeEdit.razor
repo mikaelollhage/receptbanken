@@ -20,7 +20,7 @@ else if (recipeNotFound)
         <span class="empty-state-icon">🔍</span>
         <div class="empty-state-title">Receptet hittades inte</div>
         <p class="empty-state-desc">Receptet du försöker redigera verkar ha tagits bort eller finns inte.</p>
-        <a href="/" class="btn-primary-custom">Tillbaka till receptsamlingen</a>
+        <a href="/recept" class="btn-primary-custom">Tillbaka till receptsamlingen</a>
     </div>
 }
 else
@@ -336,6 +336,6 @@ else
         if (IsEditing)
             Navigation.NavigateTo($"/recept/{Id}");
         else
-            Navigation.NavigateTo("/");
+            Navigation.NavigateTo("/recept");
     }
 }

@@ -19,7 +19,7 @@ else if (recipe == null)
         <div class="empty-state-icon">🔍</div>
         <h3 class="empty-state-title">Receptet hittades inte</h3>
         <p class="empty-state-desc">Receptet du söker kan ha raderats eller så är länken ogiltig.</p>
-        <a href="/" class="btn-primary-custom">Tillbaka till översikten</a>
+        <a href="/recept" class="btn-primary-custom">Tillbaka till översikten</a>
     </div>
 }
 else
@@ -381,7 +381,7 @@ else
         try
         {
             await RecipeService.DeleteRecipeAsync(recipe.Id);
-            Navigation.NavigateTo("/?deleted=true");
+            Navigation.NavigateTo("/recept?deleted=true");
         }
         catch (Exception ex)
         {

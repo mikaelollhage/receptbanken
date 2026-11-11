@@ -565,21 +565,21 @@ public class ContextualFeedbackComponentTests : TestContext
             nav.Uri.Should().Contain("?duplicated=true");
         });
 
-        // 3. Delete recipe -> navigates to /?deleted=true and Home renders contextual confirmation
+        // 3. Delete recipe -> navigates to /recept?deleted=true and RecipeListPage renders contextual confirmation
         var deleteBtn = cut.FindAll("button").First(b => b.TextContent.Contains("Radera"));
         deleteBtn.Click();
         cut.Find(".modal-dialog-custom button.btn-danger-custom").Click();
 
         cut.WaitForAssertion(() =>
         {
-            nav.Uri.Should().EndWith("/?deleted=true");
+            nav.Uri.Should().EndWith("/recept?deleted=true");
         });
 
-        var homeCut = RenderComponent<Home>();
-        homeCut.WaitForAssertion(() =>
+        var listCut = RenderComponent<RecipeListPage>();
+        listCut.WaitForAssertion(() =>
         {
-            var homeBanner = homeCut.Find(".home-feedback.rb-feedback-success");
-            homeBanner.TextContent.Should().Contain("Receptet har raderats.");
+            var banner = listCut.Find(".home-feedback.rb-feedback-success");
+            banner.TextContent.Should().Contain("Receptet har raderats.");
         });
     }
 

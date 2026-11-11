@@ -117,7 +117,7 @@ public class WeeklyMenuComponentTests : TestContext
     }
 
     [Fact]
-    public async Task Home_WhenNoConfirmedWeeklyMenuExists_ShouldNotRenderLargeDinnerCard_OnlyDiscreetLink()
+    public async Task Home_WhenNoWeeklyMenuExists_ShouldRenderFriendlyEmptyState_WithPlanWeekButton()
     {
         var localToday = new DateOnly(2026, 11, 2);
         var (dbFactory, _, _, _) = await SetupServicesAsync(localToday);
@@ -128,9 +128,12 @@ public class WeeklyMenuComponentTests : TestContext
         cut.WaitForAssertion(() =>
         {
             cut.FindAll(".todays-dinner-card").Should().BeEmpty();
-            var discreet = cut.Find(".todays-dinner-discreet-link");
-            discreet.GetAttribute("href").Should().Be("/veckomeny");
-            discreet.TextContent.Should().Contain("Vecka 45");
+            var emptyState = cut.Find(".home-empty-state");
+            emptyState.TextContent.Should().Contain("Dags att planera veckan?");
+            var planBtn = cut.Find("#home-empty-plan-week-btn");
+            planBtn.GetAttribute("href").Should().Be("/veckomeny");
+            var browseBtn = cut.Find("#home-empty-browse-recipes-btn");
+            browseBtn.GetAttribute("href").Should().Be("/recept");
         });
     }
 
