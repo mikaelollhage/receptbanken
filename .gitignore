@@ -406,6 +406,9 @@ FodyWeavers.xsd
 *.sln.iml
 .idea/
 
+# Rider user-specific settings
+*.sln.DotSettings.user
+
 ##
 ## Visual studio for Mac
 ##
@@ -481,7 +484,7 @@ $RECYCLE.BIN/
 # Vim temporary swap files
 *.swp
 
-# Receptbanken – lokal konfiguration och data
+# Receptbanken   lokal konfiguration och data
 .deploy.env
 *.db
 *.db-shm
