@@ -168,9 +168,14 @@ else
                             }
 
                             var isChecked = checkedIngredients.Contains(index);
-                            <li class="ingredient-item @(isChecked ? "checked" : "")" @onclick="@(() => ToggleIngredientCheck(index))">
-                                <input type="checkbox" checked="@isChecked" style="margin-top: 4px; accent-color: var(--rb-accent);" />
-                                <div>
+                            var checkboxId = $"recipe-ing-{index}";
+                            <li class="ingredient-item @(isChecked ? "checked" : "")">
+                                <input type="checkbox"
+                                       id="@checkboxId"
+                                       class="ingredient-checkbox"
+                                       checked="@isChecked"
+                                       @onchange="@(() => ToggleIngredientCheck(index))" />
+                                <label for="@checkboxId" class="ingredient-label">
                                     <span style="font-weight: 600;">@GetScaledQuantityText(ing)</span>
                                     <span>@ing.Name</span>
                                     @if (!string.IsNullOrWhiteSpace(ing.Comment))
@@ -181,7 +186,7 @@ else
                                     {
                                         <span style="color: var(--rb-text-muted); font-style: italic;">, @ing.Preparation</span>
                                     }
-                                </div>
+                                </label>
                             </li>
                         }
                     </ul>

@@ -680,7 +680,9 @@ a:hover {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  font-family: inherit;
   font-size: 12px;
+  line-height: inherit;
   font-weight: 500;
   padding: 4px 10px;
   border-radius: 20px;
@@ -689,6 +691,14 @@ a:hover {
   color: var(--rb-text-primary);
   cursor: pointer;
   transition: all 0.15s ease;
+}
+
+span.category-badge {
+  cursor: default;
+}
+
+button.category-badge {
+  cursor: pointer;
 }
 
 .category-badge:hover {
@@ -705,6 +715,25 @@ a:hover {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+}
+
+.category-color-swatch {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.category-color-swatch:focus-visible {
+  outline: 2px solid var(--rb-accent);
+  outline-offset: 3px;
 }
 
 /* Search and Filters Bar */
@@ -911,6 +940,24 @@ fluent-search:not(:defined) {
 .ingredient-item.checked {
   color: var(--rb-text-muted);
   text-decoration: line-through;
+}
+
+.ingredient-checkbox {
+  margin-top: 4px;
+  accent-color: var(--rb-accent);
+  cursor: pointer;
+}
+
+.ingredient-checkbox:focus-visible {
+  outline: 2px solid var(--rb-accent);
+  outline-offset: 2px;
+}
+
+.ingredient-label {
+  flex: 1;
+  cursor: pointer;
+  margin: 0;
+  line-height: 1.4;
 }
 
 /* Instruction Steps */
@@ -1324,6 +1371,8 @@ fluent-number-field::part(control) {
 }
 
 .image-upload-dropzone {
+  position: relative;
+  display: block;
   border: 2px dashed var(--rb-border);
   border-radius: var(--rb-radius-md);
   padding: 28px;
@@ -1336,6 +1385,27 @@ fluent-number-field::part(control) {
 .image-upload-dropzone:hover {
   border-color: var(--rb-accent);
   background-color: var(--rb-bg-elevated);
+}
+
+.image-upload-dropzone:focus-within {
+  border-color: var(--rb-accent);
+  outline: 2px solid var(--rb-accent);
+  outline-offset: 2px;
+  background-color: var(--rb-bg-elevated);
+}
+
+.image-upload-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.image-upload-input:focus {
+  outline: none;
 }
 
 .image-preview-box {
@@ -2621,17 +2691,33 @@ body.weekly-touch-reordering .weekly-drag-handle {
 }
 
 .day-category-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  width: 24px;
+  height: 24px;
+  margin: -4px -6px -4px 0;
+  padding: 0;
   background: none;
   border: none;
+  border-radius: 50%;
   color: var(--rb-text-secondary);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1;
-  padding: 0 2px;
+  transition: color 0.15s, background-color 0.15s;
 }
 
 .day-category-remove-btn:hover {
   color: var(--rb-danger);
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
+.day-category-remove-btn:focus-visible {
+  outline: 2px solid var(--rb-accent);
+  outline-offset: 1px;
 }
 
 .day-category-all-badge {

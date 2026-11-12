@@ -61,9 +61,13 @@ else
                     <p style="font-size: 14px; color: var(--rb-text-secondary); margin-bottom: 12px;">
                         Ladda upp en matbild i JPG-, PNG- eller WebP-format (max 10 MB). Bilden konverteras och sparas lokalt.
                     </p>
-                    <label class="image-upload-dropzone" style="display: block;">
-                        <InputFile OnChange="HandleImageFileSelected" accept=".jpg,.jpeg,.png,.webp" style="display: none;" />
-                        <FluentIcon Value="@(new Icons.Regular.Size32.ArrowUpload())" Color="Color.Neutral" />
+                    <label class="image-upload-dropzone" for="recipe-image-upload">
+                        <InputFile id="recipe-image-upload"
+                                   class="image-upload-input"
+                                   OnChange="HandleImageFileSelected"
+                                   accept=".jpg,.jpeg,.png,.webp"
+                                   aria-label="Välj receptbild att ladda upp" />
+                        <FluentIcon Value="@(new Icons.Regular.Size32.ArrowUpload())" Color="Color.Neutral" aria-hidden="true" />
                         <div style="margin-top: 8px; font-weight: 600; font-size: 14px;">
                             Klicka för att välja bild från datorn
                         </div>

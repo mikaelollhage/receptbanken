@@ -79,9 +79,14 @@ else
                             var ing = recipe.Ingredients[i];
                             var idx = i;
                             var isChecked = checkedIngredients.Contains(idx);
-                            <li class="ingredient-item @(isChecked ? "checked" : "")" @onclick="@(() => ToggleIngredient(idx))">
-                                <input type="checkbox" checked="@isChecked" style="margin-top: 4px; accent-color: var(--rb-accent);" />
-                                <div>
+                            var checkboxId = $"cooking-ing-{idx}";
+                            <li class="ingredient-item @(isChecked ? "checked" : "")">
+                                <input type="checkbox"
+                                       id="@checkboxId"
+                                       class="ingredient-checkbox"
+                                       checked="@isChecked"
+                                       @onchange="@(() => ToggleIngredient(idx))" />
+                                <label for="@checkboxId" class="ingredient-label">
                                     <span style="font-weight: 700; color: var(--rb-accent-gold);">
                                         @ServingCalculator.FormatScaledIngredientPrefix(ing, recipe.Servings, currentServings)
                                     </span>
@@ -94,7 +99,7 @@ else
                                     {
                                         <span style="color: var(--rb-text-muted); font-style: italic;">, @ing.Preparation</span>
                                     }
-                                </div>
+                                </label>
                             </li>
                         }
                     </ul>

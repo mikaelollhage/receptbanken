@@ -22,13 +22,14 @@
     }
     else
     {
-        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;" role="group" aria-label="@Title">
             @foreach (var cat in Categories)
             {
                 var isSelected = SelectedCategoryIds.Contains(cat.Id);
-                <div @onclick="@(() => ToggleCategory(cat.Id))" style="cursor: pointer;">
-                    <CategoryBadge Name="@cat.Name" ColorHex="@cat.ColorHex" IsActive="@isSelected" />
-                </div>
+                <CategoryBadge Name="@cat.Name"
+                               ColorHex="@cat.ColorHex"
+                               IsActive="@isSelected"
+                               OnClick="@(() => ToggleCategory(cat.Id))" />
             }
         </div>
     }

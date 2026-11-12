@@ -428,18 +428,18 @@ public class RecipeReusableComponentsTests : TestContext
             .Add(p => p.SelectedCategoryIdsChanged, EventCallback.Factory.Create<ISet<int>>(this, s => updatedSelection = s)));
 
         // Initial state: Cat 1 active, Cat 2 inactive
-        var badges = cut.FindAll(".category-badge");
+        var badges = cut.FindAll("button.category-badge");
         badges.ElementAt(0).ClassList.Should().Contain("active");
         badges.ElementAt(1).ClassList.Should().NotContain("active");
 
         // Click Cat 2 to select
-        cut.FindAll(".form-section > div > div").ElementAt(1).Click();
+        cut.FindAll("button.category-badge").ElementAt(1).Click();
 
         selected.Should().Contain(2);
         updatedSelection.Should().Contain(2);
 
         // Click Cat 1 to unselect
-        cut.FindAll(".form-section > div > div").ElementAt(0).Click();
+        cut.FindAll("button.category-badge").ElementAt(0).Click();
         selected.Should().NotContain(1);
     }
 
@@ -471,7 +471,7 @@ public class RecipeReusableComponentsTests : TestContext
         basicInfo.Instance.Recipe!.Title = "Middagsrecept";
 
         // Select the created category via selector pill
-        var catPill = cut.FindComponent<RecipeCategorySelector>().Find(".form-section > div > div");
+        var catPill = cut.FindComponent<RecipeCategorySelector>().Find("button.category-badge");
         catPill.Click();
 
         // Save

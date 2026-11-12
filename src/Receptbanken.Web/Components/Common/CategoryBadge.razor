@@ -1,14 +1,36 @@
-<span class="category-badge @(IsActive ? "active" : "")" @onclick="OnClick">
-    @if (!string.IsNullOrWhiteSpace(ColorHex))
-    {
-        <span class="category-dot" style="background-color: @ColorHex;"></span>
-    }
-    <span>@Name</span>
-    @if (Count.HasValue)
-    {
-        <span style="opacity: 0.7; font-size: 11px;">(@Count.Value)</span>
-    }
-</span>
+@if (OnClick.HasDelegate)
+{
+    <button type="button"
+            class="category-badge @(IsActive ? "active" : "")"
+            aria-pressed="@(IsActive ? "true" : "false")"
+            @onclick="OnClick"
+            @attributes="AdditionalAttributes">
+        @if (!string.IsNullOrWhiteSpace(ColorHex))
+        {
+            <span class="category-dot" style="background-color: @ColorHex;" aria-hidden="true"></span>
+        }
+        <span>@Name</span>
+        @if (Count.HasValue)
+        {
+            <span style="opacity: 0.7; font-size: 11px;" aria-hidden="true">(@Count.Value)</span>
+        }
+    </button>
+}
+else
+{
+    <span class="category-badge @(IsActive ? "active" : "")"
+          @attributes="AdditionalAttributes">
+        @if (!string.IsNullOrWhiteSpace(ColorHex))
+        {
+            <span class="category-dot" style="background-color: @ColorHex;" aria-hidden="true"></span>
+        }
+        <span>@Name</span>
+        @if (Count.HasValue)
+        {
+            <span style="opacity: 0.7; font-size: 11px;" aria-hidden="true">(@Count.Value)</span>
+        }
+    </span>
+}
 
 @code {
     [Parameter] public string Name { get; set; } = string.Empty;
@@ -16,5 +38,7 @@
     [Parameter] public int? Count { get; set; }
     [Parameter] public bool IsActive { get; set; }
     [Parameter] public EventCallback OnClick { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public Dictionary<string, object>? AdditionalAttributes { get; set; }
 }
+
 
