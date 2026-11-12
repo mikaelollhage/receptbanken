@@ -9,7 +9,7 @@ body,
   --rb-border-subtle: #222228;
   --rb-text-primary: #fafafa;
   --rb-text-secondary: #a1a1aa;
-  --rb-text-muted: #71717a;
+  --rb-text-muted: #91919d;
   --rb-accent: #e07a5f;
   --rb-accent-hover: #e76f51;
   --rb-accent-subtle: rgba(224, 122, 95, 0.15);
@@ -17,6 +17,10 @@ body,
   --rb-accent-gold-subtle: rgba(242, 166, 90, 0.15);
   --rb-success: #10b981;
   --rb-danger: #ef4444;
+  --rb-danger-hover: #dc2626;
+  --rb-btn-primary-bg: #b84d33;
+  --rb-btn-primary-hover: #a23d24;
+  --rb-btn-primary-active: #8f321b;
   --rb-radius-sm: 6px;
   --rb-radius-md: 10px;
   --rb-radius-lg: 16px;
@@ -45,10 +49,10 @@ body,
   --neutral-stroke-input-hover: #3f3f4a;
   --neutral-stroke-input-active: #e07a5f;
   --neutral-foreground-rest: #fafafa;
-  --neutral-foreground-hint: #71717a;
-  --accent-fill-rest: #e07a5f;
-  --accent-fill-hover: #e76f51;
-  --accent-fill-active: #c75b3f;
+  --neutral-foreground-hint: #91919d;
+  --accent-fill-rest: #b84d33;
+  --accent-fill-hover: #a23d24;
+  --accent-fill-active: #8f321b;
   --accent-foreground-rest: #ffffff;
   --control-corner-radius: 6;
 }
@@ -1411,8 +1415,8 @@ fluent-number-field::part(control) {
 
 /* Buttons */
 .btn-primary-custom {
-  background-color: var(--rb-accent);
-  color: #fff;
+  background-color: var(--rb-btn-primary-bg);
+  color: #ffffff;
   border: 1px solid transparent;
   padding: 10px 20px;
   border-radius: var(--rb-radius-md);
@@ -1424,12 +1428,20 @@ fluent-number-field::part(control) {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  text-decoration: none;
   transition: background-color 0.15s, transform 0.1s;
 }
 
+.btn-primary-custom fluent-icon,
+.btn-primary-custom svg {
+  fill: currentColor;
+  color: #ffffff;
+}
+
 .btn-primary-custom:hover:not(:disabled) {
-  background-color: var(--rb-accent-hover);
-  color: #fff;
+  background-color: var(--rb-btn-primary-hover);
+  color: #ffffff;
+  text-decoration: none;
 }
 
 .btn-primary-custom:disabled,
@@ -1454,17 +1466,23 @@ fluent-number-field::part(control) {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  text-decoration: none;
   transition: all 0.15s;
 }
 
 .btn-secondary-custom:hover:not(:disabled) {
   background-color: var(--rb-border);
   color: #fff;
+  text-decoration: none;
 }
 
-.btn-primary-custom:active:not(:disabled),
-.btn-secondary-custom:active:not(:disabled),
-.btn-danger-custom:active:not(:disabled) {
+.btn-primary-custom:active:not(:disabled) {
+  background-color: var(--rb-btn-primary-active);
+  color: #ffffff;
+  transform: translateY(1px);
+}
+
+.btn-secondary-custom:active:not(:disabled) {
   transform: translateY(1px);
 }
 
@@ -1480,12 +1498,22 @@ fluent-number-field::part(control) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  text-decoration: none;
   transition: all 0.15s;
 }
 
 .btn-danger-custom:hover:not(:disabled) {
-  background-color: var(--rb-danger);
+  background-color: var(--rb-danger-hover);
+  border-color: var(--rb-danger-hover);
   color: #fff;
+  text-decoration: none;
+}
+
+.btn-danger-custom:active:not(:disabled) {
+  background-color: #b91c1c;
+  border-color: #b91c1c;
+  color: #fff;
+  transform: translateY(1px);
 }
 
 /* Button Size Modifiers (UX-2C) */
@@ -4422,7 +4450,7 @@ fluent-dialog.recipe-picker-dialog::part(control) {
   font-size: 12px;
   font-weight: 600;
   color: #fff;
-  background-color: var(--rb-accent);
+  background-color: var(--rb-btn-primary-bg);
   border-radius: 20px;
 }
 
