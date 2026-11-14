@@ -4,11 +4,17 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#18181b" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Receptbanken" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <base href="/" />
+    <link rel="manifest" href="manifest.webmanifest" />
     <link rel="stylesheet" href="app.css" />
     <link rel="stylesheet" href="Receptbanken.Web.styles.css" />
     <ImportMap />
     <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png" />
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
 
@@ -17,6 +23,7 @@
     <script src="js/cooking-helper.js"></script>
     <script src="_framework/blazor.web.js"></script>
     <script src="_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js" type="module"></script>
+    <script src="js/pwa.js"></script>
 </body>
 
 </html>

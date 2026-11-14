@@ -214,6 +214,115 @@ public class WebAppIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task ProductionEnvironment_ShouldServeValidWebManifestAndAllReferencedIcons()
+    {
+        var prodDataPath = Path.Combine(_tempDataPath, "pwa_manifest_data");
+        var previousEnv = Environment.GetEnvironmentVariable("Storage__DataPath");
+        Environment.SetEnvironmentVariable("Storage__DataPath", prodDataPath);
+
+        try
+        {
+            await using var factory = new WebApplicationFactory<Program>()
+                .WithWebHostBuilder(builder =>
+                {
+                    builder.UseEnvironment("Production");
+                });
+
+            using var client = factory.CreateClient();
+
+            using var manifestResponse = await client.GetAsync("/manifest.webmanifest");
+            manifestResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+            manifestResponse.Content.Headers.ContentType?.MediaType.Should().Be("application/manifest+json");
+
+            var manifestJson = await manifestResponse.Content.ReadAsStringAsync();
+            using var doc = System.Text.Json.JsonDocument.Parse(manifestJson);
+            var root = doc.RootElement;
+
+            root.GetProperty("name").GetString().Should().Be("Receptbanken");
+            root.GetProperty("short_name").GetString().Should().Be("Receptbanken");
+            root.GetProperty("description").GetString().Should().Be("Hushållets receptsamling, veckomeny och inköpslista");
+            root.GetProperty("start_url").GetString().Should().Be("/");
+            root.GetProperty("scope").GetString().Should().Be("/");
+            root.GetProperty("display").GetString().Should().Be("standalone");
+            root.GetProperty("background_color").GetString().Should().Be("#121214");
+            root.GetProperty("theme_color").GetString().Should().Be("#18181b");
+
+            var icons = root.GetProperty("icons").EnumerateArray().ToList();
+            icons.Should().HaveCount(3);
+            icons.Should().Contain(i => i.GetProperty("sizes").GetString() == "192x192" && i.GetProperty("purpose").GetString() == "any");
+            icons.Should().Contain(i => i.GetProperty("sizes").GetString() == "512x512" && i.GetProperty("purpose").GetString() == "any");
+            icons.Should().Contain(i => i.GetProperty("sizes").GetString() == "512x512" && i.GetProperty("purpose").GetString() == "maskable");
+
+            var iconUrls = icons.Select(i => i.GetProperty("src").GetString()!).Append("/icons/apple-touch-icon.png");
+            foreach (var iconUrl in iconUrls)
+            {
+                using var iconResponse = await client.GetAsync(iconUrl);
+                iconResponse.StatusCode.Should().Be(HttpStatusCode.OK, $"icon '{iconUrl}' must be served");
+                iconResponse.Content.Headers.ContentType?.MediaType.Should().Be("image/png");
+                var bytes = await iconResponse.Content.ReadAsByteArrayAsync();
+                bytes.Length.Should().BeGreaterThan(0);
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("Storage__DataPath", previousEnv);
+        }
+    }
+
+    [Fact]
+    public async Task ProductionEnvironment_ShouldServeMinimalServiceWorkerWithoutOfflineCachingOrFetchInterception()
+    {
+        var prodDataPath = Path.Combine(_tempDataPath, "pwa_sw_data");
+        var previousEnv = Environment.GetEnvironmentVariable("Storage__DataPath");
+        Environment.SetEnvironmentVariable("Storage__DataPath", prodDataPath);
+
+        try
+        {
+            await using var factory = new WebApplicationFactory<Program>()
+                .WithWebHostBuilder(builder =>
+                {
+                    builder.UseEnvironment("Production");
+                });
+
+            using var client = factory.CreateClient();
+
+            // Verify minimal service worker has no Cache API or fetch interception
+            using var swResponse = await client.GetAsync("/sw.js");
+            swResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+            swResponse.Content.Headers.ContentType?.MediaType.Should().Contain("javascript");
+
+            var swContent = await swResponse.Content.ReadAsStringAsync();
+            swContent.Should().Contain("skipWaiting");
+            swContent.Should().Contain("clients.claim");
+            swContent.Should().NotContain("caches.");
+            swContent.Should().NotContain("respondWith");
+            swContent.Should().NotContain("addEventListener('fetch'");
+            swContent.Should().NotContain("addEventListener(\"fetch\"");
+
+            // Verify registration script is served and registers /sw.js
+            using var pwaJsResponse = await client.GetAsync("/js/pwa.js");
+            pwaJsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+            pwaJsResponse.Content.Headers.ContentType?.MediaType.Should().Contain("javascript");
+            var pwaJsContent = await pwaJsResponse.Content.ReadAsStringAsync();
+            pwaJsContent.Should().Contain("serviceWorker.register('/sw.js'");
+
+            // Verify HTML head includes manifest, Apple metadata, and PWA registration script
+            using var homeResponse = await client.GetAsync("/");
+            homeResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+            var homeHtml = await homeResponse.Content.ReadAsStringAsync();
+            homeHtml.Should().Contain("manifest.webmanifest");
+            homeHtml.Should().Contain("name=\"theme-color\" content=\"#18181b\"");
+            homeHtml.Should().Contain("apple-touch-icon.png");
+            homeHtml.Should().Contain("apple-mobile-web-app-capable");
+            homeHtml.Should().Contain("js/pwa.js");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("Storage__DataPath", previousEnv);
+        }
+    }
+
+    [Fact]
     public async Task DeploymentArchive_ShouldIncludeAllSourceFilesIncludingDataNamespace_AndExcludeSecretsAndBuildOutputs()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
