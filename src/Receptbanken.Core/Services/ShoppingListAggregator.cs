@@ -10,7 +10,7 @@ public class ShoppingListAggregator
 
     private static readonly Dictionary<string, string> SafeInflectionMap = new(StringComparer.OrdinalIgnoreCase)
     {
-        // Kyckling & fågel
+        // Poultry
         ["kycklingfiléer"] = "kycklingfilé",
         ["kycklingfileer"] = "kycklingfilé",
         ["kycklingfile"] = "kycklingfilé",
@@ -21,7 +21,7 @@ public class ShoppingListAggregator
         ["kycklingklubbor"] = "kycklingklubba",
         ["kycklingvingar"] = "kycklingvinge",
 
-        // Fisk & skaldjur
+        // Fish & seafood
         ["laxfiléer"] = "laxfilé",
         ["laxfileer"] = "laxfilé",
         ["laxfile"] = "laxfilé",
@@ -32,7 +32,7 @@ public class ShoppingListAggregator
         ["räkor"] = "räka",
         ["kräftstjärtar"] = "kräftstjärt",
 
-        // Kött & färs
+        // Meat & mince
         ["fläskfiléer"] = "fläskfilé",
         ["fläskfileer"] = "fläskfilé",
         ["fläskfile"] = "fläskfilé",
@@ -41,7 +41,7 @@ public class ShoppingListAggregator
         ["korvar"] = "korv",
         ["köttbullar"] = "köttbulle",
 
-        // Grönsaker, frukt & rotfrukter
+        // Vegetables, fruit & root vegetables
         ["lökar"] = "lök",
         ["gula lökar"] = "gul lök",
         ["rödlökar"] = "röd lök",
@@ -82,7 +82,7 @@ public class ShoppingListAggregator
         ["rödbetor"] = "rödbeta",
         ["sötpotatisar"] = "sötpotatis",
 
-        // Mejeri & övrigt
+        // Dairy & other
         ["creme fraiche"] = "crème fraiche",
         ["äggulor"] = "äggula",
         ["äggvitor"] = "äggvita",

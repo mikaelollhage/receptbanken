@@ -384,8 +384,8 @@
     {
         showRecipePicker = false;
 
-        // Samma recept igen är ingen ändring (som när det inte gick att välja samma option i listan förut);
-        // annars skulle portionsantal och statusmeddelande nollställas.
+        // Picking the same recipe again is a no-op;
+        // otherwise servings count and status feedback would reset unexpectedly.
         if (recipe.Id == Day.RecipeId)
         {
             return;
@@ -402,7 +402,7 @@
 
     private async Task NotifyManualRecipeChangedAsync(int? recipeId)
     {
-        // Knappen kan ersättas när dagen byter mellan tomt och ifyllt läge; flytta då fokus till den nya knappen.
+        // The button may be replaced when transitioning between empty and filled states; move focus to the new button.
         focusChangeButtonAfterRender = true;
 
         if (OnManualRecipeChanged.HasDelegate)
@@ -425,7 +425,7 @@
         }
         catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException)
         {
-            // Fokus är en förbättring, inte en förutsättning.
+            // Focus is an enhancement, not a requirement.
         }
     }
 

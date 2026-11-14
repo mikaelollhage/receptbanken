@@ -22,7 +22,6 @@
 
 <ContextualFeedback State="discardFeedback" CssClass="import-discard-feedback" />
 
-<!-- Steg 1: URL-inmatning -->
 <div class="form-section">
     <h2 class="form-section-title">1. Ange receptets webbadress (URL)</h2>
     <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
@@ -96,7 +95,6 @@
         </div>
     }
 
-    <!-- Gemensam sektion för inklistrat innehåll (text eller HTML) -->
     <div class="recipe-text-import">
         <button type="button" id="recipe-text-toggle" class="recipe-text-toggle"
                 aria-expanded="@(isRecipeTextSectionOpen ? "true" : "false")" aria-controls="recipe-text-panel"
@@ -136,7 +134,6 @@
         }
     </div>
 
-    <!-- Sekundär importmetod: manuellt inklistrad JSON-LD -->
     <div class="jsonld-import">
         <button type="button" id="jsonld-toggle" class="jsonld-toggle"
                 aria-expanded="@(isJsonLdSectionOpen ? "true" : "false")" aria-controls="jsonld-panel"
@@ -222,7 +219,6 @@
     </div>
 </div>
 
-<!-- Steg 2: Förhandsgranskning, Redigering & Godkännande -->
 @if (draft != null)
 {
     <div style="margin-bottom: 24px; padding: 18px 24px; border-radius: var(--rb-radius-lg); background-color: var(--rb-accent-gold-subtle); border: 1px solid var(--rb-accent-gold); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
@@ -251,7 +247,6 @@
         <ContextualFeedback State="saveFeedback" CssClass="import-save-feedback import-save-feedback-top" />
     }
 
-    <!-- Visuell kortförhandsgranskning i Receptbankens egen design -->
     <div class="recipe-detail-hero" style="height: 280px; margin-bottom: 24px;">
         @if (!string.IsNullOrWhiteSpace(draft.ImagePath) && !imageLoadFailed)
         {
@@ -275,7 +270,6 @@
         </div>
     </div>
 
-    <!-- Redigerbara fält -->
     <div style="display: flex; flex-direction: column; gap: 24px;">
         <div class="form-section">
             <h3 class="form-section-title">Grunduppgifter</h3>
@@ -285,7 +279,6 @@
                                    OnValidationStateChanged="HandleValidationStateChanged" />
         </div>
 
-        <!-- Receptbild -->
         <div class="form-section">
             <h3 class="form-section-title">Receptbild</h3>
 
@@ -328,7 +321,6 @@
                     <ContextualFeedback State="imageUploadFeedback" CssClass="image-upload-feedback" />
                 </div>
 
-                <!-- Bildförhandsvisning -->
                 <div>
                     @if (!string.IsNullOrWhiteSpace(draft.ImagePath) && !imageLoadFailed)
                     {
@@ -557,7 +549,7 @@
         }
         catch (Exception)
         {
-            // Ignorera fel i miljöer utan fullständig JS interop
+            // Ignore failures in environments lacking full JS interop.
         }
     }
 
@@ -634,7 +626,7 @@
         }
         catch (Exception)
         {
-            // Ignorera fel i miljöer utan fullständig JS interop
+            // Ignore failures in environments lacking full JS interop.
         }
     }
 

@@ -1059,7 +1059,7 @@ fluent-search:not(:defined) {
   }
 }
 
-/* Kompakt vertikal layout för Grunduppgifter (tider, portioner) */
+/* Compact vertical layout for basic info (times, servings) */
 .recipe-meta-fields {
   display: flex;
   flex-direction: column;
@@ -1586,7 +1586,7 @@ fluent-number-field::part(control) {
   transform: translateY(1px);
 }
 
-/* Button Size Modifiers (UX-2C) */
+/* Button Size Modifiers */
 .btn-sm {
   padding: 6px 12px;
   font-size: 12px;
@@ -1988,7 +1988,7 @@ fluent-number-field::part(control) {
 }
 
 /* ============================================================
-   Todays Dinner Card (Start Page / DEL H)
+   Todays Dinner Card (Start Page)
    ============================================================ */
 .todays-dinner-card {
   background: linear-gradient(135deg, var(--rb-bg-card) 0%, #242228 100%);
@@ -2118,7 +2118,7 @@ fluent-number-field::part(control) {
   color: var(--rb-text-primary);
 }
 
-/* Home Page / Startsida (UX-3B) */
+/* Home Page / Startsida */
 .home-page-header {
   margin-bottom: 24px;
 }
@@ -3741,7 +3741,7 @@ body.shopping-touch-reordering * {
   flex-shrink: 0;
 }
 
-/* Ett sammanhållet vertikalt scrollområde i dialogen */
+/* Single unified vertical scroll area in the dialog */
 .weekly-shopping-preview-body {
   flex: 1 1 auto;
   min-height: 0;
@@ -3770,7 +3770,7 @@ body.shopping-touch-reordering * {
   font-size: 13px;
 }
 
-/* Hopfällbara sektioner (planerade middagar & redan tillagda varor) */
+/* Collapsible sections (planned meals & already added items) */
 .weekly-preview-meals-section {
   margin-bottom: 10px;
   flex-shrink: 0;
@@ -3914,7 +3914,7 @@ body.shopping-touch-reordering * {
   border-color: var(--rb-accent-gold);
 }
 
-/* Massåtgärder är inga valbara lägen: ingen "vald"-look efter klick/tryck, men tydlig fokusmarkering för tangentbord */
+/* Batch actions are triggers, not toggle states: no active/selected styling on click, but distinct keyboard focus indicator */
 .weekly-preview-link-btn:focus:not(:focus-visible) {
   outline: none;
 }
@@ -4081,7 +4081,7 @@ body.shopping-touch-reordering * {
   color: var(--rb-text-secondary);
 }
 
-/* Diskret informationsknapp ⓘ */
+/* Discreet info button */
 .weekly-preview-info-btn {
   background: transparent;
   border: 1px solid transparent;
@@ -4118,7 +4118,7 @@ body.shopping-touch-reordering * {
   color: #fca5a5;
 }
 
-/* Expanderbar detaljpanel per rad */
+/* Expandable details panel per row */
 .weekly-preview-item-details {
   margin: 0 10px 8px 40px;
   padding: 8px 10px;
@@ -4187,7 +4187,7 @@ body.shopping-touch-reordering * {
   line-height: 1.35;
 }
 
-/* UX-3D: Action hints and draft banners for weekly menu and shopping preview */
+/* Action hints and draft banners for weekly menu and shopping preview */
 .weekly-action-with-hint,
 .weekly-bottom-action-group {
   display: flex;
@@ -4249,7 +4249,7 @@ body.shopping-touch-reordering * {
   color: var(--rb-accent-coral);
 }
 
-/* Bakgrundslås när RecipePickerModal är öppen */
+/* Lock background scrolling when RecipePickerModal is open */
 html.rb-modal-open,
 body.rb-modal-open {
   overflow: hidden !important;
@@ -4389,7 +4389,7 @@ fluent-dialog.recipe-picker-dialog::part(control) {
   background-color: var(--rb-bg-card);
 }
 
-/* Enda scrollområdet i modalen */
+/* Primary scroll area in modal */
 .recipe-picker-scroll {
   flex: 1 1 auto;
   min-height: 0;
@@ -4459,7 +4459,7 @@ fluent-dialog.recipe-picker-dialog::part(control) {
   background-color: var(--rb-bg-card);
 }
 
-/* Receptkort */
+/* Recipe card */
 .recipe-picker-card {
   display: flex;
   flex-direction: column;
@@ -4590,7 +4590,7 @@ fluent-dialog.recipe-picker-dialog::part(control) {
   overflow-wrap: anywhere;
 }
 
-/* Mobil: nära fullskärm med 12px marginal, två kort per rad */
+/* Mobile: near-fullscreen with 12px margins, two cards per row */
 @media (max-width: 640px) {
   fluent-dialog.recipe-picker-dialog {
     --dialog-width: calc(100vw - 24px);
@@ -4655,7 +4655,7 @@ fluent-dialog.recipe-picker-dialog::part(control) {
 
 
 /* =========================================================================
-   Family Calendar & Home Calendar Summary (CAL-1C)
+   Family Calendar & Home Calendar Summary
    ========================================================================= */
 
 .calendar-day-card {

@@ -44,7 +44,6 @@ else
     }
 
     <div style="display: flex; flex-direction: column; gap: 24px;">
-        <!-- Grunduppgifter -->
         <div class="form-section">
             <h2 class="form-section-title">Grunduppgifter</h2>
             <RecipeBasicInfoFields Recipe="model"
@@ -53,7 +52,6 @@ else
                                    OnValidationStateChanged="HandleValidationStateChanged" />
         </div>
 
-        <!-- Bildhantering -->
         <div class="form-section">
             <h2 class="form-section-title">Receptbild</h2>
             <div class="image-upload-grid">
@@ -87,7 +85,6 @@ else
                     <ContextualFeedback State="imageUploadFeedback" CssClass="image-upload-feedback" />
                 </div>
 
-                <!-- Bildförhandsvisning -->
                 <div>
                     @if (!string.IsNullOrWhiteSpace(model.ImagePath))
                     {
@@ -108,13 +105,11 @@ else
             </div>
         </div>
 
-        <!-- Kategorier -->
         <RecipeCategorySelector Categories="availableCategories"
                                 SelectedCategoryIds="selectedCategoryIds"
                                 Title="Kategorier"
                                 HeadingLevel="2" />
 
-        <!-- Ingredienser -->
         <RecipeIngredientEditor Ingredients="model.Ingredients"
                                 Title="Ingredienser"
                                 HeadingLevel="2"
@@ -122,14 +117,12 @@ else
                                 AddButtonText="Lägg till ingrediens"
                                 ShowAddIcon="true" />
 
-        <!-- Instruktionssteg -->
         <RecipeInstructionEditor Instructions="model.Instructions"
                                  Title="Instruktioner"
                                  HeadingLevel="2"
                                  AddButtonText="Lägg till steg"
                                  ShowAddIcon="true" />
 
-        <!-- Kockens anteckningar -->
         <div class="form-section">
             <h2 class="form-section-title">Anteckningar & Tips</h2>
             <FluentTextArea @bind-Value="model.Notes" Label="Egna tips, serveringsförslag eller vinmatchningar"
@@ -141,7 +134,6 @@ else
             <ContextualFeedback State="saveFeedback" CssClass="recipe-save-feedback recipe-save-feedback-bottom" />
         }
 
-        <!-- Nedre åtgärdsfält -->
         <div style="display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 40px;">
             <button type="button" class="btn-secondary-custom" @onclick="Cancel">Avbryt</button>
             <button type="button" class="btn-primary-custom" @onclick="() => SaveRecipe(FeedbackPlacement.Bottom)" disabled="@isSaving">

@@ -228,7 +228,7 @@ window.receptbanken = {
             const touch = e.touches[0];
             const target = touch.target;
 
-            // Only start touch drag from the dedicated drag handle (DEL B)
+            // Only start touch drag from the dedicated drag handle
             const handle = target && target.closest ? target.closest('.shopping-drag-handle') : null;
             if (!handle) {
                 return;
@@ -245,7 +245,7 @@ window.receptbanken = {
                 return;
             }
 
-            // Temporarily disable HTML5 draggable so mobile browsers never detach the button as a drag ghost (DEL E)
+            // Temporarily disable HTML5 draggable so mobile browsers never detach the button as a drag ghost
             handle.draggable = false;
 
             isTouchActive = true;
@@ -454,8 +454,8 @@ window.receptbanken = {
             }
         };
 
-        // On mouse drag: set drag image to the entire varurad so the whole row follows the cursor
-        // On touch: prevent mobile browser from detaching buttons as HTML5 drag ghosts (DEL E)
+        // On mouse drag: set drag image to the entire item row so the whole row follows the cursor
+        // On touch: prevent mobile browser from detaching buttons as HTML5 drag ghosts
         const onDragStartCapture = (e) => {
             if (isTouchActive || touchState.mode !== 'idle') {
                 e.preventDefault();
@@ -486,7 +486,7 @@ window.receptbanken = {
             }
         };
 
-        // Prevent long-press context menu on rows (DEL E)
+        // Prevent long-press context menu on rows
         const onContextMenuCapture = (e) => {
             if (touchState.mode === 'dragging' || touchState.mode === 'pendingLongPress') {
                 e.preventDefault();

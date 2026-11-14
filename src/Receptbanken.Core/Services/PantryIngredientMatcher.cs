@@ -44,7 +44,7 @@ public class PantryIngredientMatcher
 
     private static readonly Dictionary<string, string> ExactInflectionMap = new(StringComparer.OrdinalIgnoreCase)
     {
-        // Kyckling & fågel
+        // Poultry
         ["kycklingfiléer"] = "kycklingfilé",
         ["kycklingfileer"] = "kycklingfilé",
         ["kycklingfile"] = "kycklingfilé",
@@ -55,7 +55,7 @@ public class PantryIngredientMatcher
         ["kycklingklubbor"] = "kycklingklubba",
         ["kycklingvingar"] = "kycklingvinge",
 
-        // Fisk & skaldjur
+        // Fish & seafood
         ["laxfiléer"] = "laxfilé",
         ["laxfileer"] = "laxfilé",
         ["laxfile"] = "laxfilé",
@@ -66,7 +66,7 @@ public class PantryIngredientMatcher
         ["räkor"] = "räka",
         [" kräftstjärtar"] = "kräftstjärt",
 
-        // Kött & färs
+        // Meat & mince
         ["fläskfiléer"] = "fläskfilé",
         ["fläskfileer"] = "fläskfilé",
         ["fläskfile"] = "fläskfilé",
@@ -75,7 +75,7 @@ public class PantryIngredientMatcher
         ["korvar"] = "korv",
         ["köttbullar"] = "köttbulle",
 
-        // Grönsaker & rotfrukter
+        // Vegetables & root vegetables
         ["lökar"] = "lök",
         ["gula lökar"] = "gul lök",
         ["rödlökar"] = "rödlök",
@@ -113,7 +113,7 @@ public class PantryIngredientMatcher
         ["rödbetor"] = "rödbeta",
         ["sötpotatisar"] = "sötpotatis",
 
-        // Mejeri & övrigt
+        // Dairy & other
         ["creme fraiche"] = "crème fraiche",
         ["äggulor"] = "äggula",
         ["äggvitor"] = "äggvita",

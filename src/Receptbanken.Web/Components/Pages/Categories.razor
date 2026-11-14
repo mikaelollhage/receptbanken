@@ -12,7 +12,6 @@
 </div>
 
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 32px; align-items: start;">
-    <!-- Form för att skapa eller redigera -->
     <div class="form-section">
         <h2 class="form-section-title">
             @(editingCategoryId.HasValue ? "Redigera kategori" : "Skapa ny kategori")
@@ -70,7 +69,6 @@
         </div>
     </div>
 
-    <!-- Lista över befintliga kategorier -->
     <div class="detail-card">
         <h2 class="detail-card-title">Befintliga kategorier (@categories.Count)</h2>
 

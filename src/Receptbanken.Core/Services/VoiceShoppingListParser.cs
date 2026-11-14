@@ -83,8 +83,8 @@ public class VoiceShoppingListParser
             var parsed = _ingredientParser.Parse(trimmed);
             var item = _aggregator.CreateFromRecipeIngredient(parsed, baseServings: 1, targetServings: 1, recipeId: null);
 
-            // Validera att ett faktiskt råvaru-/produktnamn identifierades.
-            // I SwedishIngredientParser faller Name tillbaka på rawText om namePart efter mängd och enhet var tom.
+            // Validate that an actual ingredient/product name was identified.
+            // In SwedishIngredientParser, Name falls back to rawText if the namePart after quantity and unit was empty.
             if (item.Quantity.HasValue && string.Equals(item.Name.Trim(), trimmed, StringComparison.OrdinalIgnoreCase))
             {
                 return new VoiceShoppingListItemPreviewDto

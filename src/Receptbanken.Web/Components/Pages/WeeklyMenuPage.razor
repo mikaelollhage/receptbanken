@@ -81,7 +81,7 @@
     <ContextualFeedback State="feedback" CssClass="weekly-feedback-banner" />
 }
 
-<!-- Pantry Section: "Ingredienser hemma" (DEL D) -->
+<!-- Pantry Section: "Ingredienser hemma" -->
 <section class="weekly-pantry-card" aria-label="Ingredienser hemma">
     <div class="weekly-pantry-header">
         <div>
@@ -317,7 +317,7 @@ else
     </div>
 }
 
-<!-- Confirmation Dialog before discarding unsaved edits via "Återställ sparad version" (UX-2C) -->
+<!-- Confirmation Dialog before discarding unsaved edits via "Återställ sparad version" -->
 <ConfirmDialog IsVisible="showRevertChangesConfirm"
                Title="Återställ sparad version?"
                Message="Du har osparade ändringar i veckomenyn. Vill du ångra alla ändringar och återgå till den senast sparade versionen? Dina osparade ändringar försvinner."
@@ -345,7 +345,7 @@ else
                OnConfirm="ConfirmDiscardAndNavigateAsync"
                OnCancel="CancelPendingNavigation" />
 
-<!-- Confirmation Dialog before clearing weekly menu (UX-3D) -->
+<!-- Confirmation Dialog before clearing weekly menu -->
 <ConfirmDialog IsVisible="showClearMenuConfirm"
                Title="@($"Rensa veckomeny för vecka {currentWeek.IsoWeek}?")"
                Message="@($"Alla planerade rätter och portionsantal för vecka {currentWeek.IsoWeek} ({currentWeek.FormatDateRangeSwedish()}) tas bort. Veckomenyn blir ett utkast igen. Varor som redan finns i inköpslistan påverkas inte.")"
@@ -355,7 +355,7 @@ else
                OnConfirm="ConfirmClearWeeklyMenuAsync"
                OnCancel="@(() => showClearMenuConfirm = false)" />
 
-<!-- Confirmation Dialog to save unsaved changes before generating shopping list preview (DEL C1) -->
+<!-- Confirmation Dialog to save unsaved changes before generating shopping list preview -->
 <ConfirmDialog IsVisible="showSaveBeforeShoppingConfirm"
                Title="Spara ändringar i veckomenyn?"
                Message="Du har osparade ändringar i veckomenyn. Vill du spara dina ändringar och fortsätta till inköpslistans förhandsgranskning?"

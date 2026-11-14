@@ -163,7 +163,6 @@ public class ShoppingListService
 
             foreach (var rawPhrase in request.Items)
             {
-                // 1. Tolka och validera frasen med VoiceShoppingListParser
                 var preview = parser.ParseItem(rawPhrase);
                 if (!preview.Success)
                 {
@@ -178,7 +177,6 @@ public class ShoppingListService
                     continue;
                 }
 
-                // 2. Kontrollera om varan redan finns i den aktuella inköpslistan (!IsChecked)
                 var exists = currentItems.Any(existing =>
                     !existing.IsChecked &&
                     _aggregator.AreSameIngredient(existing.Name, preview.Name));
@@ -196,7 +194,6 @@ public class ShoppingListService
                     continue;
                 }
 
-                // 3. Om den saknas: spara via transaktion för enskild vara
                 await using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
                 try
                 {
