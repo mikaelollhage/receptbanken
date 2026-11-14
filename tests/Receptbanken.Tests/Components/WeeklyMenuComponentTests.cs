@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.FluentUI.AspNetCore.Components;
+using Microsoft.JSInterop;
 using Receptbanken.Core.Interfaces;
 using Receptbanken.Core.Models;
 using Receptbanken.Core.Services;
@@ -1812,5 +1813,56 @@ public class WeeklyMenuComponentTests : TestContext
             saveConfirmedBtn.ClassList.Should().Contain("btn-primary-custom", "Spara ändringar i spikad meny ska förbli primärknapp");
             saveConfirmedBtn.TextContent.Should().Contain("Spara ändringar i spikad meny");
         });
+    }
+
+    [Fact]
+    public async Task WeeklyMenuPage_DisposeAsync_WhenJsDisconnected_DisposesDotNetRefWithoutThrowing()
+    {
+        var localToday = new DateOnly(2026, 11, 2);
+        var (dbFactory, _, _, _) = await SetupServicesAsync(localToday);
+        using var dbScope = dbFactory;
+
+        var cut = RenderComponent<WeeklyMenuPage>();
+        cut.WaitForAssertion(() =>
+            JSInterop.Invocations["receptbanken.registerWeeklyMenuTouchDrag"].Should().ContainSingle());
+
+        var dotNetRef = (DotNetObjectReference<WeeklyMenuPage>)JSInterop
+            .Invocations["receptbanken.registerWeeklyMenuTouchDrag"]
+            .Single()
+            .Arguments[0]!;
+
+        JSInterop.SetupVoid("receptbanken.unregisterWeeklyMenuTouchDrag")
+            .SetException(new JSDisconnectedException("Circuit disconnected"));
+
+        var act = async () => await cut.Instance.DisposeAsync();
+        await act.Should().NotThrowAsync();
+
+        JSInterop.Invocations["receptbanken.unregisterWeeklyMenuTouchDrag"].Should().ContainSingle();
+        var accessDisposedRef = () => _ = dotNetRef.Value;
+        accessDisposedRef.Should().Throw<ObjectDisposedException>();
+    }
+
+    [Fact]
+    public async Task WeeklyMenuPage_DisposeAsync_NormalCleanup_CompletesWithoutThrowing()
+    {
+        var localToday = new DateOnly(2026, 11, 2);
+        var (dbFactory, _, _, _) = await SetupServicesAsync(localToday);
+        using var dbScope = dbFactory;
+
+        var cut = RenderComponent<WeeklyMenuPage>();
+        cut.WaitForAssertion(() =>
+            JSInterop.Invocations["receptbanken.registerWeeklyMenuTouchDrag"].Should().ContainSingle());
+
+        var dotNetRef = (DotNetObjectReference<WeeklyMenuPage>)JSInterop
+            .Invocations["receptbanken.registerWeeklyMenuTouchDrag"]
+            .Single()
+            .Arguments[0]!;
+
+        var act = async () => await cut.Instance.DisposeAsync();
+        await act.Should().NotThrowAsync();
+
+        JSInterop.Invocations["receptbanken.unregisterWeeklyMenuTouchDrag"].Should().ContainSingle();
+        var accessDisposedRef = () => _ = dotNetRef.Value;
+        accessDisposedRef.Should().Throw<ObjectDisposedException>();
     }
 }

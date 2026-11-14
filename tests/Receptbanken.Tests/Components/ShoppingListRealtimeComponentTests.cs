@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.FluentUI.AspNetCore.Components;
+using Microsoft.JSInterop;
 using Receptbanken.Core.Models;
 using Receptbanken.Core.Services;
 using Receptbanken.Infrastructure.Services;
@@ -348,7 +349,7 @@ public class ShoppingListRealtimeComponentTests
         var phoneB = ctxB.RenderComponent<ShoppingPlaceholder>();
 
         // Dispose Phone B and verify subsequent changes on Phone A do not throw
-        phoneB.Instance.Dispose();
+        await phoneB.Instance.DisposeAsync();
 
         phoneA.Find("#shopping-manual-input").Input("1 kg potatis");
         phoneA.Find("#shopping-add-manual-btn").Click();
@@ -1290,5 +1291,74 @@ public class ShoppingListRealtimeComponentTests
             view.FindAll(".shopping-checked-list .shopping-item-row").Should().ContainSingle();
             view.Find(".shopping-checked-list .shopping-checked-comment").TextContent.Trim().Should().Be("Extra till garnering");
         });
+    }
+
+    [Fact]
+    public async Task DisposeAsync_WhenJsDisconnectedInShoppingMode_UnsubscribesAndDisposesDotNetRefWithoutThrowing()
+    {
+        using var dbFactory = new TestDbContextFactory();
+        var sharedNotifier = new ShoppingListNotifier();
+
+        using var ctxA = CreateSessionContext(dbFactory, sharedNotifier);
+        using var ctxB = CreateSessionContext(dbFactory, sharedNotifier);
+
+        var phoneA = ctxA.RenderComponent<ShoppingPlaceholder>();
+        var phoneB = ctxB.RenderComponent<ShoppingPlaceholder>();
+
+        phoneB.WaitForAssertion(() =>
+            ctxB.JSInterop.Invocations["receptbanken.registerShoppingSyncListeners"].Should().ContainSingle());
+        var dotNetRef = (DotNetObjectReference<ShoppingPlaceholder>)ctxB.JSInterop
+            .Invocations["receptbanken.registerShoppingSyncListeners"]
+            .Single()
+            .Arguments[0]!;
+
+        // Enter shopping mode so DisposeAsync also attempts releaseWakeLock
+        await phoneB.InvokeAsync(() => phoneB.Find("#shopping-enter-mode-btn").ClickAsync(new MouseEventArgs()));
+        phoneB.WaitForAssertion(() => phoneB.FindAll(".shopping-mode-exit-btn").Should().ContainSingle());
+
+        ctxB.JSInterop.SetupVoid("receptbanken.releaseWakeLock")
+            .SetException(new JSDisconnectedException("Circuit disconnected"));
+        ctxB.JSInterop.SetupVoid("receptbanken.unregisterShoppingSyncListeners")
+            .SetException(new JSDisconnectedException("Circuit disconnected"));
+
+        var act = async () => await phoneB.Instance.DisposeAsync();
+        await act.Should().NotThrowAsync();
+
+        // Both JS cleanup calls were attempted despite releaseWakeLock failing
+        ctxB.JSInterop.Invocations["receptbanken.releaseWakeLock"].Should().ContainSingle();
+        ctxB.JSInterop.Invocations["receptbanken.unregisterShoppingSyncListeners"].Should().ContainSingle();
+
+        // DotNetObjectReference was disposed in finally
+        var accessDisposedRef = () => _ = dotNetRef.Value;
+        accessDisposedRef.Should().Throw<ObjectDisposedException>();
+
+        // ShoppingListService.OnChanged was unsubscribed synchronously even though JS cleanup failed
+        await phoneA.InvokeAsync(() => phoneA.Find("#shopping-manual-input").Input("1 kg mjöl"));
+        await phoneA.InvokeAsync(() => phoneA.Find("#shopping-add-manual-btn").ClickAsync(new MouseEventArgs()));
+        phoneA.WaitForAssertion(() => phoneA.FindAll(".shopping-unchecked-list .shopping-item-row").Should().ContainSingle());
+    }
+
+    [Fact]
+    public async Task DisposeAsync_NormalCleanup_CompletesWithoutThrowing()
+    {
+        using var dbFactory = new TestDbContextFactory();
+        var sharedNotifier = new ShoppingListNotifier();
+
+        using var ctx = CreateSessionContext(dbFactory, sharedNotifier);
+        var cut = ctx.RenderComponent<ShoppingPlaceholder>();
+
+        cut.WaitForAssertion(() =>
+            ctx.JSInterop.Invocations["receptbanken.registerShoppingSyncListeners"].Should().ContainSingle());
+        var dotNetRef = (DotNetObjectReference<ShoppingPlaceholder>)ctx.JSInterop
+            .Invocations["receptbanken.registerShoppingSyncListeners"]
+            .Single()
+            .Arguments[0]!;
+
+        var act = async () => await cut.Instance.DisposeAsync();
+        await act.Should().NotThrowAsync();
+
+        ctx.JSInterop.Invocations["receptbanken.unregisterShoppingSyncListeners"].Should().ContainSingle();
+        var accessDisposedRef = () => _ = dotNetRef.Value;
+        accessDisposedRef.Should().Throw<ObjectDisposedException>();
     }
 }

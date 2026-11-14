@@ -1,5 +1,5 @@
 @page "/veckomeny"
-@implements IDisposable
+@implements IAsyncDisposable
 @inject WeeklyMenuService WeeklyMenuService
 @inject RecipeService RecipeService
 @inject CategoryService CategoryService
@@ -1244,7 +1244,7 @@ else
         });
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         if (_isDisposed)
             return;
@@ -1253,16 +1253,20 @@ else
 
         if (_dotNetRef != null)
         {
+            var dotNetRef = _dotNetRef;
+            _dotNetRef = null;
+
             try
             {
-                _ = JSRuntime.InvokeVoidAsync("receptbanken.unregisterWeeklyMenuTouchDrag");
+                await JSRuntime.InvokeVoidAsync("receptbanken.unregisterWeeklyMenuTouchDrag");
             }
-            catch
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or ObjectDisposedException or InvalidOperationException)
             {
             }
-
-            _dotNetRef.Dispose();
-            _dotNetRef = null;
+            finally
+            {
+                dotNetRef.Dispose();
+            }
         }
     }
 }

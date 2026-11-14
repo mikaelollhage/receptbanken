@@ -1,5 +1,5 @@
 @page "/inkopslista"
-@implements IDisposable
+@implements IAsyncDisposable
 @inject ShoppingListService ShoppingListService
 @inject RecipeService RecipeService
 @inject ServingCalculator ServingCalculator
@@ -1419,7 +1419,7 @@
         }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         if (_isDisposed)
             return;
@@ -1427,29 +1427,36 @@
         _isDisposed = true;
         ShoppingListService.OnChanged -= HandleShoppingListChanged;
 
-        if (isShoppingMode)
+        var dotNetRef = _dotNetRef;
+        _dotNetRef = null;
+
+        try
         {
-            try
+            if (isShoppingMode)
             {
-                _ = JSRuntime.InvokeVoidAsync("receptbanken.releaseWakeLock");
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync("receptbanken.releaseWakeLock");
+                }
+                catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or ObjectDisposedException or InvalidOperationException)
+                {
+                }
             }
-            catch
+
+            if (dotNetRef != null)
             {
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync("receptbanken.unregisterShoppingSyncListeners");
+                }
+                catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or ObjectDisposedException or InvalidOperationException)
+                {
+                }
             }
         }
-
-        if (_dotNetRef != null)
+        finally
         {
-            try
-            {
-                _ = JSRuntime.InvokeVoidAsync("receptbanken.unregisterShoppingSyncListeners");
-            }
-            catch
-            {
-            }
-
-            _dotNetRef.Dispose();
-            _dotNetRef = null;
+            dotNetRef?.Dispose();
         }
     }
 }
