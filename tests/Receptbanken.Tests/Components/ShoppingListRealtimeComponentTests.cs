@@ -250,7 +250,7 @@ public class ShoppingListRealtimeComponentTests
     }
 
     [Fact]
-    public void TwoSessions_WhenPhoneAIsEditingItem_AndPhoneBChecksOffAnotherItem_PhoneAEditStateIsPreserved()
+    public async Task TwoSessions_WhenPhoneAIsEditingItem_AndPhoneBChecksOffAnotherItem_PhoneAEditStateIsPreserved()
     {
         using var dbFactory = new TestDbContextFactory();
         var sharedNotifier = new ShoppingListNotifier();
@@ -261,23 +261,29 @@ public class ShoppingListRealtimeComponentTests
         var phoneA = ctxA.RenderComponent<ShoppingPlaceholder>();
         var phoneB = ctxB.RenderComponent<ShoppingPlaceholder>();
 
-        phoneA.Find("#shopping-manual-input").Input("1 l fil");
-        phoneA.Find("#shopping-add-manual-btn").Click();
+        await phoneA.InvokeAsync(() =>
+        {
+            phoneA.Find("#shopping-manual-input").Input("1 l fil");
+            phoneA.Find("#shopping-add-manual-btn").Click();
+        });
         phoneA.WaitForAssertion(() => phoneA.FindAll(".shopping-unchecked-list .shopping-item-row").Should().ContainSingle());
 
-        phoneA.Find("#shopping-manual-input").Input("500 g smör");
-        phoneA.Find("#shopping-add-manual-btn").Click();
+        await phoneA.InvokeAsync(() =>
+        {
+            phoneA.Find("#shopping-manual-input").Input("500 g smör");
+            phoneA.Find("#shopping-add-manual-btn").Click();
+        });
         phoneA.WaitForAssertion(() => phoneA.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(2));
 
         phoneB.WaitForAssertion(() => phoneB.FindAll(".shopping-unchecked-list .shopping-item-row").Should().HaveCount(2));
 
         // Phone A opens edit mode on "1 l fil" and changes name input (without saving yet)
-        phoneA.FindAll(".shopping-unchecked-list .shopping-edit-btn").First().Click();
+        await phoneA.InvokeAsync(() => phoneA.FindAll(".shopping-unchecked-list .shopping-edit-btn").First().Click());
         phoneA.WaitForAssertion(() => phoneA.FindAll(".shopping-edit-name").Should().ContainSingle());
-        phoneA.Find(".shopping-edit-name").Change("naturell yoghurt");
+        await phoneA.InvokeAsync(() => phoneA.Find(".shopping-edit-name").Change("naturell yoghurt"));
 
         // Meanwhile, Phone B checks off "500 g smör"
-        phoneB.FindAll(".shopping-unchecked-list .shopping-row-check-target").Last().Click();
+        await phoneB.InvokeAsync(() => phoneB.FindAll(".shopping-unchecked-list .shopping-row-check-target").Last().Click());
 
         // Phone A receives the real-time update (smör moves to Klart), while Phone A's edit panel for "1 l fil" remains open!
         phoneA.WaitForAssertion(() =>
