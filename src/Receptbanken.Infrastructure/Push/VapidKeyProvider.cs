@@ -61,7 +61,15 @@ public sealed class VapidKeyProvider : IVapidKeyProvider
             if (_cached != null)
                 return _cached;
 
+            var hasConfiguredSubject = !string.IsNullOrWhiteSpace(_options.Subject) &&
+                !string.Equals(_options.Subject.Trim(), VapidOptions.DefaultSubject, StringComparison.OrdinalIgnoreCase);
             var subject = ValidateSubject(_options.Subject);
+            if (string.Equals(subject, VapidOptions.DefaultSubject, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning(
+                    "Push:Vapid:Subject is not configured; falling back to default '{DefaultSubject}'. Set Push__Vapid__Subject to a valid mailto: address or public https:// URL.",
+                    VapidOptions.DefaultSubject);
+            }
 
             // 1. Configuration values take precedence when provided.
             var hasConfigPub = !string.IsNullOrWhiteSpace(_options.PublicKey);
@@ -108,7 +116,9 @@ public sealed class VapidKeyProvider : IVapidKeyProvider
                         $"Befintlig VAPID-nyckelfil '{filePath}' saknar giltig publik eller privat nyckel.");
                 }
 
-                var fileSubject = string.IsNullOrWhiteSpace(model.Subject) ? subject : ValidateSubject(model.Subject);
+                var fileSubject = hasConfiguredSubject || string.IsNullOrWhiteSpace(model.Subject)
+                    ? subject
+                    : ValidateSubject(model.Subject);
                 var validated = ValidateKeyPair(model.PublicKey.Trim(), model.PrivateKey.Trim(), fileSubject, filePath);
                 _cached = validated;
                 _logger.LogInformation("Laddade befintliga VAPID-nycklar från {KeysFilePath}.", filePath);

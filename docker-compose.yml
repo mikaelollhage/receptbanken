@@ -15,6 +15,7 @@ services:
       - Storage__DataPath=/app/data
       - Security__EnableHttpsRedirection=false
       - TZ=Europe/Stockholm
+      - Push__Vapid__Subject=${VAPID_SUBJECT:-mailto:noreply@receptbanken.local}
     volumes:
       # Persistent volume for SQLite database (receptbanken.db), images, and DataProtection keys
       - receptbanken-data:/app/data

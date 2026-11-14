@@ -164,6 +164,8 @@ public class CalendarPushSettingsCardTests : TestContext
         cut.WaitForAssertion(() =>
         {
             cut.Markup.Should().Contain("Aktiverad");
+            cut.Markup.Should().Contain("Påminnelser är aktiverade på den här enheten.");
+            cut.Markup.Should().NotContain("aktiva enheter");
             cut.Find(".calendar-push-test-btn").Should().NotBeNull();
             cut.Find(".calendar-push-disable-btn").Should().NotBeNull();
         });

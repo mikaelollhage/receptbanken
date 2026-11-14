@@ -39,7 +39,7 @@
             <p class="calendar-push-info-desc">
                 @if (_isSubscribed)
                 {
-                    <span>Den här enheten tar emot kalenderpåminnelser (@_activeDeviceCount av @_maxActiveDevices aktiva enheter).</span>
+                    <span>Påminnelser är aktiverade på den här enheten.</span>
                 }
                 else if (string.Equals(_envState.Permission, "denied", StringComparison.OrdinalIgnoreCase))
                 {
@@ -105,8 +105,6 @@
     private bool _isChecking = true;
     private bool _isBusy;
     private bool _isSubscribed;
-    private int _activeDeviceCount;
-    private int _maxActiveDevices = PushSubscriptionService.MaxActiveSubscriptions;
     private string? _vapidPublicKey;
     private string? _statusMessage;
     private bool _isErrorMessage;
@@ -137,8 +135,6 @@
             var status = await PushSubscriptionService.GetStatusAsync(_envState.Endpoint);
             _isSubscribed = status.IsSubscribed &&
                             string.Equals(_envState.Permission, "granted", StringComparison.OrdinalIgnoreCase);
-            _activeDeviceCount = status.ActiveDeviceCount;
-            _maxActiveDevices = status.MaxActiveDevices;
             _vapidPublicKey = status.VapidPublicKey;
         }
         catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or ObjectDisposedException or InvalidOperationException)

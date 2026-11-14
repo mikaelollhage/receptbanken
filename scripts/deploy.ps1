@@ -28,6 +28,7 @@ param(
     [string]$VolumeName,
     [int]$BackupRetentionCount = 0,
     [int]$ImageRetentionCount = 0,
+    [string]$VapidSubject = "",
     [string]$ArchiveOutputPath = "",
     [switch]$FirstInstall,
     [switch]$SkipTests,
@@ -119,6 +120,12 @@ if ($BackupRetentionCount -le 0) {
 if ($ImageRetentionCount -le 0) {
     $ImageRetentionCount = if ($config["IMAGE_RETENTION_COUNT"]) { [int]$config["IMAGE_RETENTION_COUNT"] } else { 5 }
 }
+if ([string]::IsNullOrWhiteSpace($VapidSubject)) {
+    $VapidSubject = if ($config["VAPID_SUBJECT"]) { $config["VAPID_SUBJECT"].Trim() } else { "" }
+}
+else {
+    $VapidSubject = $VapidSubject.Trim()
+}
 
 # Strict parameter validation to prevent unsafe remote shell commands or invalid paths
 if ([string]::IsNullOrWhiteSpace($ServerHost) -or [string]::IsNullOrWhiteSpace($ServerUser)) {
@@ -142,6 +149,14 @@ if ($VolumeName -notmatch '^[a-zA-Z0-9_.-]+$') {
 $DeployPath = $DeployPath.TrimEnd('/')
 if ($DeployPath -notmatch '^/[a-zA-Z0-9/_.-]+$' -or $DeployPath.Contains("..") -or $DeployPath -eq "/app" -or $DeployPath.StartsWith("/app/data")) {
     Fail-Deploy "Invalid or unsafe DeployPath '$DeployPath'. Must be an absolute Linux path (e.g. /opt/receptbanken) and must not point to /app/data."
+}
+if (-not [string]::IsNullOrWhiteSpace($VapidSubject)) {
+    if ($VapidSubject -notmatch '^(mailto:|https://)[a-zA-Z0-9.:/@_+-]+$') {
+        Fail-Deploy "Invalid VAPID_SUBJECT '$VapidSubject'. Must start with 'mailto:' or 'https://' and contain only valid URI/email characters."
+    }
+}
+else {
+    Write-Warn "VAPID_SUBJECT is not configured in .deploy.env; falling back to default 'mailto:noreply@receptbanken.local'."
 }
 
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
@@ -771,6 +786,7 @@ docker tag "$ImageRef" "receptbanken:latest"
 cat > "$DeployPath/.env" <<EOF
 IMAGE_TAG=$VersionTag
 APP_PORT=$AppPort
+VAPID_SUBJECT=$VapidSubject
 EOF
 
 echo "$VersionTag" > "$DeployPath/.current_version"

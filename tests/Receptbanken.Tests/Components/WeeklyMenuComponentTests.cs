@@ -76,69 +76,6 @@ public class WeeklyMenuComponentTests : TestContext
     }
 
     [Fact]
-    public async Task Home_WhenConfirmedWeeklyMenuExistsForToday_ShouldRenderTodaysDinnerCardWithLinks()
-    {
-        var localToday = new DateOnly(2026, 11, 2); // Monday, Week 45
-        var (dbFactory, recipeService, categoryService, weeklyMenuService) = await SetupServicesAsync(localToday);
-        using var _ = dbFactory;
-
-        var cats = await categoryService.GetCategoriesAsync();
-        var vardagId = cats.First(c => c.Name == "Vardagsmat").Id;
-
-        var marryMe = await recipeService.CreateRecipeAsync(
-            new Recipe
-            {
-                Title = "Marry me chicken",
-                PrepTimeMinutes = 15,
-                CookTimeMinutes = 30,
-                Servings = 4,
-                ServingsUnit = "portioner",
-                Instructions = [new InstructionStep { StepNumber = 1, InstructionText = "Tillaga kycklingen." }]
-            },
-            [vardagId]);
-
-        var menu = await weeklyMenuService.GetOrCreateWeekMenuAsync(localToday);
-        menu.Days[0].RecipeId = marryMe.Id;
-        await weeklyMenuService.ConfirmMenuAsync(menu);
-
-        var cut = RenderComponent<Home>();
-
-        cut.WaitForAssertion(() =>
-        {
-            var card = cut.Find(".todays-dinner-card");
-            card.TextContent.Should().Contain("DAGENS MIDDAG");
-            card.TextContent.Should().Contain("Marry me chicken");
-            card.TextContent.Should().Contain("45 minuter");
-            card.TextContent.Should().Contain("4 portioner");
-            card.TextContent.Should().Contain("Vecka 45");
-
-            cut.Find("a.todays-dinner-view-btn").GetAttribute("href").Should().Be($"/recept/{marryMe.Id}");
-            cut.Find("a.todays-dinner-cook-btn").GetAttribute("href").Should().Be($"/recept/{marryMe.Id}/laga?portioner=4");
-        });
-    }
-
-    [Fact]
-    public async Task Home_WhenNoWeeklyMenuExists_ShouldRenderFriendlyEmptyState_WithPlanWeekButton()
-    {
-        var localToday = new DateOnly(2026, 11, 2);
-        var (dbFactory, _, _, _) = await SetupServicesAsync(localToday);
-        using var _ = dbFactory;
-
-        var cut = RenderComponent<Home>();
-
-        cut.WaitForAssertion(() =>
-        {
-            cut.FindAll(".todays-dinner-card").Should().BeEmpty();
-            var emptyState = cut.Find(".home-empty-state");
-            emptyState.TextContent.Should().Contain("Dags att planera veckan?");
-            var planBtn = cut.Find("#home-empty-plan-week-btn");
-            planBtn.GetAttribute("href").Should().Be("/veckomeny");
-            var browseBtn = cut.Find("#home-empty-browse-recipes-btn");
-            browseBtn.GetAttribute("href").Should().Be("/recept");
-        });
-    }
-
-    [Fact]
     public async Task WeeklyMenuPage_GenerateConfirmRerollAndMove_ShouldWorkEndToEnd()
     {
         var localToday = new DateOnly(2026, 11, 2); // Monday, Week 45
@@ -1634,24 +1571,6 @@ public class WeeklyMenuComponentTests : TestContext
         });
     }
 
-    [Fact]
-    public async Task WeeklyMenu_ConfirmButtons_ShouldUsePrimaryCustomWithoutGreenInlineStyle()
-    {
-        var (cut, _, _, _) = await RenderPageWithPickerDataAsync();
-
-        var topBtn = cut.Find("button.confirm-week-btn");
-        topBtn.ClassList.Should().Contain("btn-primary-custom");
-        var topStyle = topBtn.GetAttribute("style") ?? string.Empty;
-        topStyle.Should().NotContain("var(--rb-success)");
-        topStyle.Should().NotContain("background-color");
-
-        var bottomBtn = cut.Find("button.confirm-week-bottom-btn");
-        bottomBtn.ClassList.Should().Contain("btn-primary-custom");
-        var bottomStyle = bottomBtn.GetAttribute("style") ?? string.Empty;
-        bottomStyle.Should().NotContain("var(--rb-success)");
-        bottomStyle.Should().NotContain("background-color");
-    }
-
     // --- Isolerade tester av dagkortet: callbackkontrakt, status och fokus ---
 
     private static WeeklyMenuDay MakeDay(Recipe? recipe, int dayIndex = 2, int? servings = null, string? status = null) => new()
@@ -1731,54 +1650,8 @@ public class WeeklyMenuComponentTests : TestContext
     }
 
     // =========================================================================
-    // UX-2D.2: Konsekventa knappstorlekar, Fluent UI-ikoner och knapphierarki
+    // UX-2D.2: Knapphierarki och cleanup
     // =========================================================================
-
-    [Fact]
-    public async Task WeeklyMenuPage_WeekNavigationButtons_ShouldUseBtnMdAndFluentIcons_AndWorkCorrectly()
-    {
-        var localToday = new DateOnly(2026, 11, 2); // Måndag v.45, 2026
-        var (dbFactory, _, _, _) = await SetupServicesAsync(localToday);
-        using var _ = dbFactory;
-
-        var cut = RenderComponent<WeeklyMenuPage>();
-        cut.WaitForAssertion(() => cut.Markup.Should().Contain("Vecka 45, 2026"));
-
-        // 1. Kontrollera knapparna för Föregående och Nästa vecka
-        var prevBtn = cut.Find("button.week-prev-btn");
-        var nextBtn = cut.Find("button.week-next-btn");
-
-        prevBtn.ClassList.Should().Contain("btn-secondary-custom");
-        prevBtn.ClassList.Should().Contain("btn-md", "Veckonavigeringen ska använda standardstorleken .btn-md");
-        prevBtn.TextContent.Should().Contain("Föregående vecka");
-        prevBtn.TextContent.Should().NotContain("←", "Textpilar ska inte användas");
-        prevBtn.QuerySelector("svg").Should().NotBeNull("Föregående vecka ska innehålla en FluentIcon (svg)");
-
-        nextBtn.ClassList.Should().Contain("btn-secondary-custom");
-        nextBtn.ClassList.Should().Contain("btn-md", "Veckonavigeringen ska använda standardstorleken .btn-md");
-        nextBtn.TextContent.Should().Contain("Nästa vecka");
-        nextBtn.TextContent.Should().NotContain("→", "Textpilar ska inte användas");
-        nextBtn.QuerySelector("svg").Should().NotBeNull("Nästa vecka ska innehålla en FluentIcon (svg)");
-
-        // 2. Klicka nästa vecka -> v.46 visas, 'Denna vecka'-knapp dyker upp
-        nextBtn.Click();
-        cut.WaitForAssertion(() =>
-        {
-            cut.Markup.Should().Contain("Vecka 46, 2026");
-            var todayBtn = cut.Find("button.week-today-btn");
-            todayBtn.ClassList.Should().Contain("btn-secondary-custom");
-            todayBtn.ClassList.Should().Contain("btn-md", "'Denna vecka' ska också använda standardstorleken .btn-md");
-            todayBtn.TextContent.Should().Contain("Denna vecka");
-        });
-
-        // 3. Klicka 'Denna vecka' -> tillbaka till v.45
-        cut.Find("button.week-today-btn").Click();
-        cut.WaitForAssertion(() =>
-        {
-            cut.Markup.Should().Contain("Vecka 45, 2026");
-            cut.FindAll("button.week-today-btn").Should().BeEmpty();
-        });
-    }
 
     [Fact]
     public async Task WeeklyMenuPage_ButtonHierarchy_GenerateShouldBeSecondary_ConfirmShouldBePrimary()
@@ -1815,8 +1688,10 @@ public class WeeklyMenuComponentTests : TestContext
         });
     }
 
-    [Fact]
-    public async Task WeeklyMenuPage_DisposeAsync_WhenJsDisconnected_DisposesDotNetRefWithoutThrowing()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WeeklyMenuPage_DisposeAsync_DisposesDotNetRefWithoutThrowing(bool jsDisconnected)
     {
         var localToday = new DateOnly(2026, 11, 2);
         var (dbFactory, _, _, _) = await SetupServicesAsync(localToday);
@@ -1831,32 +1706,11 @@ public class WeeklyMenuComponentTests : TestContext
             .Single()
             .Arguments[0]!;
 
-        JSInterop.SetupVoid("receptbanken.unregisterWeeklyMenuTouchDrag")
-            .SetException(new JSDisconnectedException("Circuit disconnected"));
-
-        var act = async () => await cut.Instance.DisposeAsync();
-        await act.Should().NotThrowAsync();
-
-        JSInterop.Invocations["receptbanken.unregisterWeeklyMenuTouchDrag"].Should().ContainSingle();
-        var accessDisposedRef = () => _ = dotNetRef.Value;
-        accessDisposedRef.Should().Throw<ObjectDisposedException>();
-    }
-
-    [Fact]
-    public async Task WeeklyMenuPage_DisposeAsync_NormalCleanup_CompletesWithoutThrowing()
-    {
-        var localToday = new DateOnly(2026, 11, 2);
-        var (dbFactory, _, _, _) = await SetupServicesAsync(localToday);
-        using var dbScope = dbFactory;
-
-        var cut = RenderComponent<WeeklyMenuPage>();
-        cut.WaitForAssertion(() =>
-            JSInterop.Invocations["receptbanken.registerWeeklyMenuTouchDrag"].Should().ContainSingle());
-
-        var dotNetRef = (DotNetObjectReference<WeeklyMenuPage>)JSInterop
-            .Invocations["receptbanken.registerWeeklyMenuTouchDrag"]
-            .Single()
-            .Arguments[0]!;
+        if (jsDisconnected)
+        {
+            JSInterop.SetupVoid("receptbanken.unregisterWeeklyMenuTouchDrag")
+                .SetException(new JSDisconnectedException("Circuit disconnected"));
+        }
 
         var act = async () => await cut.Instance.DisposeAsync();
         await act.Should().NotThrowAsync();

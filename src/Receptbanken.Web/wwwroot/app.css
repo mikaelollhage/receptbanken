@@ -2327,6 +2327,7 @@ fluent-number-field::part(control) {
 .weekly-nav-primary-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -2948,7 +2949,8 @@ body.weekly-touch-reordering .weekly-drag-handle {
   }
 
   .weekly-nav-primary-row .week-prev-btn,
-  .weekly-nav-primary-row .week-next-btn {
+  .weekly-nav-primary-row .week-next-btn,
+  .calendar-nav-controls .weekly-nav-primary-row button {
     width: 100%;
     justify-content: center;
     padding: 10px 8px;
@@ -4935,6 +4937,26 @@ fluent-dialog.recipe-picker-dialog::part(control) {
 
 .calendar-push-feedback.is-error {
   color: #b44a2f;
+}
+
+.calendar-push-dialog {
+  max-width: 500px;
+  max-height: 90dvh;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.calendar-push-dialog-topbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+
+.calendar-push-dialog .calendar-push-info-card {
+  margin-top: 0;
+  padding: 0;
+  border: none;
+  background-color: transparent;
 }
 
 /* Calendar Modals */

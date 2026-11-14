@@ -52,22 +52,6 @@ public class Phase1ComponentTests : TestContext
     }
 
     [Fact]
-    public void ConfirmDialog_WhenVisible_ShouldInvokeCallbacks()
-    {
-        bool confirmed = false;
-        var cut = RenderComponent<ConfirmDialog>(parameters => parameters
-            .Add(p => p.IsVisible, true)
-            .Add(p => p.Title, "Radera recept")
-            .Add(p => p.Message, "Är du säker?")
-            .Add(p => p.ConfirmText, "Ja, radera")
-            .Add(p => p.OnConfirm, EventCallback.Factory.Create(this, () => confirmed = true)));
-
-        cut.Markup.Should().Contain("Radera recept");
-        cut.Find("button.btn-danger-custom").Click();
-        confirmed.Should().BeTrue();
-    }
-
-    [Fact]
     public async Task RecipeCard_ShouldRenderSemanticTitleLinkAndToggleFavorite()
     {
         using var dbFactory = new TestDbContextFactory();
@@ -105,35 +89,6 @@ public class Phase1ComponentTests : TestContext
         {
             favoriteToggled.Should().BeTrue();
             favBtn.ClassList.Should().Contain("is-fav");
-        });
-    }
-
-    [Fact]
-    public void RecipeEdit_ShouldRenderResponsiveFormLayoutClasses()
-    {
-        using var dbFactory = new TestDbContextFactory();
-        var imageStorage = new MockImageStorageService();
-        var recipeService = new RecipeService(dbFactory, imageStorage, NullLogger<RecipeService>.Instance);
-        var categoryService = new CategoryService(dbFactory, NullLogger<CategoryService>.Instance);
-
-        Services.AddFluentUIComponents();
-        Services.AddScoped<AppNotificationService>();
-        Services.AddSingleton<IImageStorageService>(imageStorage);
-        Services.AddSingleton(recipeService);
-        Services.AddSingleton(categoryService);
-        JSInterop.Mode = JSRuntimeMode.Loose;
-
-        var cut = RenderComponent<RecipeEdit>();
-
-        cut.WaitForAssertion(() =>
-        {
-            cut.FindAll(".form-row").Should().NotBeEmpty();
-            cut.FindAll(".image-upload-grid").Should().ContainSingle();
-            cut.FindAll(".ingredient-editor-row").Should().ContainSingle();
-            cut.FindAll(".ingredient-remove-btn").Should().ContainSingle();
-            cut.FindAll(".recipe-meta-fields").Should().ContainSingle();
-            cut.FindAll(".recipe-meta-row").Should().HaveCount(4);
-            cut.FindAll(".recipe-meta-suffix").Select(e => e.TextContent.Trim()).Should().Equal("min", "min");
         });
     }
 

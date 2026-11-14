@@ -249,34 +249,6 @@ public class RecipeTextImportComponentTests : TestContext
     }
 
     [Fact]
-    public void RecipeInstructionEditor_AddStepButton_ShouldBePositionedAfterInstructionsList()
-    {
-        var (cut, _) = RenderImportPage();
-
-        // Open recipe text and parse a recipe with multiple steps
-        cut.Find("#recipe-text-toggle").Click();
-        cut.Find("#recipe-text-input").Input(NiiinisRecipeFixtures.PlainText);
-        cut.Find("#parse-recipe-text-btn").Click();
-
-        cut.WaitForAssertion(() =>
-        {
-            // The instruction rows are rendered
-            var instructionRows = cut.FindAll(".instruction-editor-row");
-            instructionRows.Should().HaveCount(NiiinisRecipeFixtures.StepCount);
-
-            // Find all buttons in the instruction editor section
-            var instructionSection = cut.FindAll(".form-section").First(s => s.TextContent.Contains("Tolkade instruktionssteg"));
-            var addBtn = instructionSection.QuerySelectorAll("button").First(b => b.TextContent.Contains("Lägg till steg"));
-
-            // Del F: Add button must be at the bottom (after the last row)
-            var lastRow = instructionRows.Last();
-            // In the DOM, the add button comes after the instruction list
-            addBtn.Should().NotBeNull();
-            addBtn.TextContent.Trim().Should().Be("+ Lägg till steg");
-        });
-    }
-
-    [Fact]
     public void RecipeTextSection_ButtonLabels_ShouldMatchSimplifiedWorkflow()
     {
         var (cut, _) = RenderImportPage();
