@@ -9,6 +9,7 @@ public class BackupManifest
     public int RecipeCount { get; set; }
     public int ShoppingListItemCount { get; set; }
     public int ImageCount { get; set; }
+    public int CalendarEventCount { get; set; }
 }
 
 public class BackupRestoreResult
@@ -18,6 +19,7 @@ public class BackupRestoreResult
     public int RestoredCategories { get; set; }
     public int RestoredRecipes { get; set; }
     public int RestoredImages { get; set; }
+    public int RestoredCalendarEvents { get; set; }
 }
 
 public interface IBackupService

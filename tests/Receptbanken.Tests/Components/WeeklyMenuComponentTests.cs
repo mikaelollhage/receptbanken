@@ -987,7 +987,7 @@ public class WeeklyMenuComponentTests : TestContext
         {
             var previewDialog = cut.Find(".weekly-shopping-preview-dialog");
             previewDialog.TextContent.Should().Contain("Vecka 45, 2026");
-            // Planerade middagar är hopfällda som standard (Etapp 3B.2A)
+            // Planerade middagar är hopfällda som standard
             var mealsToggle = cut.Find("button.weekly-preview-meals-toggle");
             mealsToggle.GetAttribute("aria-expanded").Should().Be("false");
             mealsToggle.TextContent.Should().Contain("1 planerad middag");
@@ -1113,7 +1113,7 @@ public class WeeklyMenuComponentTests : TestContext
     }
 
     [Fact]
-    public async Task Etapp3B2A_PreviewHierarchy_CollapsibleMeals_HiddenAlreadyAdded_InfoButton_Warnings_AndReselectRemovedItems()
+    public async Task Hierarchy_CollapsibleMeals_HiddenAlreadyAdded_InfoButton_Warnings_AndReselectRemovedItems()
     {
         var localToday = new DateOnly(2026, 11, 2); // Vecka 45
         var (dbFactory, recipeService, categoryService, weeklyMenuService) = await SetupServicesAsync(localToday);

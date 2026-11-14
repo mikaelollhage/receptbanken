@@ -32,6 +32,7 @@ public class ZipBackupService : IBackupService
     private readonly BackupLimitsOptions _limits;
     private readonly ILogger<ZipBackupService> _logger;
     private readonly ShoppingListNotifier? _shoppingListNotifier;
+    private readonly CalendarNotifier? _calendarNotifier;
 
     /// <summary>
     /// Optional hook for testing transactional + filesystem rollback when an error occurs right before commit.
@@ -43,13 +44,15 @@ public class ZipBackupService : IBackupService
         IOptions<ImageStorageOptions> storageOptions,
         ILogger<ZipBackupService> logger,
         BackupLimitsOptions? limits = null,
-        ShoppingListNotifier? shoppingListNotifier = null)
+        ShoppingListNotifier? shoppingListNotifier = null,
+        CalendarNotifier? calendarNotifier = null)
     {
         _dbFactory = dbFactory;
         _storageOptions = storageOptions.Value;
         _logger = logger;
         _limits = limits ?? new BackupLimitsOptions();
         _shoppingListNotifier = shoppingListNotifier;
+        _calendarNotifier = calendarNotifier;
     }
 
     public async Task<byte[]> CreateBackupArchiveAsync(CancellationToken cancellationToken = default)
@@ -85,6 +88,12 @@ public class ZipBackupService : IBackupService
                     .ThenInclude(sc => sc.Category)
             .Include(m => m.ShoppingContributions)
             .OrderBy(m => m.WeekStartDate)
+            .ToListAsync(cancellationToken);
+
+        var calendarEvents = await db.CalendarEvents
+            .AsNoTracking()
+            .Include(e => e.Exceptions.OrderBy(ex => ex.OriginalDate))
+            .OrderBy(e => e.Id)
             .ToListAsync(cancellationToken);
 
         var recipeTitleById = recipes.ToDictionary(r => r.Id, r => r.Title);
@@ -185,6 +194,42 @@ public class ZipBackupService : IBackupService
                         Unit = c.Unit,
                         UpdatedAt = c.UpdatedAt
                     }).ToList()
+            }).ToList(),
+            CalendarEvents = calendarEvents.Select(e => new BackupCalendarEventDto
+            {
+                Title = e.Title,
+                StartDate = e.StartDate,
+                IsAllDay = e.IsAllDay,
+                StartTime = e.StartTime,
+                EndTime = e.EndTime,
+                Location = e.Location,
+                Notes = e.Notes,
+                FamilyMembersCsv = e.FamilyMembersCsv,
+                ReminderMinutesBefore = e.ReminderMinutesBefore,
+                RecurrenceIntervalWeeks = e.RecurrenceIntervalWeeks,
+                RecurrenceDaysOfWeekMask = e.RecurrenceDaysOfWeekMask,
+                RecurrenceEndDate = e.RecurrenceEndDate,
+                CreatedAt = e.CreatedAt,
+                UpdatedAt = e.UpdatedAt,
+                Exceptions = e.Exceptions
+                    .OrderBy(ex => ex.OriginalDate)
+                    .Select(ex => new BackupCalendarEventExceptionDto
+                    {
+                        OriginalDate = ex.OriginalDate,
+                        IsCancelled = ex.IsCancelled,
+                        OverrideDate = ex.OverrideDate,
+                        OverrideTitle = ex.OverrideTitle,
+                        OverrideIsAllDay = ex.OverrideIsAllDay,
+                        OverrideStartTime = ex.OverrideStartTime,
+                        OverrideEndTime = ex.OverrideEndTime,
+                        OverrideLocation = ex.OverrideLocation,
+                        OverrideNotes = ex.OverrideNotes,
+                        OverrideFamilyMembersCsv = ex.OverrideFamilyMembersCsv,
+                        OverrideReminderMinutesBefore = ex.OverrideReminderMinutesBefore,
+                        OverrideReminderCleared = ex.OverrideReminderCleared,
+                        CreatedAt = ex.CreatedAt,
+                        UpdatedAt = ex.UpdatedAt
+                    }).ToList()
             }).ToList()
         };
 
@@ -204,7 +249,8 @@ public class ZipBackupService : IBackupService
             CategoryCount = payload.Categories.Count,
             RecipeCount = payload.Recipes.Count,
             ShoppingListItemCount = payload.ShoppingListItems.Count,
-            ImageCount = imageFiles.Length
+            ImageCount = imageFiles.Length,
+            CalendarEventCount = payload.CalendarEvents.Count
         };
 
         using var memoryStream = new MemoryStream();
@@ -396,6 +442,8 @@ public class ZipBackupService : IBackupService
             {
                 if (replaceExisting)
                 {
+                    db.CalendarEventExceptions.RemoveRange(await db.CalendarEventExceptions.ToListAsync(cancellationToken));
+                    db.CalendarEvents.RemoveRange(await db.CalendarEvents.ToListAsync(cancellationToken));
                     db.WeeklyMenuShoppingContributions.RemoveRange(await db.WeeklyMenuShoppingContributions.ToListAsync(cancellationToken));
                     db.WeeklyMenuDayCategories.RemoveRange(await db.WeeklyMenuDayCategories.ToListAsync(cancellationToken));
                     db.WeeklyMenuPantryItems.RemoveRange(await db.WeeklyMenuPantryItems.ToListAsync(cancellationToken));
@@ -584,6 +632,57 @@ public class ZipBackupService : IBackupService
                     await db.SaveChangesAsync(cancellationToken);
                 }
 
+                // Restore Calendar Events and Exceptions when present in backup (empty in legacy backups)
+                var calendarEventsToRestore = payload.CalendarEvents ?? [];
+                if (calendarEventsToRestore.Count > 0)
+                {
+                    foreach (var calDto in calendarEventsToRestore)
+                    {
+                        var restoredEvent = new CalendarEvent
+                        {
+                            Title = calDto.Title,
+                            StartDate = calDto.StartDate,
+                            IsAllDay = calDto.IsAllDay,
+                            StartTime = calDto.IsAllDay ? null : calDto.StartTime,
+                            EndTime = calDto.IsAllDay ? null : calDto.EndTime,
+                            Location = calDto.Location,
+                            Notes = calDto.Notes,
+                            FamilyMembersCsv = CalendarFamilyMemberHelper.FormatCsv(
+                                CalendarFamilyMemberHelper.ParseCsv(calDto.FamilyMembersCsv)),
+                            ReminderMinutesBefore = calDto.ReminderMinutesBefore,
+                            RecurrenceIntervalWeeks = calDto.RecurrenceIntervalWeeks,
+                            RecurrenceDaysOfWeekMask = calDto.RecurrenceDaysOfWeekMask,
+                            RecurrenceEndDate = calDto.RecurrenceEndDate,
+                            CreatedAt = calDto.CreatedAt,
+                            UpdatedAt = calDto.UpdatedAt,
+                            Exceptions = (calDto.Exceptions ?? []).Select(exDto => new CalendarEventException
+                            {
+                                OriginalDate = exDto.OriginalDate,
+                                IsCancelled = exDto.IsCancelled,
+                                OverrideDate = exDto.OverrideDate,
+                                OverrideTitle = exDto.OverrideTitle,
+                                OverrideIsAllDay = exDto.OverrideIsAllDay,
+                                OverrideStartTime = exDto.OverrideStartTime,
+                                OverrideEndTime = exDto.OverrideEndTime,
+                                OverrideLocation = exDto.OverrideLocation,
+                                OverrideNotes = exDto.OverrideNotes,
+                                OverrideFamilyMembersCsv = exDto.OverrideFamilyMembersCsv == null
+                                    ? null
+                                    : (CalendarFamilyMemberHelper.FormatCsv(
+                                           CalendarFamilyMemberHelper.ParseCsv(exDto.OverrideFamilyMembersCsv)) ?? string.Empty),
+                                OverrideReminderMinutesBefore = exDto.OverrideReminderMinutesBefore,
+                                OverrideReminderCleared = exDto.OverrideReminderCleared,
+                                CreatedAt = exDto.CreatedAt,
+                                UpdatedAt = exDto.UpdatedAt
+                            }).ToList()
+                        };
+
+                        db.CalendarEvents.Add(restoredEvent);
+                    }
+
+                    await db.SaveChangesAsync(cancellationToken);
+                }
+
                 // Swap filesystem images
                 if (replaceExisting)
                 {
@@ -609,13 +708,15 @@ public class ZipBackupService : IBackupService
                 await transaction.CommitAsync(cancellationToken);
                 _shoppingListNotifier?.ClearDeletedItems();
                 _shoppingListNotifier?.NotifyOrderingChanged();
+                _calendarNotifier?.NotifyChanged();
 
                 return new BackupRestoreResult
                 {
                     Success = true,
                     RestoredCategories = payload.Categories.Count,
                     RestoredRecipes = payload.Recipes.Count,
-                    RestoredImages = extractedImageCount
+                    RestoredImages = extractedImageCount,
+                    RestoredCalendarEvents = calendarEventsToRestore.Count
                 };
             }
             catch (Exception innerEx)
@@ -683,6 +784,7 @@ public class ZipBackupService : IBackupService
         public List<BackupRecipeDto> Recipes { get; set; } = new();
         public List<BackupShoppingItemDto> ShoppingListItems { get; set; } = new();
         public List<BackupWeeklyMenuDto> WeeklyMenus { get; set; } = new();
+        public List<BackupCalendarEventDto> CalendarEvents { get; set; } = new();
     }
 
     private sealed class BackupCategoryDto
@@ -777,6 +879,43 @@ public class ZipBackupService : IBackupService
         public decimal? AddedQuantity { get; set; }
         public decimal? AddedQuantityMax { get; set; }
         public string? Unit { get; set; }
+        public DateTimeOffset UpdatedAt { get; set; }
+    }
+
+    private sealed class BackupCalendarEventDto
+    {
+        public string Title { get; set; } = string.Empty;
+        public DateOnly StartDate { get; set; }
+        public bool IsAllDay { get; set; }
+        public TimeOnly? StartTime { get; set; }
+        public TimeOnly? EndTime { get; set; }
+        public string? Location { get; set; }
+        public string? Notes { get; set; }
+        public string? FamilyMembersCsv { get; set; }
+        public int? ReminderMinutesBefore { get; set; }
+        public int RecurrenceIntervalWeeks { get; set; }
+        public int RecurrenceDaysOfWeekMask { get; set; }
+        public DateOnly? RecurrenceEndDate { get; set; }
+        public DateTimeOffset CreatedAt { get; set; }
+        public DateTimeOffset UpdatedAt { get; set; }
+        public List<BackupCalendarEventExceptionDto> Exceptions { get; set; } = new();
+    }
+
+    private sealed class BackupCalendarEventExceptionDto
+    {
+        public DateOnly OriginalDate { get; set; }
+        public bool IsCancelled { get; set; }
+        public DateOnly? OverrideDate { get; set; }
+        public string? OverrideTitle { get; set; }
+        public bool? OverrideIsAllDay { get; set; }
+        public TimeOnly? OverrideStartTime { get; set; }
+        public TimeOnly? OverrideEndTime { get; set; }
+        public string? OverrideLocation { get; set; }
+        public string? OverrideNotes { get; set; }
+        public string? OverrideFamilyMembersCsv { get; set; }
+        public int? OverrideReminderMinutesBefore { get; set; }
+        public bool OverrideReminderCleared { get; set; }
+        public DateTimeOffset CreatedAt { get; set; }
         public DateTimeOffset UpdatedAt { get; set; }
     }
 }

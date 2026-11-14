@@ -52,10 +52,6 @@ public sealed class WeeklyMenuLifecycleAndBarrierTests : IDisposable
         return cats.First(c => c.Name == "Vardagsmat").Id;
     }
 
-    // =========================================================================
-    // ETAPP 1: Tjänstespärr för veckomenybaserade inköp (ShoppingListService)
-    // =========================================================================
-
     [Fact]
     public async Task ConfirmWeeklyMenuAdditions_WhenMenuIsDraft_ReturnsMenuNotConfirmed_AndAddsNothing()
     {
@@ -219,10 +215,6 @@ public sealed class WeeklyMenuLifecycleAndBarrierTests : IDisposable
         allItems.Should().HaveCount(4); // mjölk, gurka, smör, ägg
     }
 
-    // =========================================================================
-    // ETAPP 3: Spikning av tom vecka & Rensa veckomeny (WeeklyMenuService)
-    // =========================================================================
-
     [Fact]
     public async Task ConfirmMenuAsync_WhenMenuHasNoRecipes_ThrowsInvalidOperationException()
     {
@@ -341,12 +333,8 @@ public sealed class WeeklyMenuLifecycleAndBarrierTests : IDisposable
         cleared.Days.Should().OnlyContain(d => d.RecipeId == null);
     }
 
-    // =========================================================================
-    // ETAPP 0 & 3: Säkerhetstest för bidragshistorik (WeeklyMenuShoppingContribution)
-    // =========================================================================
-
     [Fact]
-    public async Task Etapp0_Scenario_ClearMenu_PreservesContributions_AndAvoidsDuplicatesWhenReplanned()
+    public async Task ClearMenu_PreservesContributions_AndAvoidsDuplicatesWhenReplanned()
     {
         // 1. En spikad vecka innehåller Kycklingpasta (4 portioner på måndag)
         var weekDate = new DateOnly(2026, 11, 2);
@@ -416,7 +404,7 @@ public sealed class WeeklyMenuLifecycleAndBarrierTests : IDisposable
     }
 
     [Fact]
-    public async Task Etapp0_Scenario_PortionIncreaseAfterReplan_AddsOnlyDelta()
+    public async Task PortionIncreaseAfterReplan_AddsOnlyDelta()
     {
         var weekDate = new DateOnly(2026, 11, 2);
         var catId = await GetVardagCategoryIdAsync();
@@ -459,7 +447,7 @@ public sealed class WeeklyMenuLifecycleAndBarrierTests : IDisposable
     }
 
     [Fact]
-    public async Task Etapp0_Scenario_DifferentRecipeAfterReplan_FlagsPriorAdditions()
+    public async Task DifferentRecipeAfterReplan_FlagsPriorAdditions()
     {
         var weekDate = new DateOnly(2026, 11, 2);
         var catId = await GetVardagCategoryIdAsync();

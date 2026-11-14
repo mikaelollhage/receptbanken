@@ -75,6 +75,7 @@ builder.Services.AddSingleton<IImageStorageService, LocalImageStorageService>();
 builder.Services.AddSingleton<ServingCalculator>();
 builder.Services.AddSingleton<ShoppingListAggregator>();
 builder.Services.AddSingleton<ShoppingListNotifier>();
+builder.Services.AddSingleton<CalendarNotifier>();
 builder.Services.AddSingleton<IRandomProvider, SystemRandomProvider>();
 builder.Services.AddSingleton<PantryIngredientMatcher>();
 builder.Services.AddSingleton<WeeklyMenuGenerationWeights>();
@@ -84,6 +85,7 @@ builder.Services.AddScoped<RecipeService>();
 builder.Services.AddScoped<CategoryService>();
 builder.Services.AddScoped<ShoppingListService>();
 builder.Services.AddScoped<WeeklyMenuService>();
+builder.Services.AddScoped<CalendarService>();
 builder.Services.AddScoped<IBackupService, ZipBackupService>();
 builder.Services.AddScoped<AppNotificationService>();
 

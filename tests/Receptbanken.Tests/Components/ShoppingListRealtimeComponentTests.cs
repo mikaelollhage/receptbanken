@@ -378,7 +378,7 @@ public class ShoppingListRealtimeComponentTests
     }
 
     [Fact]
-    public async Task ShoppingMode_And_NewRecipeButtonVisibility_ShouldWorkAccordingToEtapp3A2B()
+    public async Task ShoppingMode_And_NewRecipeButtonVisibility_ShouldWork()
     {
         using var dbFactory = new TestDbContextFactory();
         var sharedNotifier = new ShoppingListNotifier();

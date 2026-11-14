@@ -110,5 +110,26 @@ public class MigrationTests : IDisposable
         menus.Should().ContainSingle();
         menus[0].ShoppingContributions.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task Migrate_AddFamilyCalendar_WhenExistingDatabasePresent_ShouldApplyCleanly()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlite($"Data Source={_dbPath}")
+            .Options;
+
+        await using var context = new AppDbContext(options);
+
+        var migrator = context.Database.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>();
+        await migrator.MigrateAsync("20261108080000_AddWeeklyMenuShoppingContributions");
+
+        await context.Database.MigrateAsync();
+
+        var appliedAfter = (await context.Database.GetAppliedMigrationsAsync()).ToList();
+        appliedAfter.Should().Contain(m => m.Contains("AddFamilyCalendar"));
+
+        var count = await context.CalendarEvents.CountAsync();
+        count.Should().Be(0);
+    }
 }
 

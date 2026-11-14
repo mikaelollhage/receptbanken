@@ -28,6 +28,8 @@ public class AppDbContext : DbContext
     public DbSet<WeeklyMenuDayCategory> WeeklyMenuDayCategories => Set<WeeklyMenuDayCategory>();
     public DbSet<WeeklyMenuPantryItem> WeeklyMenuPantryItems => Set<WeeklyMenuPantryItem>();
     public DbSet<WeeklyMenuShoppingContribution> WeeklyMenuShoppingContributions => Set<WeeklyMenuShoppingContribution>();
+    public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
+    public DbSet<CalendarEventException> CalendarEventExceptions => Set<CalendarEventException>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -210,6 +212,57 @@ public class AppDbContext : DbContext
             entity.Property(e => e.AddedQuantityMax).HasPrecision(10, 2);
             entity.HasIndex(e => new { e.WeeklyMenuId, e.DayIndex, e.RecipeId, e.ContributionKey }).IsUnique();
             entity.HasIndex(e => e.WeekStartDate);
+        });
+
+        // CalendarEvent
+        modelBuilder.Entity<CalendarEvent>(entity =>
+        {
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint(
+                    "CK_CalendarEvents_RecurrenceIntervalWeeks",
+                    "RecurrenceIntervalWeeks >= 0 AND RecurrenceIntervalWeeks <= 52");
+                t.HasCheckConstraint(
+                    "CK_CalendarEvents_AllDayTimes",
+                    "(IsAllDay = 1 AND StartTime IS NULL AND EndTime IS NULL) OR (IsAllDay = 0 AND StartTime IS NOT NULL)");
+            });
+
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Title).IsRequired().HasMaxLength(CalendarEvent.MaxTitleLength);
+            entity.Property(e => e.Location).HasMaxLength(CalendarEvent.MaxLocationLength);
+            entity.Property(e => e.Notes).HasMaxLength(CalendarEvent.MaxNotesLength);
+            entity.Property(e => e.FamilyMembersCsv).HasMaxLength(CalendarEvent.MaxFamilyMembersCsvLength);
+            entity.Property(e => e.IsAllDay).HasDefaultValue(false);
+            entity.Property(e => e.RecurrenceIntervalWeeks).HasDefaultValue(0);
+            entity.Property(e => e.RecurrenceDaysOfWeekMask).HasDefaultValue(0);
+
+            entity.HasIndex(e => new { e.StartDate, e.RecurrenceEndDate })
+                .HasDatabaseName("IX_CalendarEvents_StartDate_RecurrenceEndDate");
+            entity.HasIndex(e => e.RecurrenceIntervalWeeks)
+                .HasDatabaseName("IX_CalendarEvents_RecurrenceIntervalWeeks");
+
+            entity.HasMany(e => e.Exceptions)
+                .WithOne(ex => ex.CalendarEvent)
+                .HasForeignKey(ex => ex.CalendarEventId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // CalendarEventException
+        modelBuilder.Entity<CalendarEventException>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.OverrideTitle).HasMaxLength(CalendarEvent.MaxTitleLength);
+            entity.Property(e => e.OverrideLocation).HasMaxLength(CalendarEvent.MaxLocationLength);
+            entity.Property(e => e.OverrideNotes).HasMaxLength(CalendarEvent.MaxNotesLength);
+            entity.Property(e => e.OverrideFamilyMembersCsv).HasMaxLength(CalendarEvent.MaxFamilyMembersCsvLength);
+            entity.Property(e => e.IsCancelled).HasDefaultValue(false);
+            entity.Property(e => e.OverrideReminderCleared).HasDefaultValue(false);
+
+            entity.HasIndex(e => new { e.CalendarEventId, e.OriginalDate })
+                .IsUnique()
+                .HasDatabaseName("IX_CalendarEventExceptions_CalendarEventId_OriginalDate");
+            entity.HasIndex(e => e.OverrideDate)
+                .HasDatabaseName("IX_CalendarEventExceptions_OverrideDate");
         });
     }
 }

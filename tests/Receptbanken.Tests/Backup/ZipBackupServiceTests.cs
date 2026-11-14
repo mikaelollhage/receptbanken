@@ -32,14 +32,15 @@ public class ZipBackupServiceTests : IDisposable
         TestDbContextFactory dbFactory,
         string subFolder,
         BackupLimitsOptions? limits = null,
-        ShoppingListNotifier? shoppingListNotifier = null)
+        ShoppingListNotifier? shoppingListNotifier = null,
+        CalendarNotifier? calendarNotifier = null)
     {
         var opts = Options.Create(new ImageStorageOptions
         {
             BaseDataPath = Path.Combine(_tempDataDir, subFolder),
             ImageFolderName = "images/recipes"
         });
-        return new ZipBackupService(dbFactory, opts, NullLogger<ZipBackupService>.Instance, limits, shoppingListNotifier);
+        return new ZipBackupService(dbFactory, opts, NullLogger<ZipBackupService>.Instance, limits, shoppingListNotifier, calendarNotifier);
     }
 
     [Fact]
@@ -361,6 +362,170 @@ public class ZipBackupServiceTests : IDisposable
         targetNotifier.WasItemDeleted(99).Should().BeTrue();
         targetNotifier.OrderingVersion.Should().Be(initialOrderingVersion);
         targetNotifier.Version.Should().Be(initialVersion);
+    }
+
+    [Fact]
+    public async Task ExportAndRestore_WithCalendarEventsAndExceptions_ShouldRoundTripAndNotifyCalendarNotifier()
+    {
+        var sourceCalNotifier = new CalendarNotifier();
+        var sourceCalService = new CalendarService(_sourceDbFactory, sourceCalNotifier, NullLogger<CalendarService>.Instance);
+
+        var oneTime = await sourceCalService.CreateEventAsync(new CalendarEventInput
+        {
+            Title = "Tandläkare",
+            StartDate = new DateOnly(2026, 11, 18),
+            IsAllDay = false,
+            StartTime = new TimeOnly(10, 0),
+            EndTime = new TimeOnly(11, 0),
+            Location = "Folktandvården",
+            FamilyMembers = ["Anna"],
+            ReminderMinutesBefore = CalendarReminderOptions.Hour1
+        });
+
+        var series = await sourceCalService.CreateEventAsync(new CalendarEventInput
+        {
+            Title = "Fotboll",
+            StartDate = new DateOnly(2026, 11, 9),
+            IsAllDay = false,
+            StartTime = new TimeOnly(18, 0),
+            FamilyMembers = ["Erik"],
+            ReminderMinutesBefore = CalendarReminderOptions.Minutes30,
+            RecurrenceIntervalWeeks = 1,
+            RecurrenceDaysOfWeekMask = IsoWeekdayMask.Monday
+        });
+
+        await sourceCalService.DeleteSingleOccurrenceAsync(series.Id, new DateOnly(2026, 11, 16));
+        await sourceCalService.UpdateSingleOccurrenceAsync(
+            series.Id,
+            new DateOnly(2026, 11, 23),
+            new CalendarOccurrenceOverrideInput
+            {
+                Title = "Match",
+                Date = new DateOnly(2026, 11, 24),
+                IsAllDay = false,
+                StartTime = new TimeOnly(17, 30),
+                FamilyMembers = ["Erik", "Mikael"],
+                ReminderMinutesBefore = null
+            });
+
+        var exporter = CreateBackupService(_sourceDbFactory, "source");
+        var zipBytes = await exporter.CreateBackupArchiveAsync();
+
+        var targetCalNotifier = new CalendarNotifier();
+        long? notifiedVersion = null;
+        targetCalNotifier.OnChanged += v => notifiedVersion = v;
+
+        var restorer = CreateBackupService(_targetDbFactory, "target", calendarNotifier: targetCalNotifier);
+        using var zipStream = new MemoryStream(zipBytes);
+        var result = await restorer.RestoreFromArchiveAsync(zipStream, replaceExisting: true);
+
+        result.Success.Should().BeTrue();
+        result.RestoredCalendarEvents.Should().Be(2);
+        notifiedVersion.Should().Be(1);
+
+        var targetCalService = new CalendarService(_targetDbFactory, targetCalNotifier, NullLogger<CalendarService>.Instance);
+        var occurrences = await targetCalService.GetOccurrencesAsync(new DateOnly(2026, 11, 9), new DateOnly(2026, 11, 30));
+
+        occurrences.Select(o => (o.Date, o.Title)).Should().Equal(
+            (new DateOnly(2026, 11, 9), "Fotboll"),
+            (new DateOnly(2026, 11, 18), "Tandläkare"),
+            (new DateOnly(2026, 11, 24), "Match"),
+            (new DateOnly(2026, 11, 30), "Fotboll"));
+
+        occurrences.Single(o => o.Title == "Tandläkare").CalendarEventId.Should().BeGreaterThan(0);
+        occurrences.Single(o => o.Title == "Match").ReminderMinutesBefore.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task RestoreFromArchiveAsync_LegacyBackupWithoutCalendarEvents_ShouldRestoreCleanly()
+    {
+        using var ms = new MemoryStream();
+        using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            var manifestEntry = archive.CreateEntry("manifest.json");
+            await using (var s = manifestEntry.Open())
+            {
+                await s.WriteAsync("""
+                    {
+                      "formatVersion": 1,
+                      "application": "Receptbanken",
+                      "exportedAtUtc": "2026-10-01T12:00:00Z",
+                      "categoryCount": 1,
+                      "recipeCount": 0,
+                      "shoppingListItemCount": 0,
+                      "imageCount": 0
+                    }
+                    """u8.ToArray());
+            }
+
+            var dataEntry = archive.CreateEntry("data.json");
+            await using (var s = dataEntry.Open())
+            {
+                await s.WriteAsync("""
+                    {
+                      "categories": [{ "name": "Vardagsmat", "colorHex": "#e07a5f" }],
+                      "recipes": [],
+                      "shoppingListItems": []
+                    }
+                    """u8.ToArray());
+            }
+        }
+        ms.Position = 0;
+
+        var targetCalService = new CalendarService(_targetDbFactory, new CalendarNotifier(), NullLogger<CalendarService>.Instance);
+        await targetCalService.CreateEventAsync(new CalendarEventInput
+        {
+            Title = "Gammal händelse",
+            StartDate = new DateOnly(2026, 11, 10),
+            IsAllDay = true
+        });
+
+        var restorer = CreateBackupService(_targetDbFactory, "target");
+        var result = await restorer.RestoreFromArchiveAsync(ms, replaceExisting: true);
+
+        result.Success.Should().BeTrue();
+        result.RestoredCategories.Should().Be(1);
+        result.RestoredCalendarEvents.Should().Be(0);
+
+        var remaining = await targetCalService.GetOccurrencesAsync(new DateOnly(2026, 11, 1), new DateOnly(2026, 11, 30));
+        remaining.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RestoreFromArchiveAsync_WhenCommitFails_ShouldRollbackCalendarEventsAndNotNotify()
+    {
+        var sourceCalService = new CalendarService(_sourceDbFactory, new CalendarNotifier(), NullLogger<CalendarService>.Instance);
+        await sourceCalService.CreateEventAsync(new CalendarEventInput
+        {
+            Title = "Ny händelse från backup",
+            StartDate = new DateOnly(2026, 11, 20),
+            IsAllDay = true
+        });
+
+        var exporter = CreateBackupService(_sourceDbFactory, "source");
+        var zipBytes = await exporter.CreateBackupArchiveAsync();
+
+        var targetCalNotifier = new CalendarNotifier();
+        var targetCalService = new CalendarService(_targetDbFactory, targetCalNotifier, NullLogger<CalendarService>.Instance);
+        await targetCalService.CreateEventAsync(new CalendarEventInput
+        {
+            Title = "Befintlig händelse",
+            StartDate = new DateOnly(2026, 11, 10),
+            IsAllDay = true
+        });
+
+        var versionBefore = targetCalNotifier.Version;
+        var restorer = CreateBackupService(_targetDbFactory, "target", calendarNotifier: targetCalNotifier);
+        restorer.BeforeCommitTestHook = () => throw new InvalidOperationException("Simulated commit failure");
+
+        using var zipStream = new MemoryStream(zipBytes);
+        var result = await restorer.RestoreFromArchiveAsync(zipStream, replaceExisting: true);
+
+        result.Success.Should().BeFalse();
+        targetCalNotifier.Version.Should().Be(versionBefore);
+
+        var targetEvents = await targetCalService.GetOccurrencesAsync(new DateOnly(2026, 11, 1), new DateOnly(2026, 11, 30));
+        targetEvents.Should().ContainSingle(o => o.Title == "Befintlig händelse");
     }
 
     public void Dispose()

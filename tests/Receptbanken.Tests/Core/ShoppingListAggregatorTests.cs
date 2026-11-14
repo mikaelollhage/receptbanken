@@ -517,10 +517,6 @@ public class ShoppingListAggregatorTests
         cream.Comment.Should().Be("Extra vispad grädde till garnering, mängd ej angiven");
     }
 
-    // =========================================================================
-    // ETAPP 3B.1A – Regressionstester för utskrivna svenska enhetsnamn
-    // =========================================================================
-
     [Fact]
     public void MergeItems_3B1A_200gPlus05Kilo_ShouldNormalizeAndSumTo700g_ForBothStructuredAndLegacySavedRows()
     {

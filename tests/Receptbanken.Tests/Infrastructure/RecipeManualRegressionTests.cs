@@ -5,9 +5,6 @@ using Receptbanken.Infrastructure.Importers;
 
 namespace Receptbanken.Tests.Infrastructure;
 
-/// <summary>
-/// Regression tests covering the 8 manual real-world test cases specified in Etapp 1D.2 Del G.
-/// </summary>
 public class RecipeManualRegressionTests
 {
     private readonly RecipeTextParser _parser = new(new SwedishIngredientParser());
