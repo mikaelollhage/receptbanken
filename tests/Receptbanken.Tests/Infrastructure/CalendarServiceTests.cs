@@ -356,4 +356,43 @@ public class CalendarServiceTests : IDisposable
 
         await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
     }
+
+    [Fact]
+    public async Task GetOccurrencesAsync_MovedOccurrencePastRecurrenceEndDate_ShouldBeReturnedInTargetRangeOnly()
+    {
+        var series = await _service.CreateEventAsync(new CalendarEventInput
+        {
+            Title = "Bokklubb",
+            StartDate = new DateOnly(2026, 11, 11), // Wednesday
+            IsAllDay = true,
+            RecurrenceIntervalWeeks = 1,
+            RecurrenceDaysOfWeekMask = IsoWeekdayMask.Wednesday,
+            RecurrenceEndDate = new DateOnly(2026, 11, 25)
+        });
+
+        // Move the final occurrence (Nov 25) past RecurrenceEndDate into December (Dec 2)
+        await _service.UpdateSingleOccurrenceAsync(
+            series.Id,
+            new DateOnly(2026, 11, 25),
+            new CalendarOccurrenceOverrideInput
+            {
+                Title = "Bokklubb (flyttad)",
+                Date = new DateOnly(2026, 12, 2),
+                IsAllDay = true
+            });
+
+        var novemberEndWeek = await _service.GetOccurrencesAsync(
+            new DateOnly(2026, 11, 23),
+            new DateOnly(2026, 11, 29));
+        novemberEndWeek.Should().BeEmpty();
+
+        var decemberFirstWeek = await _service.GetOccurrencesAsync(
+            new DateOnly(2026, 11, 30),
+            new DateOnly(2026, 12, 6));
+        decemberFirstWeek.Should().ContainSingle();
+        decemberFirstWeek[0].Date.Should().Be(new DateOnly(2026, 12, 2));
+        decemberFirstWeek[0].OriginalDate.Should().Be(new DateOnly(2026, 11, 25));
+        decemberFirstWeek[0].IsMoved.Should().BeTrue();
+        decemberFirstWeek[0].Title.Should().Be("Bokklubb (flyttad)");
+    }
 }

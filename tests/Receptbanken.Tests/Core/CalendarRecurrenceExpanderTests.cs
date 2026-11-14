@@ -200,6 +200,52 @@ public class CalendarRecurrenceExpanderTests
         week47Occurrences.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData("2026-11-18", "2026-11-25", "2026-11-25", "2026-12-02", "2026-11-30", "2026-12-06", new[] { "2026-12-02" })]
+    [InlineData("2026-11-18", "2026-11-25", "2026-11-25", "2026-12-02", "2026-11-23", "2026-11-29", new string[0])]
+    [InlineData("2026-11-18", "2026-11-25", "2026-11-18", "2026-11-15", "2026-11-09", "2026-11-15", new[] { "2026-11-15" })]
+    [InlineData("2026-12-23", null, "2026-12-30", "2027-01-02", "2026-12-28", "2026-12-31", new string[0])]
+    [InlineData("2026-12-23", null, "2026-12-30", "2027-01-02", "2027-01-01", "2027-01-03", new[] { "2027-01-02" })]
+    [InlineData("2026-11-18", "2026-11-25", "2026-12-02", "2026-11-26", "2026-11-23", "2026-11-29", new[] { "2026-11-25" })]
+    public void Expand_MovedOccurrenceAcrossDateBoundariesAndRecurrenceEndDate_ShouldRespectBounds(
+        string startDateStr,
+        string? recurrenceEndDateStr,
+        string originalDateStr,
+        string overrideDateStr,
+        string rangeStartStr,
+        string rangeEndStr,
+        string[] expectedDates)
+    {
+        var ev = new CalendarEvent
+        {
+            Id = 15,
+            Title = "Onsdagsklubben",
+            StartDate = DateOnly.Parse(startDateStr),
+            IsAllDay = true,
+            RecurrenceIntervalWeeks = 1,
+            RecurrenceDaysOfWeekMask = (int)IsoWeekdayMask.Wednesday,
+            RecurrenceEndDate = recurrenceEndDateStr is null ? null : DateOnly.Parse(recurrenceEndDateStr),
+            Exceptions =
+            [
+                new CalendarEventException
+                {
+                    Id = 3,
+                    CalendarEventId = 15,
+                    OriginalDate = DateOnly.Parse(originalDateStr),
+                    IsCancelled = false,
+                    OverrideDate = DateOnly.Parse(overrideDateStr)
+                }
+            ]
+        };
+
+        var result = CalendarRecurrenceExpander.Expand(
+            [ev],
+            DateOnly.Parse(rangeStartStr),
+            DateOnly.Parse(rangeEndStr));
+
+        result.Select(o => o.Date.ToString("yyyy-MM-dd")).Should().Equal(expectedDates);
+    }
+
     [Fact]
     public void Expand_CancelledOccurrence_ShouldNotAffectOtherOccurrences()
     {

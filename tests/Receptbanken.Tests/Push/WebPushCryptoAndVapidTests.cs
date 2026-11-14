@@ -343,6 +343,154 @@ console.log(JSON.stringify({ plaintext, jwtPayload, jwtValid }));
         retryResult.ShouldDeactivateSubscription.Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("https://fcm.googleapis.com/fcm/send/token-1", 900, "900")]
+    [InlineData("https://updates.push.services.mozilla.com/wpush/v2/token-2", 300, "300")]
+    [InlineData("https://web.push.apple.com/QAbc123", -10, "0")]
+    [InlineData("https://fcm.googleapis.com/fcm/send/token-4", 100000, "86400")]
+    public async Task WebPushClient_SendAsync_ShouldIncludeRequiredVapidAndWebPushHeaders(
+        string endpoint,
+        int ttlSeconds,
+        string expectedTtlHeader)
+    {
+        var fixedNow = new DateTimeOffset(2026, 11, 14, 10, 0, 0, TimeSpan.Zero);
+        var timeProvider = new FakeTimeProvider(fixedNow);
+
+        var keysPath = Path.Combine(_tempDir, $"vapid-{Guid.NewGuid():N}.json");
+        var vapidProvider = new VapidKeyProvider(
+            Options.Create(new VapidOptions
+            {
+                KeysFilePath = keysPath,
+                Subject = "mailto:family@receptbanken.local"
+            }),
+            NullLogger<VapidKeyProvider>.Instance);
+        var vapidKeys = await vapidProvider.GetOrCreateKeysAsync();
+
+        using var uaEcdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        var uaParams = uaEcdh.ExportParameters(false);
+        var uaPub = new byte[65];
+        uaPub[0] = 0x04;
+        Buffer.BlockCopy(uaParams.Q.X!, 0, uaPub, 1, 32);
+        Buffer.BlockCopy(uaParams.Q.Y!, 0, uaPub, 33, 32);
+
+        var sub = new PushSubscriptionEntity
+        {
+            Id = 1,
+            Endpoint = endpoint,
+            P256dh = Base64Url.EncodeToString(uaPub),
+            Auth = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(16)),
+            IsActive = true
+        };
+
+        CapturedPushRequest? captured = null;
+        var handler = new StubHttpMessageHandler(req =>
+        {
+            captured = CaptureRequest(req);
+            return new HttpResponseMessage(HttpStatusCode.Created);
+        });
+
+        using var httpClient = new HttpClient(handler);
+        var client = new WebPushClient(httpClient, vapidProvider, NullLogger<WebPushClient>.Instance, timeProvider);
+
+        var result = await client.SendAsync(sub, "{\"title\":\"Hej\"}", ttlSeconds);
+
+        result.IsSuccess.Should().BeTrue();
+        result.StatusCode.Should().Be(201);
+        captured.Should().NotBeNull();
+
+        captured!.Method.Should().Be(HttpMethod.Post);
+        captured.RequestUri.Should().Be(new Uri(endpoint));
+        captured.Ttl.Should().Be(expectedTtlHeader);
+        captured.Urgency.Should().Be("normal");
+        captured.ContentType.Should().Be("application/octet-stream");
+        captured.ContentEncoding.Should().Equal("aes128gcm");
+        captured.BodyLength.Should().BeGreaterThan(86 + 16);
+
+        // Verify VAPID Authorization header: "vapid t=<jwt>, k=<publicKey>"
+        captured.Authorization.Should().StartWith("vapid ");
+        var parts = captured.Authorization!["vapid ".Length..].Split(", ", StringSplitOptions.TrimEntries);
+        parts.Should().HaveCount(2);
+        parts[0].Should().StartWith("t=");
+        parts[1].Should().Be($"k={vapidKeys.PublicKeyBase64Url}");
+
+        var jwt = parts[0][2..];
+        var jwtSegments = jwt.Split('.');
+        jwtSegments.Should().HaveCount(3);
+
+        var headerJson = Encoding.UTF8.GetString(Base64Url.DecodeFromChars(jwtSegments[0]));
+        using (var headerDoc = JsonDocument.Parse(headerJson))
+        {
+            headerDoc.RootElement.GetProperty("typ").GetString().Should().Be("JWT");
+            headerDoc.RootElement.GetProperty("alg").GetString().Should().Be("ES256");
+        }
+
+        var payloadJson = Encoding.UTF8.GetString(Base64Url.DecodeFromChars(jwtSegments[1]));
+        var expectedAudience = $"{new Uri(endpoint).Scheme}://{new Uri(endpoint).Authority}";
+        using (var payloadDoc = JsonDocument.Parse(payloadJson))
+        {
+            payloadDoc.RootElement.GetProperty("aud").GetString().Should().Be(expectedAudience);
+            payloadDoc.RootElement.GetProperty("sub").GetString().Should().Be("mailto:family@receptbanken.local");
+            payloadDoc.RootElement.GetProperty("exp").GetInt64().Should().Be(fixedNow.AddHours(12).ToUnixTimeSeconds());
+        }
+
+        var pubBytes = Base64Url.DecodeFromChars(vapidKeys.PublicKeyBase64Url);
+        using var verifier = ECDsa.Create(new ECParameters
+        {
+            Curve = ECCurve.NamedCurves.nistP256,
+            Q = new ECPoint
+            {
+                X = pubBytes[1..33],
+                Y = pubBytes[33..65]
+            }
+        });
+        var signingInput = Encoding.ASCII.GetBytes($"{jwtSegments[0]}.{jwtSegments[1]}");
+        var signature = Base64Url.DecodeFromChars(jwtSegments[2]);
+        verifier.VerifyData(signingInput, signature, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation)
+            .Should().BeTrue();
+    }
+
+    private static CapturedPushRequest CaptureRequest(HttpRequestMessage request)
+    {
+        var auth = request.Headers.TryGetValues("Authorization", out var authValues)
+            ? string.Join(", ", authValues)
+            : null;
+        var ttl = request.Headers.TryGetValues("TTL", out var ttlValues)
+            ? string.Join(", ", ttlValues)
+            : null;
+        var urgency = request.Headers.TryGetValues("Urgency", out var urgencyValues)
+            ? string.Join(", ", urgencyValues)
+            : null;
+
+        var contentType = request.Content?.Headers.ContentType?.MediaType;
+        var contentEncoding = request.Content?.Headers.ContentEncoding.ToArray() ?? [];
+        var bodyBytes = request.Content?.ReadAsByteArrayAsync().GetAwaiter().GetResult() ?? [];
+
+        return new CapturedPushRequest(
+            request.Method,
+            request.RequestUri,
+            auth,
+            ttl,
+            urgency,
+            contentType,
+            contentEncoding,
+            bodyBytes.Length);
+    }
+
+    private sealed record CapturedPushRequest(
+        HttpMethod Method,
+        Uri? RequestUri,
+        string? Authorization,
+        string? Ttl,
+        string? Urgency,
+        string? ContentType,
+        string[] ContentEncoding,
+        int BodyLength);
+
+    private sealed class FakeTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
     private sealed class StubHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
