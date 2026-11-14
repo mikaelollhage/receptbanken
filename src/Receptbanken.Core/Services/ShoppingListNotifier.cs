@@ -6,8 +6,17 @@ namespace Receptbanken.Core.Services;
 /// </summary>
 public sealed class ShoppingListNotifier
 {
+    /// <summary>
+    /// Maximum number of recently deleted shopping list item IDs retained in memory for
+    /// cross-instance reorder validation.
+    /// </summary>
+    public const int MaxTrackedDeletedIds = 1024;
+
     private long _version;
     private long _orderingVersion;
+    private readonly object _deletedIdsLock = new();
+    private readonly Dictionary<int, LinkedListNode<int>> _deletedItemNodes = new();
+    private readonly LinkedList<int> _deletedItemOrder = new();
 
     /// <summary>
     /// Monotonically increasing version number incremented after every persisted shopping list change.
@@ -58,5 +67,109 @@ public sealed class ShoppingListNotifier
         }
 
         return newVersion;
+    }
+
+    /// <summary>
+    /// Records a deleted shopping list item ID in the bounded FIFO history.
+    /// </summary>
+    public void RecordDeletedItem(int id)
+    {
+        if (id <= 0)
+        {
+            return;
+        }
+
+        lock (_deletedIdsLock)
+        {
+            RecordDeletedItemCore(id);
+        }
+    }
+
+    /// <summary>
+    /// Records multiple deleted shopping list item IDs in the bounded FIFO history.
+    /// </summary>
+    public void RecordDeletedItems(IEnumerable<int> ids)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+
+        lock (_deletedIdsLock)
+        {
+            foreach (var id in ids)
+            {
+                if (id > 0)
+                {
+                    RecordDeletedItemCore(id);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Removes a previously deleted shopping list item ID (for example when restored via Undo)
+    /// from both the lookup set and the FIFO eviction order.
+    /// </summary>
+    public bool RemoveDeletedItem(int id)
+    {
+        if (id <= 0)
+        {
+            return false;
+        }
+
+        lock (_deletedIdsLock)
+        {
+            if (_deletedItemNodes.Remove(id, out var node))
+            {
+                _deletedItemOrder.Remove(node);
+                return true;
+            }
+
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Returns whether the given shopping list item ID is currently recorded as recently deleted.
+    /// </summary>
+    public bool WasItemDeleted(int id)
+    {
+        if (id <= 0)
+        {
+            return false;
+        }
+
+        lock (_deletedIdsLock)
+        {
+            return _deletedItemNodes.ContainsKey(id);
+        }
+    }
+
+    /// <summary>
+    /// Clears all tracked deleted shopping list item IDs.
+    /// </summary>
+    public void ClearDeletedItems()
+    {
+        lock (_deletedIdsLock)
+        {
+            _deletedItemNodes.Clear();
+            _deletedItemOrder.Clear();
+        }
+    }
+
+    private void RecordDeletedItemCore(int id)
+    {
+        if (_deletedItemNodes.ContainsKey(id))
+        {
+            return;
+        }
+
+        while (_deletedItemNodes.Count >= MaxTrackedDeletedIds)
+        {
+            var oldest = _deletedItemOrder.First!;
+            _deletedItemOrder.RemoveFirst();
+            _deletedItemNodes.Remove(oldest.Value);
+        }
+
+        var node = _deletedItemOrder.AddLast(id);
+        _deletedItemNodes.Add(id, node);
     }
 }

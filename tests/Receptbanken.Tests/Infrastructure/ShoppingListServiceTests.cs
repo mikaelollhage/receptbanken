@@ -643,6 +643,176 @@ public class ShoppingListServiceTests : IDisposable
         items[0].RawText.Should().Be("700 g nötfärs");
     }
 
+    [Fact]
+    public async Task ReorderItemsAsync_AcrossTwoServiceInstances_WhenOtherInstanceDeletesChecksAndAdds_ShouldSucceedAndPreserveAllChanges()
+    {
+        var notifier = new ShoppingListNotifier();
+        var aggregator = new ShoppingListAggregator(new ServingCalculator());
+        var parser = new SwedishIngredientParser();
+
+        var serviceA = new ShoppingListService(_dbFactory, aggregator, parser, notifier);
+        var serviceB = new ShoppingListService(_dbFactory, aggregator, parser, notifier);
+
+        var milk = await serviceA.AddManualItemAsync("2 dl mjölk");
+        var bread = await serviceA.AddManualItemAsync("1 st bröd");
+        var eggs = await serviceA.AddManualItemAsync("6 st ägg");
+        var butter = await serviceA.AddManualItemAsync("500 g smör");
+
+        var startOrderVersion = serviceA.CurrentOrderingVersion;
+
+        // Concurrent mutations on a separate scoped ShoppingListService sharing the same ShoppingListNotifier
+        await serviceB.SetCheckedAsync(bread.Id, true);
+        (await serviceB.DeleteItemAsync(eggs.Id)).Should().BeTrue();
+        notifier.WasItemDeleted(eggs.Id).Should().BeTrue();
+
+        var cucumber = await serviceB.AddManualItemAsync("1 st gurka");
+        await serviceB.AddManualItemAsync("3 dl mjölk");
+
+        var reorderResult = await serviceA.ReorderItemsAsync(
+            [butter.Id, milk.Id, bread.Id, eggs.Id],
+            startOrderVersion);
+
+        reorderResult.Status.Should().Be(ShoppingListReorderStatus.Success);
+
+        var finalItems = await serviceA.GetItemsAsync();
+        finalItems.Should().NotContain(x => x.Id == eggs.Id);
+        finalItems.Where(x => x.IsChecked).Select(x => x.Id).Should().Equal(bread.Id);
+
+        var uncheckedItems = finalItems.Where(x => !x.IsChecked).ToList();
+        uncheckedItems.Select(x => x.Id).Should().Equal(butter.Id, milk.Id, cucumber.Id);
+        uncheckedItems.Single(x => x.Id == milk.Id).Quantity.Should().Be(5m);
+    }
+
+    [Fact]
+    public async Task ReorderItemsAsync_AcrossTwoServiceInstances_WhenOtherInstanceClearsCheckedItems_ShouldSucceedForRemainingUncheckedItems()
+    {
+        var notifier = new ShoppingListNotifier();
+        var aggregator = new ShoppingListAggregator(new ServingCalculator());
+        var parser = new SwedishIngredientParser();
+
+        var serviceA = new ShoppingListService(_dbFactory, aggregator, parser, notifier);
+        var serviceB = new ShoppingListService(_dbFactory, aggregator, parser, notifier);
+
+        var milk = await serviceA.AddManualItemAsync("Mjölk");
+        var bread = await serviceA.AddManualItemAsync("Bröd");
+        var butter = await serviceA.AddManualItemAsync("Smör");
+
+        var startOrderVersion = serviceA.CurrentOrderingVersion;
+
+        await serviceB.SetCheckedAsync(bread.Id, true);
+        var clearedCount = await serviceB.ClearCheckedItemsAsync();
+        clearedCount.Should().Be(1);
+        notifier.WasItemDeleted(bread.Id).Should().BeTrue();
+
+        var reorderResult = await serviceA.ReorderItemsAsync(
+            [butter.Id, bread.Id, milk.Id],
+            startOrderVersion);
+
+        reorderResult.Status.Should().Be(ShoppingListReorderStatus.Success);
+        reorderResult.Items.Where(x => !x.IsChecked).Select(x => x.Id).Should().Equal(butter.Id, milk.Id);
+        reorderResult.Items.Should().NotContain(x => x.Id == bread.Id);
+    }
+
+    [Fact]
+    public async Task ReorderItemsAsync_AcrossTwoServiceInstances_WhenBogusIdIncludedOrAllCleared_ShouldRejectInvalidIds()
+    {
+        var notifier = new ShoppingListNotifier();
+        var aggregator = new ShoppingListAggregator(new ServingCalculator());
+        var parser = new SwedishIngredientParser();
+
+        var serviceA = new ShoppingListService(_dbFactory, aggregator, parser, notifier);
+        var serviceB = new ShoppingListService(_dbFactory, aggregator, parser, notifier);
+
+        var milk = await serviceA.AddManualItemAsync("Mjölk");
+        var bread = await serviceA.AddManualItemAsync("Bröd");
+        var startOrderVersion = serviceA.CurrentOrderingVersion;
+
+        await serviceB.DeleteItemAsync(bread.Id);
+
+        var notifications = 0;
+        notifier.OnChanged += _ => notifications++;
+
+        var bogusResult = await serviceA.ReorderItemsAsync([milk.Id, 99999, bread.Id], startOrderVersion);
+        bogusResult.Status.Should().Be(ShoppingListReorderStatus.InvalidOperation);
+        serviceA.CurrentOrderingVersion.Should().Be(startOrderVersion);
+        notifications.Should().Be(0);
+
+        // Clearing all remaining items leaves zero unchecked items -> InvalidOperation, no resurrect
+        await serviceB.ClearAllItemsAsync();
+        notifier.WasItemDeleted(milk.Id).Should().BeTrue();
+
+        var allClearedResult = await serviceA.ReorderItemsAsync([milk.Id, bread.Id], startOrderVersion);
+        allClearedResult.Status.Should().Be(ShoppingListReorderStatus.InvalidOperation);
+        allClearedResult.Items.Should().BeEmpty();
+        serviceA.CurrentOrderingVersion.Should().Be(startOrderVersion);
+    }
+
+    [Fact]
+    public async Task RestoreDeletedItemAsync_ShouldRemoveIdFromSharedNotifierDeletedHistory()
+    {
+        var notifier = new ShoppingListNotifier();
+        var aggregator = new ShoppingListAggregator(new ServingCalculator());
+        var parser = new SwedishIngredientParser();
+
+        var serviceA = new ShoppingListService(_dbFactory, aggregator, parser, notifier);
+        var serviceB = new ShoppingListService(_dbFactory, aggregator, parser, notifier);
+
+        var milk = await serviceA.AddManualItemAsync("Mjölk");
+        var bread = await serviceA.AddManualItemAsync("Bröd");
+
+        await serviceB.DeleteItemAsync(bread.Id);
+        notifier.WasItemDeleted(bread.Id).Should().BeTrue();
+
+        var restored = await serviceB.RestoreDeletedItemAsync(bread);
+        restored.Should().BeTrue();
+        notifier.WasItemDeleted(bread.Id).Should().BeFalse();
+
+        // Both items are back in DB and can be reordered normally
+        var reorderResult = await serviceA.ReorderItemsAsync([bread.Id, milk.Id], serviceA.CurrentOrderingVersion);
+        reorderResult.Status.Should().Be(ShoppingListReorderStatus.Success);
+        reorderResult.Items.Select(x => x.Id).Should().Equal(bread.Id, milk.Id);
+    }
+
+    [Fact]
+    public void ShoppingListNotifier_DeletedItemTracking_ShouldEnforceBoundedCapacityAndSupportRestoreRemoval()
+    {
+        var notifier = new ShoppingListNotifier();
+        var capacity = ShoppingListNotifier.MaxTrackedDeletedIds;
+
+        // Fill to capacity: 1..capacity
+        for (var id = 1; id <= capacity; id++)
+        {
+            notifier.RecordDeletedItem(id);
+        }
+
+        // Remove ID 1 (simulating Undo) and re-delete it; it should move to the tail without leaving a stale FIFO entry
+        notifier.RemoveDeletedItem(1).Should().BeTrue();
+        notifier.WasItemDeleted(1).Should().BeFalse();
+        notifier.RecordDeletedItem(1);
+        notifier.WasItemDeleted(1).Should().BeTrue();
+
+        // Repeatedly removing and re-recording the same ID must not grow the queue or cause premature eviction
+        for (var i = 0; i < 20; i++)
+        {
+            notifier.RemoveDeletedItem(2).Should().BeTrue();
+            notifier.RecordDeletedItem(2);
+        }
+
+        // Now oldest remaining ID is 3; adding one more ID should evict 3, while 1, 2, and capacity + 1 remain tracked
+        notifier.RecordDeletedItem(capacity + 1);
+
+        notifier.WasItemDeleted(3).Should().BeFalse();
+        notifier.WasItemDeleted(1).Should().BeTrue();
+        notifier.WasItemDeleted(2).Should().BeTrue();
+        notifier.WasItemDeleted(4).Should().BeTrue();
+        notifier.WasItemDeleted(capacity + 1).Should().BeTrue();
+
+        // ClearDeletedItems empties all tracked IDs
+        notifier.ClearDeletedItems();
+        notifier.WasItemDeleted(1).Should().BeFalse();
+        notifier.WasItemDeleted(capacity + 1).Should().BeFalse();
+    }
+
     public void Dispose()
     {
         _dbFactory.Dispose();

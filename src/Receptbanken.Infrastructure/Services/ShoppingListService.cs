@@ -13,7 +13,6 @@ public class ShoppingListService
     private readonly ShoppingListAggregator _aggregator;
     private readonly SwedishIngredientParser _ingredientParser;
     private readonly ShoppingListNotifier _notifier;
-    private readonly HashSet<int> _deletedItemIds = new();
 
     public ShoppingListService(
         IDbContextFactory<AppDbContext> dbFactory,
@@ -414,9 +413,9 @@ public class ShoppingListService
                 return false;
             }
 
-            _deletedItemIds.Add(existing.Id);
             db.ShoppingListItems.Remove(existing);
             await db.SaveChangesAsync(cancellationToken);
+            _notifier.RecordDeletedItem(existing.Id);
             _notifier.NotifyChanged();
             return true;
         }
@@ -495,7 +494,7 @@ public class ShoppingListService
 
             db.ShoppingListItems.Add(restored);
             await db.SaveChangesAsync(cancellationToken);
-            _deletedItemIds.Remove(restored.Id);
+            _notifier.RemoveDeletedItem(restored.Id);
             _notifier.NotifyChanged();
             return true;
         }
@@ -518,13 +517,10 @@ public class ShoppingListService
             if (checkedItems.Count == 0)
                 return 0;
 
-            foreach (var item in checkedItems)
-            {
-                _deletedItemIds.Add(item.Id);
-            }
-
+            var deletedIds = checkedItems.Select(x => x.Id).ToList();
             db.ShoppingListItems.RemoveRange(checkedItems);
             await db.SaveChangesAsync(cancellationToken);
+            _notifier.RecordDeletedItems(deletedIds);
             _notifier.NotifyChanged();
             return checkedItems.Count;
         }
@@ -543,13 +539,10 @@ public class ShoppingListService
             var allItems = await db.ShoppingListItems.ToListAsync(cancellationToken);
             if (allItems.Count > 0)
             {
-                foreach (var item in allItems)
-                {
-                    _deletedItemIds.Add(item.Id);
-                }
-
+                var deletedIds = allItems.Select(x => x.Id).ToList();
                 db.ShoppingListItems.RemoveRange(allItems);
                 await db.SaveChangesAsync(cancellationToken);
+                _notifier.RecordDeletedItems(deletedIds);
                 _notifier.NotifyChanged();
             }
         }
@@ -724,7 +717,7 @@ public class ShoppingListService
             // Reject IDs that neither exist in DB nor were previously deleted from the shopping list.
             foreach (var requestedId in orderedUncheckedIds)
             {
-                if (!allById.ContainsKey(requestedId) && !_deletedItemIds.Contains(requestedId))
+                if (!allById.ContainsKey(requestedId) && !_notifier.WasItemDeleted(requestedId))
                 {
                     var currentItems = await QueryOrderedItemsNoTrackingAsync(db, cancellationToken);
                     return new ShoppingListReorderResult(

@@ -4,6 +4,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Receptbanken.Core.Models;
+using Receptbanken.Core.Services;
 using Receptbanken.Infrastructure.Backup;
 using Receptbanken.Infrastructure.Services;
 using Receptbanken.Infrastructure.Storage;
@@ -30,14 +31,15 @@ public class ZipBackupServiceTests : IDisposable
     private ZipBackupService CreateBackupService(
         TestDbContextFactory dbFactory,
         string subFolder,
-        BackupLimitsOptions? limits = null)
+        BackupLimitsOptions? limits = null,
+        ShoppingListNotifier? shoppingListNotifier = null)
     {
         var opts = Options.Create(new ImageStorageOptions
         {
             BaseDataPath = Path.Combine(_tempDataDir, subFolder),
             ImageFolderName = "images/recipes"
         });
-        return new ZipBackupService(dbFactory, opts, NullLogger<ZipBackupService>.Instance, limits);
+        return new ZipBackupService(dbFactory, opts, NullLogger<ZipBackupService>.Instance, limits, shoppingListNotifier);
     }
 
     [Fact]
@@ -305,6 +307,60 @@ public class ZipBackupServiceTests : IDisposable
             legacyItems[0].QuantityMax.Should().BeNull();
             legacyItems[0].Comment.Should().BeNull();
         }
+    }
+
+    [Fact]
+    public async Task RestoreFromArchiveAsync_WhenSuccessful_ShouldClearDeletedItemHistoryAndIncrementOrderingVersion()
+    {
+        var sourceShopping = new ShoppingListService(_sourceDbFactory, new ShoppingListAggregator(new ServingCalculator()), new SwedishIngredientParser());
+        await sourceShopping.AddManualItemAsync("2 dl mjölk");
+
+        var exporter = CreateBackupService(_sourceDbFactory, "source");
+        var zipBytes = await exporter.CreateBackupArchiveAsync();
+
+        var targetNotifier = new ShoppingListNotifier();
+        targetNotifier.RecordDeletedItem(42);
+        targetNotifier.RecordDeletedItem(99);
+        var initialOrderingVersion = targetNotifier.OrderingVersion;
+        var initialVersion = targetNotifier.Version;
+
+        var restorer = CreateBackupService(_targetDbFactory, "target", shoppingListNotifier: targetNotifier);
+        using var zipStream = new MemoryStream(zipBytes);
+        var result = await restorer.RestoreFromArchiveAsync(zipStream, replaceExisting: true);
+
+        result.Success.Should().BeTrue();
+        targetNotifier.WasItemDeleted(42).Should().BeFalse();
+        targetNotifier.WasItemDeleted(99).Should().BeFalse();
+        targetNotifier.OrderingVersion.Should().Be(initialOrderingVersion + 1);
+        targetNotifier.Version.Should().Be(initialVersion + 1);
+    }
+
+    [Fact]
+    public async Task RestoreFromArchiveAsync_WhenCommitFails_ShouldPreserveDeletedItemHistoryAndOrderingVersion()
+    {
+        var sourceShopping = new ShoppingListService(_sourceDbFactory, new ShoppingListAggregator(new ServingCalculator()), new SwedishIngredientParser());
+        await sourceShopping.AddManualItemAsync("2 dl mjölk");
+
+        var exporter = CreateBackupService(_sourceDbFactory, "source");
+        var zipBytes = await exporter.CreateBackupArchiveAsync();
+
+        var targetNotifier = new ShoppingListNotifier();
+        targetNotifier.RecordDeletedItem(42);
+        targetNotifier.RecordDeletedItem(99);
+        var initialOrderingVersion = targetNotifier.OrderingVersion;
+        var initialVersion = targetNotifier.Version;
+
+        var restorer = CreateBackupService(_targetDbFactory, "target", shoppingListNotifier: targetNotifier);
+        restorer.BeforeCommitTestHook = () => throw new InvalidOperationException("Simulated commit failure");
+
+        using var zipStream = new MemoryStream(zipBytes);
+        var result = await restorer.RestoreFromArchiveAsync(zipStream, replaceExisting: true);
+
+        result.Success.Should().BeFalse();
+        targetNotifier.WasItemDeleted(42).Should().BeTrue();
+        targetNotifier.WasItemDeleted(99).Should().BeTrue();
+        targetNotifier.OrderingVersion.Should().Be(initialOrderingVersion);
+        targetNotifier.Version.Should().Be(initialVersion);
     }
 
     public void Dispose()

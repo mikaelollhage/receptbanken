@@ -607,7 +607,8 @@ public class ZipBackupService : IBackupService
                 BeforeCommitTestHook?.Invoke();
 
                 await transaction.CommitAsync(cancellationToken);
-                _shoppingListNotifier?.NotifyChanged();
+                _shoppingListNotifier?.ClearDeletedItems();
+                _shoppingListNotifier?.NotifyOrderingChanged();
 
                 return new BackupRestoreResult
                 {
