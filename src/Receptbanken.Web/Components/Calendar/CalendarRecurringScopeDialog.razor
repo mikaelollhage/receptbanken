@@ -1,0 +1,65 @@
+@if (IsVisible && Occurrence != null)
+{
+    var isDelete = Action == CalendarRecurringAction.Delete;
+    var title = isDelete ? "Radera återkommande händelse" : "Redigera återkommande händelse";
+    var dateText = Occurrence.Date.ToString("d MMMM yyyy", CalendarDisplayHelper.SwedishCulture);
+
+    <div class="modal-backdrop-custom calendar-scope-backdrop" @onclick="Cancel">
+        <div class="modal-dialog-custom calendar-scope-dialog"
+             @onclick:stopPropagation="true"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="calendar-scope-dialog-title">
+            <h3 id="calendar-scope-dialog-title" class="calendar-dialog-title">@title</h3>
+            <p class="calendar-dialog-message">
+                <strong>@Occurrence.Title</strong> (@dateText) ingår i en återkommande serie.
+                Vill du @(isDelete ? "radera" : "redigera") endast detta tillfälle eller hela serien?
+            </p>
+
+            <div class="calendar-scope-actions">
+                <button type="button"
+                        class="btn-secondary-custom btn-md calendar-scope-single-btn"
+                        @onclick="SelectSingleOccurrence">
+                    Endast detta tillfälle
+                </button>
+                <button type="button"
+                        class="@(isDelete ? "btn-danger-custom" : "btn-primary-custom") btn-md calendar-scope-series-btn"
+                        @onclick="SelectEntireSeries">
+                    Hela serien
+                </button>
+                <button type="button"
+                        class="btn-secondary-custom btn-md calendar-scope-cancel-btn"
+                        @onclick="Cancel">
+                    Avbryt
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public CalendarOccurrenceDto? Occurrence { get; set; }
+    [Parameter] public CalendarRecurringAction Action { get; set; }
+    [Parameter] public EventCallback OnSingleOccurrence { get; set; }
+    [Parameter] public EventCallback OnEntireSeries { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private async Task SelectSingleOccurrence()
+    {
+        if (OnSingleOccurrence.HasDelegate)
+            await OnSingleOccurrence.InvokeAsync();
+    }
+
+    private async Task SelectEntireSeries()
+    {
+        if (OnEntireSeries.HasDelegate)
+            await OnEntireSeries.InvokeAsync();
+    }
+
+    private async Task Cancel()
+    {
+        if (OnCancel.HasDelegate)
+            await OnCancel.InvokeAsync();
+    }
+}

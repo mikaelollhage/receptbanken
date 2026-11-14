@@ -1,0 +1,158 @@
+@using Receptbanken.Infrastructure.Services
+
+<section class="weekly-day-card calendar-day-card @(IsToday ? "is-today" : "") @(OrderedOccurrences.Count == 0 ? "is-empty" : "has-events")"
+         data-date="@Date.ToString("yyyy-MM-dd")"
+         aria-label="@CalendarWeek.FormatDayHeaderSwedish(Date)">
+    <div class="weekly-day-header calendar-day-header">
+        <div class="weekly-day-title-group">
+            <span class="weekly-day-name">@CalendarWeek.FormatDayHeaderSwedish(Date)</span>
+            @if (IsToday)
+            {
+                <span class="weekly-day-today-badge">IDAG</span>
+            }
+        </div>
+
+        <button type="button"
+                class="btn-secondary-custom btn-sm calendar-day-add-btn"
+                title="@($"Lägg till händelse {CalendarWeek.GetSwedishDayName(Date).ToLower(CalendarDisplayHelper.SwedishCulture)}")"
+                @onclick="HandleAddClicked">
+            + Händelse
+        </button>
+    </div>
+
+    @if (PlannedMeal?.Recipe != null)
+    {
+        var dinnerRecipe = PlannedMeal.Recipe;
+        <div class="calendar-dinner-row" aria-label="Planerad middag">
+            <span class="calendar-dinner-icon" aria-hidden="true">🍽️</span>
+            <span class="calendar-dinner-label">Middag:</span>
+            <a href="@($"/recept/{dinnerRecipe.Id}")" class="calendar-dinner-recipe-link">@dinnerRecipe.Title</a>
+            @if (PlannedMeal.IsDraft)
+            {
+                <span class="calendar-dinner-draft-tag">(utkast)</span>
+            }
+            <a href="@($"/veckomeny?datum={Date:yyyy-MM-dd}")" class="calendar-dinner-menu-link">
+                Veckomeny →
+            </a>
+        </div>
+    }
+
+    @if (OrderedOccurrences.Count == 0)
+    {
+        <div class="calendar-day-empty">
+            <span class="calendar-day-empty-text">Inga händelser planerade.</span>
+        </div>
+    }
+    else
+    {
+        <ul class="calendar-events-list" aria-label="@($"Händelser {CalendarWeek.GetSwedishDayName(Date)}")">
+            @foreach (var occurrence in OrderedOccurrences)
+            {
+                var timeLabel = CalendarDisplayHelper.FormatTimeRange(occurrence.IsAllDay, occurrence.StartTime, occurrence.EndTime);
+                var reminderLabel = CalendarDisplayHelper.FormatReminderLabel(occurrence.IsAllDay, occurrence.ReminderMinutesBefore);
+
+                <li class="calendar-event-item @(occurrence.IsAllDay ? "is-all-day" : "is-timed")"
+                    data-event-id="@occurrence.CalendarEventId">
+                    <div class="calendar-event-main">
+                        <div class="calendar-event-top">
+                            <span class="calendar-event-time-badge @(occurrence.IsAllDay ? "is-all-day" : "")">
+                                @timeLabel
+                            </span>
+
+                            <span class="calendar-event-title">@occurrence.Title</span>
+
+                            <div class="calendar-event-indicators">
+                                @if (occurrence.IsRecurring)
+                                {
+                                    var recurrenceTooltip = CalendarDisplayHelper.FormatRecurrenceSummary(
+                                        occurrence.RecurrenceIntervalWeeks,
+                                        occurrence.RecurrenceDaysOfWeekMask);
+                                    <span class="calendar-indicator-badge"
+                                          title="@($"Återkommande: {recurrenceTooltip}")"
+                                          aria-label="@($"Återkommande: {recurrenceTooltip}")">
+                                        🔁
+                                    </span>
+                                }
+                                @if (occurrence.ReminderMinutesBefore.HasValue)
+                                {
+                                    <span class="calendar-indicator-badge"
+                                          title="@($"Påminnelse: {reminderLabel}")"
+                                          aria-label="@($"Påminnelse: {reminderLabel}")">
+                                        🔔
+                                    </span>
+                                }
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(occurrence.Location) || occurrence.FamilyMembers.Count > 0)
+                        {
+                            <div class="calendar-event-meta">
+                                @if (!string.IsNullOrWhiteSpace(occurrence.Location))
+                                {
+                                    <span class="calendar-event-location">📍 @occurrence.Location</span>
+                                }
+                                @if (occurrence.FamilyMembers.Count > 0)
+                                {
+                                    <div class="calendar-event-members">
+                                        @foreach (var member in occurrence.FamilyMembers)
+                                        {
+                                            <span class="calendar-member-chip">@member</span>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(occurrence.Notes))
+                        {
+                            <p class="calendar-event-notes">@occurrence.Notes</p>
+                        }
+                    </div>
+
+                    <div class="calendar-event-actions">
+                        <button type="button"
+                                class="btn-secondary-custom btn-sm calendar-event-edit-btn"
+                                title="@($"Redigera {occurrence.Title}")"
+                                aria-label="@($"Redigera {occurrence.Title}")"
+                                @onclick="@(() => HandleEditClicked(occurrence))">
+                            Redigera
+                        </button>
+                        <button type="button"
+                                class="btn-danger-custom btn-sm calendar-event-delete-btn"
+                                title="@($"Radera {occurrence.Title}")"
+                                aria-label="@($"Radera {occurrence.Title}")"
+                                @onclick="@(() => HandleDeleteClicked(occurrence))">
+                            Radera
+                        </button>
+                    </div>
+                </li>
+            }
+        </ul>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public DateOnly Date { get; set; }
+    [Parameter] public bool IsToday { get; set; }
+    [Parameter] public IReadOnlyList<CalendarOccurrenceDto> Occurrences { get; set; } = [];
+    [Parameter] public PlannedDayMealDto? PlannedMeal { get; set; }
+    [Parameter] public EventCallback<DateOnly> OnAddEvent { get; set; }
+    [Parameter] public EventCallback<CalendarOccurrenceDto> OnEditEvent { get; set; }
+    [Parameter] public EventCallback<CalendarOccurrenceDto> OnDeleteEvent { get; set; }
+
+    private IReadOnlyList<CalendarOccurrenceDto> OrderedOccurrences => Occurrences
+        .OrderBy(o => o.IsAllDay ? 0 : 1)
+        .ThenBy(o => o.StartTime)
+        .ThenBy(o => o.EndTime)
+        .ThenBy(o => o.Title, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    private Task HandleAddClicked() =>
+        OnAddEvent.HasDelegate ? OnAddEvent.InvokeAsync(Date) : Task.CompletedTask;
+
+    private Task HandleEditClicked(CalendarOccurrenceDto occurrence) =>
+        OnEditEvent.HasDelegate ? OnEditEvent.InvokeAsync(occurrence) : Task.CompletedTask;
+
+    private Task HandleDeleteClicked(CalendarOccurrenceDto occurrence) =>
+        OnDeleteEvent.HasDelegate ? OnDeleteEvent.InvokeAsync(occurrence) : Task.CompletedTask;
+}

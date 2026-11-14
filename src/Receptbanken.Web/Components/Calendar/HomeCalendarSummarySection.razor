@@ -1,0 +1,143 @@
+<section class="home-calendar-section" aria-label="Familjens kalender">
+    <div class="home-calendar-header">
+        <div class="home-calendar-title-group">
+            <h2 class="home-calendar-heading">📅 Familjens kalender</h2>
+            <span class="home-calendar-week-label">Vecka @CurrentWeek.IsoWeek</span>
+        </div>
+        <a href="/kalender" class="home-calendar-open-link">Öppna kalendern →</a>
+    </div>
+
+    @if (IsLoading)
+    {
+        <div class="home-calendar-loading">
+            <FluentProgressRing />
+        </div>
+    }
+    else
+    {
+        <div class="home-calendar-columns">
+            <div class="home-calendar-group" aria-label="Dagens händelser">
+                <h3 class="home-calendar-subheading">Idag</h3>
+                @if (TodayOccurrences.Count == 0)
+                {
+                    <p class="home-calendar-empty">Inga händelser idag.</p>
+                }
+                else
+                {
+                    <ul class="home-calendar-list">
+                        @foreach (var occurrence in TodayOccurrences)
+                        {
+                            var timeLabel = CalendarDisplayHelper.FormatTimeRange(occurrence.IsAllDay, occurrence.StartTime, occurrence.EndTime);
+                            <li class="home-calendar-item">
+                                <span class="calendar-event-time-badge @(occurrence.IsAllDay ? "is-all-day" : "")">@timeLabel</span>
+                                <div class="home-calendar-item-body">
+                                    <div class="home-calendar-item-title-row">
+                                        <span class="home-calendar-item-title">@occurrence.Title</span>
+                                        @if (occurrence.IsRecurring)
+                                        {
+                                            <span class="calendar-indicator-badge" title="Återkommande händelse" aria-label="Återkommande händelse">🔁</span>
+                                        }
+                                        @if (occurrence.ReminderMinutesBefore.HasValue)
+                                        {
+                                            <span class="calendar-indicator-badge"
+                                                  title="@($"Påminnelse: {CalendarDisplayHelper.FormatReminderLabel(occurrence.IsAllDay, occurrence.ReminderMinutesBefore)}")"
+                                                  aria-label="Har påminnelse">🔔</span>
+                                        }
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(occurrence.Location) || occurrence.FamilyMembers.Count > 0)
+                                    {
+                                        <div class="home-calendar-item-meta">
+                                            @if (!string.IsNullOrWhiteSpace(occurrence.Location))
+                                            {
+                                                <span>📍 @occurrence.Location</span>
+                                            }
+                                            @if (occurrence.FamilyMembers.Count > 0)
+                                            {
+                                                <span>@string.Join(", ", occurrence.FamilyMembers)</span>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+
+            <div class="home-calendar-group" aria-label="Kommande händelser denna vecka">
+                <h3 class="home-calendar-subheading">Resten av veckan</h3>
+                @if (UpcomingOccurrences.Count == 0)
+                {
+                    <p class="home-calendar-empty">Inga fler händelser denna vecka.</p>
+                }
+                else
+                {
+                    <ul class="home-calendar-list">
+                        @foreach (var occurrence in UpcomingOccurrences)
+                        {
+                            var timeLabel = CalendarDisplayHelper.FormatTimeRange(occurrence.IsAllDay, occurrence.StartTime, occurrence.EndTime);
+                            var dayText = $"{CalendarWeek.GetSwedishDayName(occurrence.Date)} {occurrence.Date.ToString("d MMM", CalendarDisplayHelper.SwedishCulture)}";
+                            <li class="home-calendar-item is-upcoming">
+                                <span class="home-calendar-day-badge">@dayText</span>
+                                <span class="calendar-event-time-badge @(occurrence.IsAllDay ? "is-all-day" : "")">@timeLabel</span>
+                                <div class="home-calendar-item-body">
+                                    <div class="home-calendar-item-title-row">
+                                        <span class="home-calendar-item-title">@occurrence.Title</span>
+                                        @if (occurrence.IsRecurring)
+                                        {
+                                            <span class="calendar-indicator-badge" title="Återkommande händelse" aria-label="Återkommande händelse">🔁</span>
+                                        }
+                                        @if (occurrence.ReminderMinutesBefore.HasValue)
+                                        {
+                                            <span class="calendar-indicator-badge"
+                                                  title="@($"Påminnelse: {CalendarDisplayHelper.FormatReminderLabel(occurrence.IsAllDay, occurrence.ReminderMinutesBefore)}")"
+                                                  aria-label="Har påminnelse">🔔</span>
+                                        }
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(occurrence.Location) || occurrence.FamilyMembers.Count > 0)
+                                    {
+                                        <div class="home-calendar-item-meta">
+                                            @if (!string.IsNullOrWhiteSpace(occurrence.Location))
+                                            {
+                                                <span>📍 @occurrence.Location</span>
+                                            }
+                                            @if (occurrence.FamilyMembers.Count > 0)
+                                            {
+                                                <span>@string.Join(", ", occurrence.FamilyMembers)</span>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public DateOnly Today { get; set; }
+    [Parameter] public IReadOnlyList<CalendarOccurrenceDto> Occurrences { get; set; } = [];
+    [Parameter] public bool IsLoading { get; set; }
+
+    private CalendarWeek CurrentWeek => CalendarWeek.FromDate(Today);
+
+    private IReadOnlyList<CalendarOccurrenceDto> TodayOccurrences => Occurrences
+        .Where(o => o.Date == Today)
+        .OrderBy(o => o.IsAllDay ? 0 : 1)
+        .ThenBy(o => o.StartTime)
+        .ThenBy(o => o.EndTime)
+        .ThenBy(o => o.Title, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    private IReadOnlyList<CalendarOccurrenceDto> UpcomingOccurrences => Occurrences
+        .Where(o => o.Date > Today && o.Date <= CurrentWeek.WeekEndDate)
+        .OrderBy(o => o.Date)
+        .ThenBy(o => o.IsAllDay ? 0 : 1)
+        .ThenBy(o => o.StartTime)
+        .ThenBy(o => o.EndTime)
+        .ThenBy(o => o.Title, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+}

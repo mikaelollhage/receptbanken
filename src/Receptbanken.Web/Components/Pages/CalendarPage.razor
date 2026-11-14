@@ -1,0 +1,535 @@
+@page "/kalender"
+@implements IAsyncDisposable
+@inject CalendarService CalendarService
+@inject WeeklyMenuService WeeklyMenuService
+@inject ILocalDateProvider LocalDateProvider
+@inject IJSRuntime JSRuntime
+@inject ILogger<CalendarPage> Logger
+
+<PageTitle>Familjekalender — Vecka @currentWeek.IsoWeek — Receptbanken</PageTitle>
+
+<div class="page-header weekly-menu-header calendar-page-header">
+    <div>
+        <div class="weekly-menu-title-row">
+            <h1 class="page-title">Familjekalender · Vecka @currentWeek.IsoWeek, @currentWeek.IsoYear</h1>
+        </div>
+        <p class="page-subtitle weekly-date-range">@currentWeek.FormatDateRangeSwedish()</p>
+    </div>
+
+    <div class="weekly-nav-controls calendar-nav-controls">
+        <div class="weekly-nav-primary-row">
+            <button type="button"
+                    class="btn-secondary-custom btn-md calendar-prev-week-btn"
+                    disabled="@isLoading"
+                    @onclick="LoadPreviousWeekAsync">
+                <FluentIcon Value="@(new Icons.Regular.Size20.ArrowLeft())" Color="Color.Neutral" /> Föregående vecka
+            </button>
+
+            <button type="button"
+                    class="btn-secondary-custom btn-md calendar-next-week-btn"
+                    disabled="@isLoading"
+                    @onclick="LoadNextWeekAsync">
+                Nästa vecka <FluentIcon Value="@(new Icons.Regular.Size20.ArrowRight())" Color="Color.Neutral" />
+            </button>
+
+            <button type="button"
+                    class="btn-primary-custom btn-md calendar-new-event-btn"
+                    disabled="@isLoading"
+                    @onclick="OpenNewEventForDefaultDate">
+                + Ny händelse
+            </button>
+        </div>
+
+        @if (currentWeek.WeekStartDate != CalendarWeek.FromDate(localToday).WeekStartDate)
+        {
+            <div class="weekly-nav-today-row">
+                <button type="button"
+                        class="btn-secondary-custom btn-md calendar-today-week-btn"
+                        disabled="@isLoading"
+                        @onclick="LoadCurrentWeekAsync">
+                    Denna vecka
+                </button>
+            </div>
+        }
+    </div>
+</div>
+
+<ContextualFeedback State="feedback" CssClass="weekly-feedback-banner" />
+
+@if (isLoading)
+{
+    <div style="display: flex; justify-content: center; padding: 60px;">
+        <FluentProgressRing />
+    </div>
+}
+else
+{
+    <div class="weekly-days-list calendar-days-list">
+        @foreach (var date in currentWeek.GetDates())
+        {
+            var dayOccurrences = occurrencesByDate.TryGetValue(date, out var list) ? list : (IReadOnlyList<CalendarOccurrenceDto>)[];
+            plannedMealsByDate.TryGetValue(date, out var plannedMeal);
+
+            <CalendarDayCard @key="@date.ToString("yyyy-MM-dd")"
+                             Date="date"
+                             IsToday="@(date == localToday)"
+                             Occurrences="dayOccurrences"
+                             PlannedMeal="plannedMeal"
+                             OnAddEvent="OpenNewEventForDate"
+                             OnEditEvent="HandleEditEventRequestedAsync"
+                             OnDeleteEvent="HandleDeleteEventRequested" />
+        }
+    </div>
+
+    <section class="calendar-push-info-card" aria-label="Information om påminnelser och pushnotiser">
+        <div class="calendar-push-info-icon" aria-hidden="true">🔔</div>
+        <div class="calendar-push-info-body">
+            <h2 class="calendar-push-info-title">Påminnelser och pushnotiser</h2>
+            <p class="calendar-push-info-desc">
+                Dina påminnelseval sparas på varje händelse. Web Push-notiser till mobil och dator är ännu inte tillgängliga och kommer i en kommande uppdatering.
+            </p>
+        </div>
+    </section>
+}
+
+<CalendarEventFormModal IsVisible="showEventFormModal"
+                        InitialDate="formInitialDate"
+                        EditScope="formEditScope"
+                        OccurrenceToEdit="formOccurrenceToEdit"
+                        SeriesEventToEdit="formSeriesEventToEdit"
+                        KnownFamilyMembers="knownFamilyMembers"
+                        OnSaved="HandleEventSavedAsync"
+                        OnCancel="CloseEventFormModal" />
+
+<CalendarRecurringScopeDialog IsVisible="showRecurringScopeDialog"
+                              Occurrence="pendingRecurringOccurrence"
+                              Action="pendingRecurringAction"
+                              OnSingleOccurrence="HandleRecurringSingleSelectedAsync"
+                              OnEntireSeries="HandleRecurringSeriesSelectedAsync"
+                              OnCancel="CloseRecurringScopeDialog" />
+
+<ConfirmDialog IsVisible="showDeleteOneTimeConfirm"
+               Title="Radera händelse?"
+               Message="@($"Vill du radera \"{pendingOneTimeDeleteOccurrence?.Title}\"?")"
+               ConfirmText="Radera"
+               CancelText="Avbryt"
+               Variant="ConfirmDialogVariant.Danger"
+               OnConfirm="ConfirmDeleteOneTimeAsync"
+               OnCancel="CloseDeleteOneTimeConfirm" />
+
+@code {
+    [SupplyParameterFromQuery(Name = "datum")] public string? DateQuery { get; set; }
+
+    private DateOnly localToday;
+    private CalendarWeek currentWeek;
+    private bool isLoading = true;
+    private long _lastLoadedVersion;
+    private bool _isDisposed;
+    private CancellationTokenSource? _midnightWatcherCts;
+
+    private Dictionary<DateOnly, IReadOnlyList<CalendarOccurrenceDto>> occurrencesByDate = new();
+    private Dictionary<DateOnly, PlannedDayMealDto> plannedMealsByDate = new();
+    private List<string> knownFamilyMembers = [];
+    private readonly FeedbackState feedback = new();
+
+    private bool showEventFormModal;
+    private DateOnly formInitialDate;
+    private CalendarEditScope formEditScope = CalendarEditScope.NewEvent;
+    private CalendarOccurrenceDto? formOccurrenceToEdit;
+    private CalendarEvent? formSeriesEventToEdit;
+
+    private bool showRecurringScopeDialog;
+    private CalendarOccurrenceDto? pendingRecurringOccurrence;
+    private CalendarRecurringAction pendingRecurringAction;
+
+    private bool showDeleteOneTimeConfirm;
+    private CalendarOccurrenceDto? pendingOneTimeDeleteOccurrence;
+
+    protected override async Task OnInitializedAsync()
+    {
+        localToday = LocalDateProvider.GetLocalToday();
+        var initialDate = ParseQueryDateOrDefault(DateQuery, localToday);
+        currentWeek = CalendarWeek.FromDate(initialDate);
+
+        CalendarService.Notifier.OnChanged += HandleCalendarChanged;
+
+        await LoadWeekAsync(currentWeek.WeekStartDate);
+
+        _midnightWatcherCts = new CancellationTokenSource();
+        _ = StartMidnightWatcherAsync(_midnightWatcherCts.Token);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(DateQuery) &&
+            DateOnly.TryParseExact(DateQuery.Trim(), "yyyy-MM-dd", out var queriedDate))
+        {
+            var requestedWeek = CalendarWeek.FromDate(queriedDate);
+            if (requestedWeek.WeekStartDate != currentWeek.WeekStartDate && !isLoading)
+            {
+                currentWeek = requestedWeek;
+                await LoadWeekAsync(currentWeek.WeekStartDate);
+            }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var clientDateStr = await JSRuntime.InvokeAsync<string?>("receptbanken.getClientLocalDate");
+                if (DateOnly.TryParseExact(clientDateStr, "yyyy-MM-dd", out var clientDate))
+                {
+                    LocalDateProvider.SetClientLocalDate(clientDate);
+                    if (clientDate != localToday)
+                    {
+                        var previousLocalWeek = CalendarWeek.FromDate(localToday);
+                        localToday = clientDate;
+                        var newLocalWeek = CalendarWeek.FromDate(localToday);
+
+                        if (string.IsNullOrWhiteSpace(DateQuery) &&
+                            previousLocalWeek.WeekStartDate != newLocalWeek.WeekStartDate)
+                        {
+                            currentWeek = newLocalWeek;
+                            await LoadWeekAsync(currentWeek.WeekStartDate);
+                        }
+
+                        StateHasChanged();
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or ObjectDisposedException or InvalidOperationException)
+            {
+                // Ignore when prerendering, disconnected, or running in bUnit
+            }
+        }
+    }
+
+    private async Task LoadWeekAsync(DateOnly dateInWeek, bool preserveFeedback = false)
+    {
+        isLoading = true;
+        if (!preserveFeedback)
+        {
+            feedback.Clear();
+        }
+
+        currentWeek = CalendarWeek.FromDate(dateInWeek);
+
+        try
+        {
+            var versionBeforeLoad = CalendarService.Notifier.Version;
+            var occurrences = await CalendarService.GetWeekOccurrencesAsync(currentWeek.WeekStartDate);
+            var members = await CalendarService.GetKnownFamilyMembersAsync();
+            var savedMenu = await WeeklyMenuService.GetSavedMenuForWeekAsync(currentWeek.WeekStartDate);
+
+            occurrencesByDate = occurrences
+                .GroupBy(o => o.Date)
+                .ToDictionary(g => g.Key, g => (IReadOnlyList<CalendarOccurrenceDto>)g.ToList());
+
+            knownFamilyMembers = members;
+
+            plannedMealsByDate = new Dictionary<DateOnly, PlannedDayMealDto>();
+            if (savedMenu != null)
+            {
+                foreach (var day in savedMenu.Days)
+                {
+                    if (day.Recipe != null)
+                    {
+                        plannedMealsByDate[day.Date] = new PlannedDayMealDto
+                        {
+                            CalendarWeek = currentWeek,
+                            Date = day.Date,
+                            HasSavedMenu = true,
+                            MenuStatus = savedMenu.Status,
+                            Recipe = day.Recipe,
+                            Servings = day.Servings ?? day.Recipe.Servings
+                        };
+                    }
+                }
+            }
+
+            _lastLoadedVersion = Math.Max(versionBeforeLoad, CalendarService.Notifier.Version);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Kunde inte läsa in kalenderveckan {WeekStart}.", currentWeek.WeekStartDate);
+            feedback.ShowError("Kunde inte läsa in kalenderhändelser. Försök igen.");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private Task LoadPreviousWeekAsync() => LoadWeekAsync(currentWeek.PreviousWeek().WeekStartDate);
+    private Task LoadNextWeekAsync() => LoadWeekAsync(currentWeek.NextWeek().WeekStartDate);
+    private Task LoadCurrentWeekAsync() => LoadWeekAsync(localToday);
+
+    private void OpenNewEventForDefaultDate()
+    {
+        var defaultDate = currentWeek.WeekStartDate <= localToday && localToday <= currentWeek.WeekEndDate
+            ? localToday
+            : currentWeek.WeekStartDate;
+        OpenNewEventForDate(defaultDate);
+    }
+
+    private void OpenNewEventForDate(DateOnly date)
+    {
+        formInitialDate = date;
+        formEditScope = CalendarEditScope.NewEvent;
+        formOccurrenceToEdit = null;
+        formSeriesEventToEdit = null;
+        showEventFormModal = true;
+    }
+
+    private async Task HandleEditEventRequestedAsync(CalendarOccurrenceDto occurrence)
+    {
+        if (occurrence.IsRecurring)
+        {
+            pendingRecurringOccurrence = occurrence;
+            pendingRecurringAction = CalendarRecurringAction.Edit;
+            showRecurringScopeDialog = true;
+            return;
+        }
+
+        await OpenEditSeriesModalAsync(occurrence);
+    }
+
+    private void HandleDeleteEventRequested(CalendarOccurrenceDto occurrence)
+    {
+        if (occurrence.IsRecurring)
+        {
+            pendingRecurringOccurrence = occurrence;
+            pendingRecurringAction = CalendarRecurringAction.Delete;
+            showRecurringScopeDialog = true;
+            return;
+        }
+
+        pendingOneTimeDeleteOccurrence = occurrence;
+        showDeleteOneTimeConfirm = true;
+    }
+
+    private async Task HandleRecurringSingleSelectedAsync()
+    {
+        var occurrence = pendingRecurringOccurrence;
+        var action = pendingRecurringAction;
+        CloseRecurringScopeDialog();
+
+        if (occurrence == null)
+            return;
+
+        if (action == CalendarRecurringAction.Edit)
+        {
+            formInitialDate = occurrence.Date;
+            formEditScope = CalendarEditScope.SingleOccurrence;
+            formOccurrenceToEdit = occurrence;
+            formSeriesEventToEdit = null;
+            showEventFormModal = true;
+        }
+        else
+        {
+            await DeleteSingleOccurrenceAsync(occurrence);
+        }
+    }
+
+    private async Task HandleRecurringSeriesSelectedAsync()
+    {
+        var occurrence = pendingRecurringOccurrence;
+        var action = pendingRecurringAction;
+        CloseRecurringScopeDialog();
+
+        if (occurrence == null)
+            return;
+
+        if (action == CalendarRecurringAction.Edit)
+        {
+            await OpenEditSeriesModalAsync(occurrence);
+        }
+        else
+        {
+            await DeleteEntireSeriesAsync(occurrence.CalendarEventId, occurrence.Title);
+        }
+    }
+
+    private async Task OpenEditSeriesModalAsync(CalendarOccurrenceDto occurrence)
+    {
+        try
+        {
+            var entity = await CalendarService.GetEventByIdAsync(occurrence.CalendarEventId);
+            if (entity == null)
+            {
+                feedback.ShowError("Händelsen kunde inte hittas längre.");
+                await LoadWeekAsync(currentWeek.WeekStartDate, preserveFeedback: true);
+                return;
+            }
+
+            formInitialDate = entity.StartDate;
+            formEditScope = CalendarEditScope.EntireSeries;
+            formOccurrenceToEdit = occurrence;
+            formSeriesEventToEdit = entity;
+            showEventFormModal = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Kunde inte hämta kalenderhändelse {EventId} för redigering.", occurrence.CalendarEventId);
+            feedback.ShowError("Kunde inte öppna händelsen för redigering.");
+        }
+    }
+
+    private async Task ConfirmDeleteOneTimeAsync()
+    {
+        var occurrence = pendingOneTimeDeleteOccurrence;
+        CloseDeleteOneTimeConfirm();
+
+        if (occurrence == null)
+            return;
+
+        await DeleteEntireSeriesAsync(occurrence.CalendarEventId, occurrence.Title);
+    }
+
+    private async Task DeleteSingleOccurrenceAsync(CalendarOccurrenceDto occurrence)
+    {
+        try
+        {
+            await CalendarService.DeleteSingleOccurrenceAsync(occurrence.CalendarEventId, occurrence.OriginalDate);
+            feedback.ShowSuccess($"Tillfället \"{occurrence.Title}\" ({occurrence.Date:yyyy-MM-dd}) togs bort.");
+            await LoadWeekAsync(currentWeek.WeekStartDate, preserveFeedback: true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Kunde inte radera enskilt tillfälle för händelse {EventId}.", occurrence.CalendarEventId);
+            feedback.ShowError("Kunde inte radera tillfället. Försök igen.");
+        }
+    }
+
+    private async Task DeleteEntireSeriesAsync(int eventId, string title)
+    {
+        try
+        {
+            var deleted = await CalendarService.DeleteEventAsync(eventId);
+            if (deleted)
+            {
+                feedback.ShowSuccess($"\"{title}\" togs bort.");
+            }
+            await LoadWeekAsync(currentWeek.WeekStartDate, preserveFeedback: true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Kunde inte radera kalenderhändelse {EventId}.", eventId);
+            feedback.ShowError("Kunde inte radera händelsen. Försök igen.");
+        }
+    }
+
+    private async Task HandleEventSavedAsync(DateOnly savedDate)
+    {
+        CloseEventFormModal();
+
+        var targetWeek = CalendarWeek.FromDate(savedDate);
+        feedback.ShowSuccess("Händelsen sparades.");
+        await LoadWeekAsync(targetWeek.WeekStartDate, preserveFeedback: true);
+    }
+
+    private void CloseEventFormModal()
+    {
+        showEventFormModal = false;
+        formOccurrenceToEdit = null;
+        formSeriesEventToEdit = null;
+    }
+
+    private void CloseRecurringScopeDialog()
+    {
+        showRecurringScopeDialog = false;
+        pendingRecurringOccurrence = null;
+    }
+
+    private void CloseDeleteOneTimeConfirm()
+    {
+        showDeleteOneTimeConfirm = false;
+        pendingOneTimeDeleteOccurrence = null;
+    }
+
+    private void HandleCalendarChanged(long newVersion)
+    {
+        if (_isDisposed)
+            return;
+
+        _ = InvokeAsync(async () =>
+        {
+            if (_isDisposed || newVersion <= _lastLoadedVersion)
+                return;
+
+            try
+            {
+                await LoadWeekAsync(currentWeek.WeekStartDate, preserveFeedback: true);
+                StateHasChanged();
+            }
+            catch (Exception ex) when (!_isDisposed)
+            {
+                Logger.LogWarning(ex, "Kunde inte uppdatera kalendern vid realtidshändelse.");
+            }
+        });
+    }
+
+    private async Task StartMidnightWatcherAsync(CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                await timer.WaitForNextTickAsync(token);
+                var latestToday = LocalDateProvider.GetLocalToday();
+                if (latestToday != localToday && !_isDisposed)
+                {
+                    var previousLocalWeek = CalendarWeek.FromDate(localToday);
+                    localToday = latestToday;
+                    var newLocalWeek = CalendarWeek.FromDate(localToday);
+
+                    if (previousLocalWeek.WeekStartDate == currentWeek.WeekStartDate &&
+                        previousLocalWeek.WeekStartDate != newLocalWeek.WeekStartDate &&
+                        string.IsNullOrWhiteSpace(DateQuery))
+                    {
+                        await LoadWeekAsync(newLocalWeek.WeekStartDate);
+                    }
+
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch
+            {
+                // Defensive
+            }
+        }
+    }
+
+    private static DateOnly ParseQueryDateOrDefault(string? query, DateOnly fallback)
+    {
+        if (!string.IsNullOrWhiteSpace(query) &&
+            DateOnly.TryParseExact(query.Trim(), "yyyy-MM-dd", out var parsed))
+        {
+            return parsed;
+        }
+        return fallback;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        if (_isDisposed)
+            return ValueTask.CompletedTask;
+
+        _isDisposed = true;
+        CalendarService.Notifier.OnChanged -= HandleCalendarChanged;
+
+        _midnightWatcherCts?.Cancel();
+        _midnightWatcherCts?.Dispose();
+        _midnightWatcherCts = null;
+
+        return ValueTask.CompletedTask;
+    }
+}

@@ -1,0 +1,589 @@
+@using System.Globalization
+@using Receptbanken.Infrastructure.Services
+@inject CalendarService CalendarService
+@inject ILogger<CalendarEventFormModal> Logger
+
+@if (IsVisible)
+{
+    <div class="modal-backdrop-custom calendar-form-backdrop" @onclick="HandleCancel">
+        <div class="modal-dialog-custom calendar-form-dialog"
+             @onclick:stopPropagation="true"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="calendar-form-dialog-title">
+            <div class="calendar-form-header">
+                <h2 id="calendar-form-dialog-title" class="calendar-dialog-title">@DialogTitle</h2>
+                <button type="button"
+                        class="calendar-form-close-btn"
+                        aria-label="Stäng"
+                        title="Stäng"
+                        disabled="@isSaving"
+                        @onclick="HandleCancel">
+                    ✕
+                </button>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(validationError))
+            {
+                <div class="calendar-form-error" role="alert">
+                    <span>⚠️ @validationError</span>
+                </div>
+            }
+
+            @if (EditScope == CalendarEditScope.SingleOccurrence)
+            {
+                <div class="calendar-form-info-banner" role="note">
+                    Du redigerar endast detta tillfälle. Upprepningsregeln för resten av serien ändras inte.
+                </div>
+            }
+            else if (EditScope == CalendarEditScope.EntireSeries && IsRecurring)
+            {
+                <div class="calendar-form-info-banner" role="note">
+                    Ändringar av händelsen och upprepningsregeln gäller hela serien.
+                </div>
+            }
+
+            <form class="calendar-form-body" @onsubmit="HandleSubmitAsync" @onsubmit:preventDefault="true">
+                <div class="calendar-form-field">
+                    <label for="calendar-event-title" class="calendar-form-label">Rubrik *</label>
+                    <input id="calendar-event-title"
+                           type="text"
+                           class="form-input-custom"
+                           maxlength="@CalendarEvent.MaxTitleLength"
+                           placeholder="T.ex. Fotbollsträning, Tandläkare..."
+                           @bind="title" />
+                </div>
+
+                <div class="calendar-form-row">
+                    <div class="calendar-form-field">
+                        <label for="calendar-event-date" class="calendar-form-label">
+                            @(EditScope == CalendarEditScope.EntireSeries && IsRecurring ? "Startdatum för serie *" : "Datum *")
+                        </label>
+                        <input id="calendar-event-date"
+                               type="date"
+                               class="form-input-custom"
+                               value="@dateString"
+                               @onchange="HandleDateChanged" />
+                    </div>
+
+                    <div class="calendar-form-field calendar-form-checkbox-field">
+                        <label class="calendar-checkbox-label">
+                            <input id="calendar-event-allday"
+                                   type="checkbox"
+                                   checked="@isAllDay"
+                                   @onchange="HandleAllDayChanged" />
+                            <span>Heldag</span>
+                        </label>
+                    </div>
+                </div>
+
+                @if (!isAllDay)
+                {
+                    <div class="calendar-form-row">
+                        <div class="calendar-form-field">
+                            <label for="calendar-event-start-time" class="calendar-form-label">Starttid *</label>
+                            <input id="calendar-event-start-time"
+                                   type="time"
+                                   class="form-input-custom"
+                                   value="@startTimeString"
+                                   @onchange="@(e => startTimeString = e.Value?.ToString() ?? string.Empty)" />
+                        </div>
+
+                        <div class="calendar-form-field">
+                            <label for="calendar-event-end-time" class="calendar-form-label">Sluttid (valfritt)</label>
+                            <input id="calendar-event-end-time"
+                                   type="time"
+                                   class="form-input-custom"
+                                   value="@endTimeString"
+                                   @onchange="@(e => endTimeString = e.Value?.ToString() ?? string.Empty)" />
+                        </div>
+                    </div>
+                }
+
+                <div class="calendar-form-field">
+                    <label for="calendar-event-location" class="calendar-form-label">Plats (valfritt)</label>
+                    <input id="calendar-event-location"
+                           type="text"
+                           class="form-input-custom"
+                           maxlength="@CalendarEvent.MaxLocationLength"
+                           placeholder="T.ex. Idrottshallen, Hemma..."
+                           @bind="location" />
+                </div>
+
+                <div class="calendar-form-field">
+                    <label class="calendar-form-label">Familjemedlemmar</label>
+
+                    @if (KnownFamilyMembers.Count > 0)
+                    {
+                        <div class="calendar-member-quickselect" role="group" aria-label="Tidigare använda familjemedlemmar">
+                            @foreach (var known in KnownFamilyMembers)
+                            {
+                                var isSelected = selectedMembers.Contains(known, StringComparer.OrdinalIgnoreCase);
+                                <button type="button"
+                                        class="calendar-member-toggle-chip @(isSelected ? "selected" : "")"
+                                        aria-pressed="@(isSelected ? "true" : "false")"
+                                        @onclick="@(() => ToggleKnownMember(known))">
+                                    <span>@known</span>
+                                    <span>@(isSelected ? "✓" : "+")</span>
+                                </button>
+                            }
+                        </div>
+                    }
+
+                    <div class="calendar-member-input-row">
+                        <input id="calendar-event-member-input"
+                               type="text"
+                               class="form-input-custom"
+                               placeholder="Lägg till namn (t.ex. Anna)..."
+                               @bind="newMemberInput"
+                               @bind:event="oninput"
+                               @onkeydown="HandleMemberKeyDown" />
+                        <button type="button"
+                                class="btn-secondary-custom btn-sm calendar-member-add-btn"
+                                @onclick="AddMemberFromInput">
+                            + Lägg till
+                        </button>
+                    </div>
+
+                    @if (selectedMembers.Count > 0)
+                    {
+                        <div class="calendar-selected-members">
+                            @foreach (var member in selectedMembers)
+                            {
+                                <span class="calendar-member-chip is-removable">
+                                    <span>@member</span>
+                                    <button type="button"
+                                            class="calendar-member-remove-btn"
+                                            aria-label="@($"Ta bort {member}")"
+                                            title="@($"Ta bort {member}")"
+                                            @onclick="@(() => RemoveMember(member))">
+                                        ×
+                                    </button>
+                                </span>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <div class="calendar-form-field">
+                    <label for="calendar-event-reminder" class="calendar-form-label">Påminnelse</label>
+                    <select id="calendar-event-reminder"
+                            class="form-input-custom"
+                            value="@(reminderMinutesBefore?.ToString(CultureInfo.InvariantCulture) ?? string.Empty)"
+                            @onchange="HandleReminderChanged">
+                        <option value="">Ingen påminnelse</option>
+                        @foreach (var opt in CalendarDisplayHelper.GetReminderOptions(isAllDay))
+                        {
+                            <option value="@opt.Value">@opt.Label</option>
+                        }
+                    </select>
+                </div>
+
+                @if (EditScope != CalendarEditScope.SingleOccurrence)
+                {
+                    <div class="calendar-form-recurrence-box">
+                        <label class="calendar-checkbox-label">
+                            <input id="calendar-event-recurring"
+                                   type="checkbox"
+                                   checked="@isRecurring"
+                                   @onchange="HandleRecurringChanged" />
+                            <span>Återkommande händelse</span>
+                        </label>
+
+                        @if (isRecurring)
+                        {
+                            <div class="calendar-recurrence-details">
+                                <div class="calendar-form-row">
+                                    <div class="calendar-form-field">
+                                        <label for="calendar-event-interval" class="calendar-form-label">Var N:e vecka *</label>
+                                        <input id="calendar-event-interval"
+                                               type="number"
+                                               min="1"
+                                               max="@CalendarEvent.MaxRecurrenceIntervalWeeks"
+                                               class="form-input-custom"
+                                               @bind="recurrenceIntervalWeeks" />
+                                    </div>
+
+                                    <div class="calendar-form-field">
+                                        <label for="calendar-event-end-date" class="calendar-form-label">Slutdatum (valfritt)</label>
+                                        <input id="calendar-event-end-date"
+                                               type="date"
+                                               class="form-input-custom"
+                                               value="@recurrenceEndDateString"
+                                               @onchange="@(e => recurrenceEndDateString = e.Value?.ToString() ?? string.Empty)" />
+                                    </div>
+                                </div>
+
+                                <div class="calendar-form-field">
+                                    <span class="calendar-form-label">Veckodagar *</span>
+                                    <div class="calendar-weekday-picker" role="group" aria-label="Välj veckodagar">
+                                        @for (int i = 0; i < 7; i++)
+                                        {
+                                            var dayIndex = i;
+                                            var maskBit = IsoWeekdayMaskExtensions.FromDayIndex(dayIndex);
+                                            var isChecked = (recurrenceDaysMask & maskBit) != 0;
+                                            <button type="button"
+                                                    class="calendar-weekday-btn @(isChecked ? "selected" : "")"
+                                                    data-weekday-index="@dayIndex"
+                                                    aria-pressed="@(isChecked ? "true" : "false")"
+                                                    @onclick="@(() => ToggleWeekday(maskBit))">
+                                                @CalendarDisplayHelper.GetShortSwedishDayName(dayIndex)
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <div class="calendar-form-field">
+                    <label for="calendar-event-notes" class="calendar-form-label">Anteckningar (valfritt)</label>
+                    <textarea id="calendar-event-notes"
+                              rows="3"
+                              class="form-input-custom"
+                              maxlength="@CalendarEvent.MaxNotesLength"
+                              placeholder="T.ex. ta med vattenflaska..."
+                              @bind="notes"></textarea>
+                </div>
+
+                <div class="calendar-form-actions">
+                    <button type="button"
+                            class="btn-secondary-custom btn-md"
+                            disabled="@isSaving"
+                            @onclick="HandleCancel">
+                        Avbryt
+                    </button>
+                    <button type="submit"
+                            class="btn-primary-custom btn-md calendar-form-save-btn"
+                            disabled="@isSaving">
+                        @(isSaving ? "Sparar..." : "Spara")
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public DateOnly InitialDate { get; set; }
+    [Parameter] public CalendarEditScope EditScope { get; set; } = CalendarEditScope.NewEvent;
+    [Parameter] public CalendarOccurrenceDto? OccurrenceToEdit { get; set; }
+    [Parameter] public CalendarEvent? SeriesEventToEdit { get; set; }
+    [Parameter] public IReadOnlyList<string> KnownFamilyMembers { get; set; } = [];
+    [Parameter] public EventCallback<DateOnly> OnSaved { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private string title = string.Empty;
+    private string dateString = string.Empty;
+    private bool isAllDay;
+    private string startTimeString = "09:00";
+    private string endTimeString = string.Empty;
+    private string? location;
+    private string? notes;
+    private List<string> selectedMembers = [];
+    private string newMemberInput = string.Empty;
+    private int? reminderMinutesBefore;
+    private bool isRecurring;
+    private int recurrenceIntervalWeeks = 1;
+    private IsoWeekdayMask recurrenceDaysMask = IsoWeekdayMask.None;
+    private string recurrenceEndDateString = string.Empty;
+
+    private string? validationError;
+    private bool isSaving;
+    private bool _wasVisible;
+
+    private bool IsRecurring => isRecurring;
+
+    private string DialogTitle => EditScope switch
+    {
+        CalendarEditScope.NewEvent => "Ny händelse",
+        CalendarEditScope.SingleOccurrence => "Redigera detta tillfälle",
+        CalendarEditScope.EntireSeries => isRecurring ? "Redigera hela serien" : "Redigera händelse",
+        _ => "Händelse"
+    };
+
+    protected override void OnParametersSet()
+    {
+        if (IsVisible && !_wasVisible)
+        {
+            InitializeFormFields();
+        }
+        _wasVisible = IsVisible;
+    }
+
+    private void InitializeFormFields()
+    {
+        validationError = null;
+        isSaving = false;
+        newMemberInput = string.Empty;
+
+        if (EditScope == CalendarEditScope.NewEvent)
+        {
+            title = string.Empty;
+            dateString = InitialDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            isAllDay = false;
+            startTimeString = "09:00";
+            endTimeString = string.Empty;
+            location = null;
+            notes = null;
+            selectedMembers = [];
+            reminderMinutesBefore = null;
+            isRecurring = false;
+            recurrenceIntervalWeeks = 1;
+            recurrenceDaysMask = IsoWeekdayMaskExtensions.FromDate(InitialDate);
+            recurrenceEndDateString = string.Empty;
+            return;
+        }
+
+        if (EditScope == CalendarEditScope.SingleOccurrence && OccurrenceToEdit != null)
+        {
+            title = OccurrenceToEdit.Title;
+            dateString = OccurrenceToEdit.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            isAllDay = OccurrenceToEdit.IsAllDay;
+            startTimeString = OccurrenceToEdit.StartTime?.ToString("HH:mm", CultureInfo.InvariantCulture) ?? "09:00";
+            endTimeString = OccurrenceToEdit.EndTime?.ToString("HH:mm", CultureInfo.InvariantCulture) ?? string.Empty;
+            location = OccurrenceToEdit.Location;
+            notes = OccurrenceToEdit.Notes;
+            selectedMembers = OccurrenceToEdit.FamilyMembers.ToList();
+            reminderMinutesBefore = OccurrenceToEdit.ReminderMinutesBefore;
+            isRecurring = OccurrenceToEdit.IsRecurring;
+            recurrenceIntervalWeeks = OccurrenceToEdit.RecurrenceIntervalWeeks;
+            recurrenceDaysMask = OccurrenceToEdit.RecurrenceDaysOfWeekMask;
+            recurrenceEndDateString = OccurrenceToEdit.RecurrenceEndDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
+            return;
+        }
+
+        if (SeriesEventToEdit != null)
+        {
+            title = SeriesEventToEdit.Title;
+            dateString = SeriesEventToEdit.StartDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            isAllDay = SeriesEventToEdit.IsAllDay;
+            startTimeString = SeriesEventToEdit.StartTime?.ToString("HH:mm", CultureInfo.InvariantCulture) ?? "09:00";
+            endTimeString = SeriesEventToEdit.EndTime?.ToString("HH:mm", CultureInfo.InvariantCulture) ?? string.Empty;
+            location = SeriesEventToEdit.Location;
+            notes = SeriesEventToEdit.Notes;
+            selectedMembers = SeriesEventToEdit.FamilyMembers.ToList();
+            reminderMinutesBefore = SeriesEventToEdit.ReminderMinutesBefore;
+            isRecurring = SeriesEventToEdit.RecurrenceIntervalWeeks > 0;
+            recurrenceIntervalWeeks = isRecurring ? SeriesEventToEdit.RecurrenceIntervalWeeks : 1;
+            recurrenceDaysMask = (IsoWeekdayMask)SeriesEventToEdit.RecurrenceDaysOfWeekMask;
+            recurrenceEndDateString = SeriesEventToEdit.RecurrenceEndDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
+        }
+    }
+
+    private void HandleDateChanged(ChangeEventArgs e)
+    {
+        dateString = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private void HandleAllDayChanged(ChangeEventArgs e)
+    {
+        isAllDay = e.Value is bool b ? b : bool.TryParse(e.Value?.ToString(), out var parsed) && parsed;
+        if (!CalendarReminderOptions.IsValidReminder(isAllDay, reminderMinutesBefore))
+        {
+            reminderMinutesBefore = null;
+        }
+    }
+
+    private void HandleReminderChanged(ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            reminderMinutesBefore = null;
+        }
+        else if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var mins))
+        {
+            reminderMinutesBefore = mins;
+        }
+    }
+
+    private void HandleRecurringChanged(ChangeEventArgs e)
+    {
+        isRecurring = e.Value is bool b ? b : bool.TryParse(e.Value?.ToString(), out var parsed) && parsed;
+        if (isRecurring && recurrenceDaysMask == IsoWeekdayMask.None && TryParseDate(dateString, out var date))
+        {
+            recurrenceDaysMask = IsoWeekdayMaskExtensions.FromDate(date);
+        }
+        if (isRecurring && recurrenceIntervalWeeks <= 0)
+        {
+            recurrenceIntervalWeeks = 1;
+        }
+    }
+
+    private void ToggleWeekday(IsoWeekdayMask bit)
+    {
+        recurrenceDaysMask ^= bit;
+    }
+
+    private void ToggleKnownMember(string name)
+    {
+        var existing = selectedMembers.FirstOrDefault(m => string.Equals(m, name, StringComparison.OrdinalIgnoreCase));
+        if (existing != null)
+        {
+            selectedMembers.Remove(existing);
+        }
+        else
+        {
+            selectedMembers.Add(name);
+        }
+    }
+
+    private void AddMemberFromInput()
+    {
+        if (string.IsNullOrWhiteSpace(newMemberInput))
+            return;
+
+        var combined = CalendarFamilyMemberHelper.Normalize(selectedMembers.Append(newMemberInput));
+        selectedMembers = combined.ToList();
+        newMemberInput = string.Empty;
+    }
+
+    private void HandleMemberKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            AddMemberFromInput();
+        }
+    }
+
+    private void RemoveMember(string name)
+    {
+        selectedMembers.RemoveAll(m => string.Equals(m, name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task HandleSubmitAsync()
+    {
+        if (isSaving)
+            return;
+
+        validationError = null;
+
+        if (!TryParseDate(dateString, out var parsedDate))
+        {
+            validationError = "Ange ett giltigt datum.";
+            return;
+        }
+
+        TimeOnly? parsedStartTime = null;
+        TimeOnly? parsedEndTime = null;
+
+        if (!isAllDay)
+        {
+            if (!string.IsNullOrWhiteSpace(startTimeString))
+            {
+                if (!TimeOnly.TryParseExact(startTimeString.Trim(), "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var st) &&
+                    !TimeOnly.TryParse(startTimeString.Trim(), CultureInfo.InvariantCulture, out st))
+                {
+                    validationError = "Ange en giltig starttid (HH:mm).";
+                    return;
+                }
+                parsedStartTime = st;
+            }
+
+            if (!string.IsNullOrWhiteSpace(endTimeString))
+            {
+                if (!TimeOnly.TryParseExact(endTimeString.Trim(), "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var et) &&
+                    !TimeOnly.TryParse(endTimeString.Trim(), CultureInfo.InvariantCulture, out et))
+                {
+                    validationError = "Ange en giltig sluttid (HH:mm).";
+                    return;
+                }
+                parsedEndTime = et;
+            }
+        }
+
+        DateOnly? parsedRecurrenceEndDate = null;
+        if (isRecurring && !string.IsNullOrWhiteSpace(recurrenceEndDateString))
+        {
+            if (!TryParseDate(recurrenceEndDateString, out var red))
+            {
+                validationError = "Ange ett giltigt slutdatum för upprepningen.";
+                return;
+            }
+            parsedRecurrenceEndDate = red;
+        }
+
+        var membersToSave = string.IsNullOrWhiteSpace(newMemberInput)
+            ? selectedMembers
+            : CalendarFamilyMemberHelper.Normalize(selectedMembers.Append(newMemberInput)).ToList();
+
+        isSaving = true;
+        try
+        {
+            if (EditScope == CalendarEditScope.SingleOccurrence && OccurrenceToEdit != null)
+            {
+                var overrideInput = new CalendarOccurrenceOverrideInput
+                {
+                    Title = title,
+                    Date = parsedDate,
+                    IsAllDay = isAllDay,
+                    StartTime = parsedStartTime,
+                    EndTime = parsedEndTime,
+                    Location = location,
+                    Notes = notes,
+                    FamilyMembers = membersToSave,
+                    ReminderMinutesBefore = reminderMinutesBefore
+                };
+
+                await CalendarService.UpdateSingleOccurrenceAsync(
+                    OccurrenceToEdit.CalendarEventId,
+                    OccurrenceToEdit.OriginalDate,
+                    overrideInput);
+            }
+            else
+            {
+                var input = new CalendarEventInput
+                {
+                    Title = title,
+                    StartDate = parsedDate,
+                    IsAllDay = isAllDay,
+                    StartTime = parsedStartTime,
+                    EndTime = parsedEndTime,
+                    Location = location,
+                    Notes = notes,
+                    FamilyMembers = membersToSave,
+                    ReminderMinutesBefore = reminderMinutesBefore,
+                    RecurrenceIntervalWeeks = isRecurring ? recurrenceIntervalWeeks : 0,
+                    RecurrenceDaysOfWeekMask = isRecurring ? recurrenceDaysMask : IsoWeekdayMask.None,
+                    RecurrenceEndDate = isRecurring ? parsedRecurrenceEndDate : null
+                };
+
+                if (EditScope == CalendarEditScope.EntireSeries && SeriesEventToEdit != null)
+                {
+                    await CalendarService.UpdateEventAsync(SeriesEventToEdit.Id, input);
+                }
+                else
+                {
+                    await CalendarService.CreateEventAsync(input);
+                }
+            }
+
+            if (OnSaved.HasDelegate)
+            {
+                await OnSaved.InvokeAsync(parsedDate);
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or KeyNotFoundException)
+        {
+            validationError = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Oväntat fel vid sparning av kalenderhändelse.");
+            validationError = "Kunde inte spara händelsen. Försök igen.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private Task HandleCancel() =>
+        !isSaving && OnCancel.HasDelegate ? OnCancel.InvokeAsync() : Task.CompletedTask;
+
+    private static bool TryParseDate(string? raw, out DateOnly date) =>
+        DateOnly.TryParseExact(raw?.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
+}

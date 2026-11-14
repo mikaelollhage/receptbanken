@@ -105,6 +105,14 @@ else if (mealPlan != null)
         </section>
     }
 
+    <!-- Familjens kalender: Dagens händelser & resten av veckan -->
+    @if (hasCalendarService)
+    {
+        <HomeCalendarSummarySection Today="currentLocalToday"
+                                    Occurrences="calendarOccurrences"
+                                    IsLoading="isCalendarLoading" />
+    }
+
     <!-- Tertiärt område: Genvägar -->
     <section class="home-shortcuts-section" aria-label="Snabbval">
         <h3 class="home-shortcuts-heading">Snabbval i vardagen</h3>
@@ -141,14 +149,28 @@ else if (mealPlan != null)
     private static readonly CultureInfo SwedishCulture = CultureInfo.GetCultureInfo("sv-SE");
 
     private HomeMealPlanDto? mealPlan;
+    private IReadOnlyList<CalendarOccurrenceDto> calendarOccurrences = [];
     private DateOnly currentLocalToday;
     private bool isLoading = true;
+    private bool isCalendarLoading = false;
+    private bool hasCalendarService = false;
+    private bool _isDisposed;
+    private long _lastCalendarVersion;
+    private CalendarService? _calendarService;
     private CancellationTokenSource? _midnightWatcherCts;
 
     protected override async Task OnInitializedAsync()
     {
         var localDateProvider = ServiceProvider.GetService<ILocalDateProvider>() ?? new SwedishLocalDateProvider();
         currentLocalToday = localDateProvider.GetLocalToday();
+
+        _calendarService = ServiceProvider.GetService<CalendarService>();
+        hasCalendarService = _calendarService != null;
+        if (_calendarService != null)
+        {
+            _calendarService.Notifier.OnChanged += HandleCalendarChanged;
+        }
+
         await LoadDataAsync();
 
         _midnightWatcherCts = new CancellationTokenSource();
@@ -191,7 +213,52 @@ else if (mealPlan != null)
         {
             mealPlan = await weeklyMenuService.GetHomeMealPlanAsync(currentLocalToday);
         }
+
+        await LoadCalendarDataAsync();
         isLoading = false;
+    }
+
+    private async Task LoadCalendarDataAsync()
+    {
+        if (_calendarService == null)
+        {
+            calendarOccurrences = [];
+            return;
+        }
+
+        isCalendarLoading = true;
+        try
+        {
+            var versionBeforeLoad = _calendarService.Notifier.Version;
+            calendarOccurrences = await _calendarService.GetWeekOccurrencesAsync(currentLocalToday);
+            _lastCalendarVersion = Math.Max(versionBeforeLoad, _calendarService.Notifier.Version);
+        }
+        finally
+        {
+            isCalendarLoading = false;
+        }
+    }
+
+    private void HandleCalendarChanged(long newVersion)
+    {
+        if (_isDisposed || _calendarService == null)
+            return;
+
+        _ = InvokeAsync(async () =>
+        {
+            if (_isDisposed || newVersion <= _lastCalendarVersion)
+                return;
+
+            try
+            {
+                await LoadCalendarDataAsync();
+                StateHasChanged();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Ignore if component is disposing
+            }
+        });
     }
 
     private string GetFormattedDateSubtitle()
@@ -232,6 +299,15 @@ else if (mealPlan != null)
 
     public void Dispose()
     {
+        if (_isDisposed)
+            return;
+
+        _isDisposed = true;
+        if (_calendarService != null)
+        {
+            _calendarService.Notifier.OnChanged -= HandleCalendarChanged;
+        }
+
         _midnightWatcherCts?.Cancel();
         _midnightWatcherCts?.Dispose();
     }
