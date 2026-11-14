@@ -30,6 +30,9 @@ public class AppDbContext : DbContext
     public DbSet<WeeklyMenuShoppingContribution> WeeklyMenuShoppingContributions => Set<WeeklyMenuShoppingContribution>();
     public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
     public DbSet<CalendarEventException> CalendarEventExceptions => Set<CalendarEventException>();
+    public DbSet<PushSubscriptionEntity> PushSubscriptions => Set<PushSubscriptionEntity>();
+    public DbSet<CalendarReminderDelivery> CalendarReminderDeliveries => Set<CalendarReminderDelivery>();
+    public DbSet<CalendarReminderSystemState> CalendarReminderSystemStates => Set<CalendarReminderSystemState>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -263,6 +266,70 @@ public class AppDbContext : DbContext
                 .HasDatabaseName("IX_CalendarEventExceptions_CalendarEventId_OriginalDate");
             entity.HasIndex(e => e.OverrideDate)
                 .HasDatabaseName("IX_CalendarEventExceptions_OverrideDate");
+        });
+
+        // PushSubscriptionEntity
+        modelBuilder.Entity<PushSubscriptionEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Endpoint).IsRequired().HasMaxLength(PushSubscriptionEntity.MaxEndpointLength);
+            entity.Property(e => e.P256dh).IsRequired().HasMaxLength(PushSubscriptionEntity.MaxP256dhLength);
+            entity.Property(e => e.Auth).IsRequired().HasMaxLength(PushSubscriptionEntity.MaxAuthLength);
+            entity.Property(e => e.DeviceLabel).HasMaxLength(PushSubscriptionEntity.MaxDeviceLabelLength);
+            entity.Property(e => e.IsActive).HasDefaultValue(true);
+            entity.Property(e => e.ConsecutiveFailures).HasDefaultValue(0);
+
+            entity.HasIndex(e => e.Endpoint)
+                .IsUnique()
+                .HasDatabaseName("IX_PushSubscriptions_Endpoint");
+            entity.HasIndex(e => e.IsActive)
+                .HasDatabaseName("IX_PushSubscriptions_IsActive");
+        });
+
+        // CalendarReminderDelivery
+        modelBuilder.Entity<CalendarReminderDelivery>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Status).IsRequired();
+            entity.Property(e => e.AttemptCount).HasDefaultValue(0);
+            entity.Property(e => e.LeaseToken).HasMaxLength(CalendarReminderDelivery.MaxLeaseTokenLength);
+            entity.Property(e => e.LastError).HasMaxLength(CalendarReminderDelivery.MaxLastErrorLength);
+
+            entity.HasIndex(e => new
+            {
+                e.CalendarEventId,
+                e.OccurrenceOriginalDate,
+                e.ScheduledTriggerUtc,
+                e.PushSubscriptionId
+            })
+                .IsUnique()
+                .HasDatabaseName("IX_CalendarReminderDeliveries_UniqueOccurrenceDevice");
+
+            entity.HasIndex(e => new { e.Status, e.NextAttemptAtUtc, e.LockedUntilUtc })
+                .HasDatabaseName("IX_CalendarReminderDeliveries_WorkQueue");
+
+            entity.HasIndex(e => new { e.Status, e.ExpiresAtUtc })
+                .HasDatabaseName("IX_CalendarReminderDeliveries_Expiry");
+
+            entity.HasIndex(e => e.CreatedAt)
+                .HasDatabaseName("IX_CalendarReminderDeliveries_CreatedAt");
+
+            entity.HasOne(e => e.CalendarEvent)
+                .WithMany()
+                .HasForeignKey(e => e.CalendarEventId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.PushSubscription)
+                .WithMany()
+                .HasForeignKey(e => e.PushSubscriptionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // CalendarReminderSystemState
+        modelBuilder.Entity<CalendarReminderSystemState>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedNever();
         });
     }
 }

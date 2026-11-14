@@ -128,6 +128,7 @@ public class CalendarService
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
         db.CalendarEvents.Add(entity);
+
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
@@ -184,6 +185,8 @@ public class CalendarService
             }
         }
 
+        await CancelStaleDeliveriesForEventAsync(db, entity, now, cancellationToken);
+
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
@@ -205,7 +208,16 @@ public class CalendarService
         if (entity == null)
             return false;
 
+        var relatedDeliveries = await db.CalendarReminderDeliveries
+            .Where(d => d.CalendarEventId == eventId)
+            .ToListAsync(cancellationToken);
+        if (relatedDeliveries.Count > 0)
+        {
+            db.CalendarReminderDeliveries.RemoveRange(relatedDeliveries);
+        }
+
         db.CalendarEvents.Remove(entity);
+
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
@@ -272,6 +284,17 @@ public class CalendarService
         exception.OverrideReminderCleared = !input.ReminderMinutesBefore.HasValue;
         exception.UpdatedAt = now;
 
+        await CancelStaleDeliveriesForOccurrenceAsync(
+            db,
+            eventId,
+            originalDate,
+            input.Date,
+            input.IsAllDay,
+            input.StartTime,
+            input.ReminderMinutesBefore,
+            now,
+            cancellationToken);
+
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
@@ -326,12 +349,144 @@ public class CalendarService
         exception.OverrideReminderCleared = false;
         exception.UpdatedAt = now;
 
+        await CancelPendingDeliveriesForOccurrenceAsync(db, eventId, originalDate, now, cancellationToken);
+
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         _notifier.NotifyChanged();
         _logger.LogInformation("Raderade enskilt tillfälle {OriginalDate} för kalenderhändelse {EventId}", originalDate, eventId);
         return exception;
+    }
+
+    private static async Task CancelStaleDeliveriesForEventAsync(
+        AppDbContext db,
+        CalendarEvent updatedEvent,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var activeDeliveries = await db.CalendarReminderDeliveries
+            .Where(d => d.CalendarEventId == updatedEvent.Id &&
+                        (d.Status == CalendarReminderDeliveryStatus.Pending ||
+                         d.Status == CalendarReminderDeliveryStatus.InProgress))
+            .ToListAsync(cancellationToken);
+
+        if (activeDeliveries.Count == 0)
+            return;
+
+        var swedishTz = SwedishLocalDateProvider.GetSwedishTimeZone();
+        foreach (var delivery in activeDeliveries)
+        {
+            var expanded = CalendarRecurrenceExpander.ExpandEvent(
+                updatedEvent,
+                delivery.OccurrenceDisplayDate,
+                delivery.OccurrenceDisplayDate);
+
+            var matching = expanded.FirstOrDefault(o =>
+                o.OriginalDate == delivery.OccurrenceOriginalDate &&
+                o.Date == delivery.OccurrenceDisplayDate);
+
+            var stillValid = false;
+            if (matching != null && matching.ReminderMinutesBefore.HasValue)
+            {
+                var localReminder = CalendarReminderOptions.GetReminderLocalDateTime(
+                    matching.Date,
+                    matching.IsAllDay,
+                    matching.StartTime,
+                    matching.ReminderMinutesBefore);
+
+                if (localReminder.HasValue)
+                {
+                    var expectedUtc = SwedishLocalDateProvider.ConvertSwedishLocalToUtc(localReminder.Value, swedishTz);
+                    stillValid = expectedUtc == delivery.ScheduledTriggerUtc;
+                }
+            }
+
+            if (!stillValid)
+            {
+                delivery.Status = CalendarReminderDeliveryStatus.Cancelled;
+                delivery.LeaseToken = null;
+                delivery.LockedUntilUtc = null;
+                delivery.UpdatedAt = now;
+            }
+        }
+    }
+
+    private static async Task CancelStaleDeliveriesForOccurrenceAsync(
+        AppDbContext db,
+        int eventId,
+        DateOnly originalDate,
+        DateOnly newDisplayDate,
+        bool isAllDay,
+        TimeOnly? startTime,
+        int? reminderMinutesBefore,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var activeDeliveries = await db.CalendarReminderDeliveries
+            .Where(d => d.CalendarEventId == eventId &&
+                        d.OccurrenceOriginalDate == originalDate &&
+                        (d.Status == CalendarReminderDeliveryStatus.Pending ||
+                         d.Status == CalendarReminderDeliveryStatus.InProgress))
+            .ToListAsync(cancellationToken);
+
+        if (activeDeliveries.Count == 0)
+            return;
+
+        DateTimeOffset? newTriggerUtc = null;
+        if (reminderMinutesBefore.HasValue)
+        {
+            var localReminder = CalendarReminderOptions.GetReminderLocalDateTime(
+                newDisplayDate,
+                isAllDay,
+                isAllDay ? null : startTime,
+                reminderMinutesBefore);
+
+            if (localReminder.HasValue)
+            {
+                newTriggerUtc = SwedishLocalDateProvider.ConvertSwedishLocalToUtc(
+                    localReminder.Value,
+                    SwedishLocalDateProvider.GetSwedishTimeZone());
+            }
+        }
+
+        foreach (var delivery in activeDeliveries)
+        {
+            var stillValid = newTriggerUtc.HasValue &&
+                             delivery.OccurrenceDisplayDate == newDisplayDate &&
+                             delivery.ScheduledTriggerUtc == newTriggerUtc.Value;
+
+            if (!stillValid)
+            {
+                delivery.Status = CalendarReminderDeliveryStatus.Cancelled;
+                delivery.LeaseToken = null;
+                delivery.LockedUntilUtc = null;
+                delivery.UpdatedAt = now;
+            }
+        }
+    }
+
+    private static async Task CancelPendingDeliveriesForOccurrenceAsync(
+        AppDbContext db,
+        int eventId,
+        DateOnly originalDate,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var activeDeliveries = await db.CalendarReminderDeliveries
+            .Where(d => d.CalendarEventId == eventId &&
+                        d.OccurrenceOriginalDate == originalDate &&
+                        (d.Status == CalendarReminderDeliveryStatus.Pending ||
+                         d.Status == CalendarReminderDeliveryStatus.InProgress))
+            .ToListAsync(cancellationToken);
+
+        foreach (var delivery in activeDeliveries)
+        {
+            delivery.Status = CalendarReminderDeliveryStatus.Cancelled;
+            delivery.LeaseToken = null;
+            delivery.LockedUntilUtc = null;
+            delivery.UpdatedAt = now;
+        }
     }
 
     private static NormalizedCommonFields ValidateAndNormalizeEventInput(CalendarEventInput input)

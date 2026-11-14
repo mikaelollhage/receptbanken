@@ -1,0 +1,388 @@
+@implements IAsyncDisposable
+@inject PushSubscriptionService PushSubscriptionService
+@inject IJSRuntime JSRuntime
+@inject ILogger<CalendarPushSettingsCard> Logger
+
+<section class="calendar-push-info-card calendar-push-settings-card" aria-label="Påminnelser och pushnotiser">
+    <div class="calendar-push-info-icon" aria-hidden="true">🔔</div>
+    <div class="calendar-push-info-body">
+        <div class="calendar-push-header-row">
+            <h2 class="calendar-push-info-title">Påminnelser och pushnotiser</h2>
+            @if (!_isChecking)
+            {
+                <span class="calendar-push-status-badge @GetStatusBadgeClass()">@GetStatusText()</span>
+            }
+        </div>
+
+        @if (_isChecking)
+        {
+            <p class="calendar-push-info-desc">Kontrollerar pushstöd för den här enheten...</p>
+        }
+        else if (!_envState.IsSupported)
+        {
+            @if (_envState.IsIos && !_envState.IsStandalone)
+            {
+                <p class="calendar-push-info-desc">
+                    På iPhone och iPad krävs att Receptbanken öppnas som installerad webbapp (PWA) för att pushnotiser ska fungera.
+                    Tryck på dela-knappen i Safari och välj <strong>Lägg till på hemskärmen</strong>, och öppna sedan appen från hemskärmen.
+                </p>
+            }
+            else
+            {
+                <p class="calendar-push-info-desc">
+                    Den här webbläsaren eller enheten stöder inte Web Push-notiser. Dina påminnelseval sparas ändå på varje händelse.
+                </p>
+            }
+        }
+        else
+        {
+            <p class="calendar-push-info-desc">
+                @if (_isSubscribed)
+                {
+                    <span>Den här enheten tar emot kalenderpåminnelser (@_activeDeviceCount av @_maxActiveDevices aktiva enheter).</span>
+                }
+                else if (string.Equals(_envState.Permission, "denied", StringComparison.OrdinalIgnoreCase))
+                {
+                    <span>Notisbehörighet är blockerad i webbläsaren. Tillåt notiser för Receptbanken i webbläsarens eller enhetens inställningar och försök igen.</span>
+                }
+                else
+                {
+                    <span>Aktivera pushnotiser för att få kalenderpåminnelser direkt till den här enheten.</span>
+                }
+            </p>
+
+            @if (_envState.IsIos)
+            {
+                <p class="calendar-push-ios-hint">
+                    iPhone/iPad: kräver iOS 16.4+ och att appen är installerad på hemskärmen.
+                </p>
+            }
+
+            <div class="calendar-push-actions">
+                @if (!_isSubscribed)
+                {
+                    <button type="button"
+                            @ref="_enableButtonRef"
+                            class="btn-primary-custom btn-sm calendar-push-enable-btn"
+                            disabled="@_isBusy">
+                        Aktivera påminnelser
+                    </button>
+                }
+                else
+                {
+                    <button type="button"
+                            class="btn-secondary-custom btn-sm calendar-push-test-btn"
+                            disabled="@_isBusy"
+                            @onclick="SendTestNotificationAsync">
+                        Skicka testnotis
+                    </button>
+
+                    <button type="button"
+                            class="btn-secondary-custom btn-sm calendar-push-disable-btn"
+                            disabled="@_isBusy"
+                            @onclick="DisablePushAsync">
+                        Avaktivera påminnelser
+                    </button>
+                }
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(_statusMessage))
+        {
+            <p class="calendar-push-feedback @(_isErrorMessage ? "is-error" : "is-success")" role="status">
+                @_statusMessage
+            </p>
+        }
+    </div>
+</section>
+
+@code {
+    private ElementReference _enableButtonRef;
+    private bool _hasBoundEnableButton;
+    private DotNetObjectReference<CalendarPushSettingsCard>? _dotNetRef;
+    private bool _isDisposed;
+
+    private bool _isChecking = true;
+    private bool _isBusy;
+    private bool _isSubscribed;
+    private int _activeDeviceCount;
+    private int _maxActiveDevices = PushSubscriptionService.MaxActiveSubscriptions;
+    private string? _vapidPublicKey;
+    private string? _statusMessage;
+    private bool _isErrorMessage;
+    private PushEnvironmentState _envState = new();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_isDisposed)
+            return;
+
+        if (firstRender)
+        {
+            await RefreshStateAsync();
+            StateHasChanged();
+            return;
+        }
+
+        await EnsureEnableButtonBoundAsync();
+    }
+
+    private async Task RefreshStateAsync()
+    {
+        try
+        {
+            var env = await JSRuntime.InvokeAsync<PushEnvironmentState>("receptbankenPush.getEnvironmentState");
+            _envState = env ?? new PushEnvironmentState();
+
+            var status = await PushSubscriptionService.GetStatusAsync(_envState.Endpoint);
+            _isSubscribed = status.IsSubscribed &&
+                            string.Equals(_envState.Permission, "granted", StringComparison.OrdinalIgnoreCase);
+            _activeDeviceCount = status.ActiveDeviceCount;
+            _maxActiveDevices = status.MaxActiveDevices;
+            _vapidPublicKey = status.VapidPublicKey;
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or ObjectDisposedException or InvalidOperationException)
+        {
+            // Ignore when prerendering, disconnected, or running in bUnit without JS mock
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Kunde inte hämta pushstatus.");
+        }
+        finally
+        {
+            _isChecking = false;
+        }
+    }
+
+    private async Task EnsureEnableButtonBoundAsync()
+    {
+        if (_isDisposed || _isChecking || !_envState.IsSupported || _isSubscribed || string.IsNullOrWhiteSpace(_vapidPublicKey))
+        {
+            return;
+        }
+
+        if (_hasBoundEnableButton)
+            return;
+
+        try
+        {
+            _dotNetRef ??= DotNetObjectReference.Create(this);
+            await JSRuntime.InvokeVoidAsync(
+                "receptbankenPush.bindEnableButton",
+                _enableButtonRef,
+                _dotNetRef,
+                _vapidPublicKey);
+            _hasBoundEnableButton = true;
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or ObjectDisposedException or InvalidOperationException)
+        {
+            // Ignore disconnected circuits or bUnit
+        }
+    }
+
+    private async Task UnbindEnableButtonAsync()
+    {
+        if (!_hasBoundEnableButton)
+            return;
+
+        _hasBoundEnableButton = false;
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("receptbankenPush.unbindEnableButton", _enableButtonRef);
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or ObjectDisposedException or InvalidOperationException)
+        {
+            // Ignore disconnected circuits
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnPushSubscribedFromJs(PushSubscriptionJsPayload payload)
+    {
+        if (_isDisposed)
+            return;
+
+        _isBusy = true;
+        _statusMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await PushSubscriptionService.SubscribeOrUpdateAsync(new PushSubscriptionInput(
+                payload.Endpoint,
+                payload.P256dh,
+                payload.Auth,
+                payload.DeviceLabel));
+
+            if (result.Success)
+            {
+                await UnbindEnableButtonAsync();
+                await RefreshStateAsync();
+                _isErrorMessage = false;
+                _statusMessage = "Pushnotiser är nu aktiverade på den här enheten.";
+            }
+            else
+            {
+                _isErrorMessage = true;
+                _statusMessage = result.ErrorMessage ?? "Kunde inte spara pushprenumerationen.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fel vid sparning av pushprenumeration.");
+            _isErrorMessage = true;
+            _statusMessage = "Kunde inte aktivera pushnotiser. Försök igen.";
+        }
+        finally
+        {
+            _isBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnPushPermissionDeniedFromJs(string permission)
+    {
+        if (_isDisposed)
+            return;
+
+        await RefreshStateAsync();
+        _isErrorMessage = true;
+        _statusMessage = string.Equals(permission, "denied", StringComparison.OrdinalIgnoreCase)
+            ? "Notisbehörighet nekades. Ändra i webbläsarens inställningar för att aktivera."
+            : "Notisbehörighet beviljades inte.";
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnPushSubscribeErrorFromJs(string message)
+    {
+        if (_isDisposed)
+            return;
+
+        _isErrorMessage = true;
+        _statusMessage = string.IsNullOrWhiteSpace(message)
+            ? "Kunde inte aktivera pushnotiser."
+            : message;
+        StateHasChanged();
+    }
+
+    private async Task DisablePushAsync()
+    {
+        if (_isBusy)
+            return;
+
+        _isBusy = true;
+        _statusMessage = null;
+
+        try
+        {
+            var unsubscribedEndpoint = await JSRuntime.InvokeAsync<string?>("receptbankenPush.unsubscribeCurrentDevice");
+            var targetEndpoint = unsubscribedEndpoint ?? _envState.Endpoint;
+            if (!string.IsNullOrWhiteSpace(targetEndpoint))
+            {
+                await PushSubscriptionService.UnsubscribeAsync(targetEndpoint);
+            }
+
+            await RefreshStateAsync();
+            _isErrorMessage = false;
+            _statusMessage = "Pushnotiser avaktiverades för den här enheten.";
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or ObjectDisposedException or InvalidOperationException)
+        {
+            // Ignore disconnected circuits
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fel vid avaktivering av pushnotiser.");
+            _isErrorMessage = true;
+            _statusMessage = "Kunde inte avaktivera pushnotiser.";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task SendTestNotificationAsync()
+    {
+        if (_isBusy || string.IsNullOrWhiteSpace(_envState.Endpoint))
+            return;
+
+        _isBusy = true;
+        _statusMessage = null;
+
+        try
+        {
+            var result = await PushSubscriptionService.SendTestNotificationAsync(_envState.Endpoint);
+            _isErrorMessage = !result.Success;
+            _statusMessage = result.Message;
+
+            if (!result.Success)
+            {
+                await RefreshStateAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fel vid utskick av testnotis.");
+            _isErrorMessage = true;
+            _statusMessage = "Kunde inte skicka testnotis.";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private string GetStatusText()
+    {
+        if (!_envState.IsSupported)
+            return "Stöds ej";
+        if (_isSubscribed)
+            return "Aktiverad";
+        if (string.Equals(_envState.Permission, "denied", StringComparison.OrdinalIgnoreCase))
+            return "Blockerad";
+        return "Avstängd";
+    }
+
+    private string GetStatusBadgeClass()
+    {
+        if (!_envState.IsSupported)
+            return "is-unsupported";
+        if (_isSubscribed)
+            return "is-active";
+        if (string.Equals(_envState.Permission, "denied", StringComparison.OrdinalIgnoreCase))
+            return "is-denied";
+        return "is-off";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_isDisposed)
+            return;
+
+        _isDisposed = true;
+        await UnbindEnableButtonAsync();
+        _dotNetRef?.Dispose();
+        _dotNetRef = null;
+    }
+
+    public sealed class PushEnvironmentState
+    {
+        public bool IsSupported { get; set; }
+        public bool IsIos { get; set; }
+        public bool IsStandalone { get; set; }
+        public string Permission { get; set; } = "default";
+        public string? Endpoint { get; set; }
+    }
+
+    public sealed class PushSubscriptionJsPayload
+    {
+        public string Endpoint { get; set; } = string.Empty;
+        public string P256dh { get; set; } = string.Empty;
+        public string Auth { get; set; } = string.Empty;
+        public string? DeviceLabel { get; set; }
+    }
+}

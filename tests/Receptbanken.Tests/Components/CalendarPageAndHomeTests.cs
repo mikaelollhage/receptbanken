@@ -9,6 +9,7 @@ using Receptbanken.Core.Interfaces;
 using Receptbanken.Core.Models;
 using Receptbanken.Core.Services;
 using Receptbanken.Infrastructure.Data;
+using Receptbanken.Infrastructure.Push;
 using Receptbanken.Infrastructure.Services;
 using Receptbanken.Tests.Infrastructure;
 using Receptbanken.Web.Components.Pages;
@@ -24,6 +25,22 @@ public class CalendarPageAndHomeTests : TestContext
         public FixedLocalDateProvider(DateOnly today) => _today = today;
         public DateOnly GetLocalToday() => _today;
         public void SetClientLocalDate(DateOnly clientDate) => _today = clientDate;
+    }
+
+    private sealed class StubVapidKeyProvider : IVapidKeyProvider
+    {
+        public Task<VapidKeyPair> GetOrCreateKeysAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new VapidKeyPair("BTestPublicKey", "TestPrivateKey", VapidOptions.DefaultSubject));
+    }
+
+    private sealed class StubWebPushClient : IWebPushClient
+    {
+        public Task<WebPushSendResult> SendAsync(
+            PushSubscriptionEntity subscription,
+            string payloadJson,
+            int ttlSeconds = 900,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new WebPushSendResult(true, 201, null, false, false));
     }
 
     private sealed class ThrowingJsRuntime : IJSRuntime
@@ -79,6 +96,9 @@ public class CalendarPageAndHomeTests : TestContext
         Services.AddSingleton(recipeService);
         Services.AddSingleton(categoryService);
         Services.AddSingleton(weeklyMenuService);
+        Services.AddSingleton<IVapidKeyProvider>(new StubVapidKeyProvider());
+        Services.AddSingleton<IWebPushClient>(new StubWebPushClient());
+        Services.AddSingleton<PushSubscriptionService>();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         return new TestBundle

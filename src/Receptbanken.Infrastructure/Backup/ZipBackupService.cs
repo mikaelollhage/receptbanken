@@ -33,6 +33,7 @@ public class ZipBackupService : IBackupService
     private readonly ILogger<ZipBackupService> _logger;
     private readonly ShoppingListNotifier? _shoppingListNotifier;
     private readonly CalendarNotifier? _calendarNotifier;
+    private readonly TimeProvider _timeProvider;
 
     /// <summary>
     /// Optional hook for testing transactional + filesystem rollback when an error occurs right before commit.
@@ -45,7 +46,8 @@ public class ZipBackupService : IBackupService
         ILogger<ZipBackupService> logger,
         BackupLimitsOptions? limits = null,
         ShoppingListNotifier? shoppingListNotifier = null,
-        CalendarNotifier? calendarNotifier = null)
+        CalendarNotifier? calendarNotifier = null,
+        TimeProvider? timeProvider = null)
     {
         _dbFactory = dbFactory;
         _storageOptions = storageOptions.Value;
@@ -53,6 +55,7 @@ public class ZipBackupService : IBackupService
         _limits = limits ?? new BackupLimitsOptions();
         _shoppingListNotifier = shoppingListNotifier;
         _calendarNotifier = calendarNotifier;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public async Task<byte[]> CreateBackupArchiveAsync(CancellationToken cancellationToken = default)
@@ -440,6 +443,10 @@ public class ZipBackupService : IBackupService
 
             try
             {
+                // Always clear reminder delivery history on content restore so restored events
+                // do not inherit stale delivery rows or trigger retroactively.
+                db.CalendarReminderDeliveries.RemoveRange(await db.CalendarReminderDeliveries.ToListAsync(cancellationToken));
+
                 if (replaceExisting)
                 {
                     db.CalendarEventExceptions.RemoveRange(await db.CalendarEventExceptions.ToListAsync(cancellationToken));
@@ -682,6 +689,28 @@ public class ZipBackupService : IBackupService
 
                     await db.SaveChangesAsync(cancellationToken);
                 }
+
+                // Persist the restore barrier atomically within the restore transaction so
+                // reminders scheduled prior to this restore cannot fire retroactively even after restart.
+                var restoredAtUtc = _timeProvider.GetUtcNow();
+                var systemState = await db.CalendarReminderSystemStates
+                    .FirstOrDefaultAsync(s => s.Id == CalendarReminderSystemState.SingletonId, cancellationToken);
+                if (systemState == null)
+                {
+                    systemState = new CalendarReminderSystemState
+                    {
+                        Id = CalendarReminderSystemState.SingletonId,
+                        LastContentRestoredAtUtc = restoredAtUtc,
+                        UpdatedAt = restoredAtUtc
+                    };
+                    db.CalendarReminderSystemStates.Add(systemState);
+                }
+                else
+                {
+                    systemState.LastContentRestoredAtUtc = restoredAtUtc;
+                    systemState.UpdatedAt = restoredAtUtc;
+                }
+                await db.SaveChangesAsync(cancellationToken);
 
                 // Swap filesystem images
                 if (replaceExisting)

@@ -163,6 +163,100 @@ namespace Receptbanken.Infrastructure.Migrations
                     b.ToTable("CalendarEventExceptions");
                 });
 
+            modelBuilder.Entity("Receptbanken.Core.Models.CalendarReminderDelivery", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AttemptCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(0);
+
+                    b.Property<int>("CalendarEventId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("ExpiresAtUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("LastHttpStatusCode")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LeaseToken")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("LockedUntilUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("NextAttemptAtUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateOnly>("OccurrenceDisplayDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly>("OccurrenceOriginalDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PushSubscriptionId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("ScheduledTriggerUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("SentAtUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("UpdatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("IX_CalendarReminderDeliveries_CreatedAt");
+
+                    b.HasIndex("PushSubscriptionId");
+
+                    b.HasIndex("Status", "ExpiresAtUtc")
+                        .HasDatabaseName("IX_CalendarReminderDeliveries_Expiry");
+
+                    b.HasIndex("Status", "NextAttemptAtUtc", "LockedUntilUtc")
+                        .HasDatabaseName("IX_CalendarReminderDeliveries_WorkQueue");
+
+                    b.HasIndex("CalendarEventId", "OccurrenceOriginalDate", "ScheduledTriggerUtc", "PushSubscriptionId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_CalendarReminderDeliveries_UniqueOccurrenceDevice");
+
+                    b.ToTable("CalendarReminderDeliveries");
+                });
+
+            modelBuilder.Entity("Receptbanken.Core.Models.CalendarReminderSystemState", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("LastContentRestoredAtUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("UpdatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("CalendarReminderSystemStates");
+                });
+
             modelBuilder.Entity("Receptbanken.Core.Models.Category", b =>
                 {
                     b.Property<int>("Id")
@@ -263,6 +357,65 @@ namespace Receptbanken.Infrastructure.Migrations
                     b.HasIndex("RecipeId");
 
                     b.ToTable("Instructions");
+                });
+
+            modelBuilder.Entity("Receptbanken.Core.Models.PushSubscriptionEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Auth")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ConsecutiveFailures")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(0);
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DeviceLabel")
+                        .HasMaxLength(120)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Endpoint")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(true);
+
+                    b.Property<long?>("LastFailureAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("LastSuccessAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("P256dh")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("UpdatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Endpoint")
+                        .IsUnique()
+                        .HasDatabaseName("IX_PushSubscriptions_Endpoint");
+
+                    b.HasIndex("IsActive")
+                        .HasDatabaseName("IX_PushSubscriptions_IsActive");
+
+                    b.ToTable("PushSubscriptions");
                 });
 
             modelBuilder.Entity("Receptbanken.Core.Models.Recipe", b =>
@@ -570,6 +723,25 @@ namespace Receptbanken.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("CalendarEvent");
+                });
+
+            modelBuilder.Entity("Receptbanken.Core.Models.CalendarReminderDelivery", b =>
+                {
+                    b.HasOne("Receptbanken.Core.Models.CalendarEvent", "CalendarEvent")
+                        .WithMany()
+                        .HasForeignKey("CalendarEventId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Receptbanken.Core.Models.PushSubscriptionEntity", "PushSubscription")
+                        .WithMany()
+                        .HasForeignKey("PushSubscriptionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CalendarEvent");
+
+                    b.Navigation("PushSubscription");
                 });
 
             modelBuilder.Entity("Receptbanken.Core.Models.Ingredient", b =>

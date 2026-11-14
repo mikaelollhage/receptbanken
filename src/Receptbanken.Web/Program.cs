@@ -8,6 +8,7 @@ using Receptbanken.Core.Services;
 using Receptbanken.Infrastructure.Backup;
 using Receptbanken.Infrastructure.Data;
 using Receptbanken.Infrastructure.Importers;
+using Receptbanken.Infrastructure.Push;
 using Receptbanken.Infrastructure.Services;
 using Receptbanken.Infrastructure.Storage;
 using Receptbanken.Web.Components;
@@ -77,6 +78,7 @@ builder.Services.AddSingleton<ShoppingListAggregator>();
 builder.Services.AddSingleton<ShoppingListNotifier>();
 builder.Services.AddSingleton<CalendarNotifier>();
 builder.Services.AddSingleton<IRandomProvider, SystemRandomProvider>();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<PantryIngredientMatcher>();
 builder.Services.AddSingleton<WeeklyMenuGenerationWeights>();
 builder.Services.AddSingleton<WeeklyMenuGenerator>();
@@ -101,6 +103,29 @@ builder.Services.AddHttpClient<IRecipeImporter, WebRecipeImporter>(client =>
     client.Timeout = TimeSpan.FromSeconds(10);
 })
 .ConfigurePrimaryHttpMessageHandler(() => SsrfValidator.CreateSafeSocketsHttpHandler());
+
+// Web Push & Calendar Reminders
+builder.Services.Configure<VapidOptions>(options =>
+{
+    builder.Configuration.GetSection("Push:Vapid").Bind(options);
+    if (string.IsNullOrWhiteSpace(options.KeysFilePath))
+    {
+        options.KeysFilePath = Path.Combine(keysPath, "vapid.json");
+    }
+    else if (options.KeysFilePath == "/app/data/keys/vapid.json" && dataPath != "/app/data")
+    {
+        options.KeysFilePath = Path.Combine(keysPath, "vapid.json");
+    }
+});
+builder.Services.AddSingleton<IVapidKeyProvider, VapidKeyProvider>();
+builder.Services.AddHttpClient<IWebPushClient, WebPushClient>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+})
+.ConfigurePrimaryHttpMessageHandler(() => SsrfValidator.CreateSafeSocketsHttpHandler());
+builder.Services.AddSingleton<PushSubscriptionService>();
+builder.Services.AddSingleton<CalendarReminderScheduler>();
+builder.Services.AddHostedService<CalendarReminderBackgroundService>();
 
 var app = builder.Build();
 

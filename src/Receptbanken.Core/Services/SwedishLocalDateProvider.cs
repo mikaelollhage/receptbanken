@@ -42,6 +42,69 @@ public class SwedishLocalDateProvider : ILocalDateProvider
         return DateOnly.FromDateTime(local.DateTime);
     }
 
+    /// <summary>
+    /// Returns the current calendar date in the Europe/Stockholm timezone.
+    /// </summary>
+    public static DateOnly GetSwedishToday(TimeProvider? timeProvider = null)
+    {
+        var utcNow = (timeProvider ?? TimeProvider.System).GetUtcNow();
+        return FromUtcInstant(utcNow, GetSwedishTimeZone());
+    }
+
+    /// <summary>
+    /// Resolves the Europe/Stockholm timezone (or its Windows equivalent W. Europe Standard Time).
+    /// </summary>
+    public static TimeZoneInfo GetSwedishTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Europe/Stockholm");
+        }
+        catch
+        {
+            try
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById("W. Europe Standard Time");
+            }
+            catch
+            {
+                return TimeZoneInfo.Local;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Deterministically converts a Swedish local wall-clock <see cref="DateTime"/> to a UTC <see cref="DateTimeOffset"/>.
+    /// - Invalid local times during the spring DST transition are advanced minute-by-minute to the next valid local time (e.g. 02:30 -> 03:00).
+    /// - Ambiguous local times during the autumn DST transition use the first occurrence (the larger UTC offset, i.e. summer time).
+    /// </summary>
+    public static DateTimeOffset ConvertSwedishLocalToUtc(DateTime localDateTime, TimeZoneInfo? timeZone = null)
+    {
+        var tz = timeZone ?? GetSwedishTimeZone();
+        var local = DateTime.SpecifyKind(localDateTime, DateTimeKind.Unspecified);
+
+        if (tz.IsInvalidTime(local))
+        {
+            while (tz.IsInvalidTime(local))
+            {
+                local = local.AddMinutes(1);
+            }
+        }
+
+        TimeSpan offset;
+        if (tz.IsAmbiguousTime(local))
+        {
+            var offsets = tz.GetAmbiguousTimeOffsets(local);
+            offset = offsets.Max();
+        }
+        else
+        {
+            offset = tz.GetUtcOffset(local);
+        }
+
+        return new DateTimeOffset(local, offset).ToUniversalTime();
+    }
+
     private static TimeZoneInfo ResolveSwedishOrLocalTimeZone()
     {
         // If local system time zone is already non-UTC (e.g. developer workstation), use it;
